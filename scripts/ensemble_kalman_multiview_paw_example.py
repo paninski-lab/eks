@@ -34,7 +34,7 @@ for i in range(num_models):
     }
     markers_tmp_right_cam = markers_tmp_right_cam.rename(columns=columns)
     # reorder columns
-    markers_tmp_r_cam = markers_tmp_r_cam.loc[:, columns.keys()]
+    markers_tmp_right_cam = markers_tmp_right_cam.loc[:, columns.keys()]
     markers_list_right_cam.append(markers_tmp_right_cam)
 
 time_stamps_left_cam = np.load(os.path.join(base_path, f'{video_name}.timestamps.left.npy'))

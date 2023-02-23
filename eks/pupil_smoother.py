@@ -1,16 +1,15 @@
-from brainbox.behavior.dlc import get_pupil_diameter
 import numpy as np
 import pandas as pd
 from scipy.interpolate import interp1d
 from sklearn.decomposition import PCA
 from eks.utils import make_dlc_pandas_index
 from eks.ensemble_kalman import ensemble, filtering_pass, kalman_dot, smooth_backward
-
+import warnings
 
 # -----------------------
 # funcs for kalman pupil
 # -----------------------
-def get_pupil_location(dlc_df):
+def get_pupil_location(dlc):
     """get mean of both pupil diameters
     d1 = top - bottom, d2 = left - right
     and in addition assume it's a circle and
@@ -18,10 +17,10 @@ def get_pupil_location(dlc_df):
     Author: Michael Schartner
     """
     s = 1
-    t = np.vstack((dlc_df['pupil_top_r_x'], dlc_df['pupil_top_r_y'])).T / s
-    b = np.vstack((dlc_df['pupil_bottom_r_x'], dlc_df['pupil_bottom_r_y'])).T / s
-    l = np.vstack((dlc_df['pupil_left_r_x'], dlc_df['pupil_left_r_y'])).T / s
-    r = np.vstack((dlc_df['pupil_right_r_x'], dlc_df['pupil_right_r_y'])).T / s
+    t = np.vstack((dlc['pupil_top_r_x'], dlc['pupil_top_r_y'])).T / s
+    b = np.vstack((dlc['pupil_bottom_r_x'], dlc['pupil_bottom_r_y'])).T / s
+    l = np.vstack((dlc['pupil_left_r_x'], dlc['pupil_left_r_y'])).T / s
+    r = np.vstack((dlc['pupil_right_r_x'], dlc['pupil_right_r_y'])).T / s
     center = np.zeros(t.shape)
 
     # ok if either top or bottom is nan in x-dir
@@ -37,6 +36,34 @@ def get_pupil_location(dlc_df):
     center[:, 1] = np.nanmedian(np.hstack([tmp_y1[:, None], tmp_y2[:, None]]), axis=1)
     return center
 
+def get_pupil_diameter(dlc):
+    """
+    from: https://int-brain-lab.github.io/iblenv/_modules/brainbox/behavior/dlc.html
+    Estimates pupil diameter by taking median of different computations.
+
+    The two most straightforward estimates: d1 = top - bottom, d2 = left - right
+    In addition, assume the pupil is a circle and estimate diameter from other pairs of points
+
+    :param dlc: dlc pqt table with pupil estimates, should be likelihood thresholded (e.g. at 0.9)
+    :return: np.array, pupil diameter estimate for each time point, shape (n_frames,)
+    """
+    diameters = []
+    # Get the x,y coordinates of the four pupil points
+    top, bottom, left, right = [np.vstack((dlc[f'pupil_{point}_r_x'], dlc[f'pupil_{point}_r_y']))
+                                for point in ['top', 'bottom', 'left', 'right']]
+    # First compute direct diameters
+    diameters.append(np.linalg.norm(top - bottom, axis=0))
+    diameters.append(np.linalg.norm(left - right, axis=0))
+
+    # For non-crossing edges, estimate diameter via circle assumption
+    for pair in [(top, left), (top, right), (bottom, left), (bottom, right)]:
+        diameters.append(np.linalg.norm(pair[0] - pair[1], axis=0) * 2 ** 0.5)
+
+    # Ignore all nan runtime warning
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        return np.nanmedian(diameters, axis=0)
+
 
 def add_mean_to_array(pred_arr, keys, mean_x, mean_y):
     pred_arr_copy = pred_arr.copy()
@@ -49,7 +76,7 @@ def add_mean_to_array(pred_arr, keys, mean_x, mean_y):
     return processed_arr_dict
 
 
-def ensemble_kalman_smoother_pupil(markers_list, tracker_name, state_transition_matrix):
+def ensemble_kalman_smoother_pupil(markers_list, keypoint_names, tracker_name, state_transition_matrix):
     """
 
     Parameters
@@ -78,7 +105,7 @@ def ensemble_kalman_smoother_pupil(markers_list, tracker_name, state_transition_
     pupil_locations = get_pupil_location(keypoints_mean_dict)
     pupil_diameters = get_pupil_diameter(keypoints_mean_dict)
     diameters = []
-    for i in range(n_models):
+    for i in range(len(markers_list)):
         keypoints_dict = keypoints_stack_dict[i]
         diameter = get_pupil_diameter(keypoints_dict)
         diameters.append(diameter)

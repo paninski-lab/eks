@@ -21,7 +21,7 @@ for i in range(num_models):
         markers_tmp = convert_lp_dlc(markers_tmp, keypoint_names, model_name='heatmap_tracker')
     markers_list.append(markers_tmp)
     
-df_dicts = ensemble_kalman_smoother_pupil(markers_list, tracker_name='heatmap_tracker', state_transition_matrix=state_transition_matrix)
+df_dicts = ensemble_kalman_smoother_pupil(markers_list, keypoint_names, tracker_name='heatmap_tracker', state_transition_matrix=state_transition_matrix)
 
 save_path = base_path + f'/kalman_smoothed_pupil_traces_{video_name}.csv'
 print("saving smoothed predictions to " + save_path)

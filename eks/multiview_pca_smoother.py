@@ -1,4 +1,3 @@
-from brainbox.behavior.dlc import get_pupil_diameter
 import numpy as np
 import pandas as pd
 from scipy.interpolate import interp1d
@@ -113,7 +112,7 @@ def ensemble_kalman_smoother_paw_asynchronous(
         markers_list_right_cam.append(markers_right_cam)
 
     # compute ensemble median left camera
-    left_cam_ensemble_preds, left_cam_ensemble_vars, left_cam_ensemble_stacks, left_cam_keypoints_mean_dict, left_cam_keypoints_var_dict, left_cam_keypoints_stack_dict =  (markers_list_left_cam, keys)
+    left_cam_ensemble_preds, left_cam_ensemble_vars, left_cam_ensemble_stacks, left_cam_keypoints_mean_dict, left_cam_keypoints_var_dict, left_cam_keypoints_stack_dict =  ensemble(markers_list_left_cam, keys)
 
     # compute ensemble median right camera
     right_cam_ensemble_preds, right_cam_ensemble_vars, right_cam_ensemble_stacks, right_cam_keypoints_mean_dict, right_cam_keypoints_var_dict, right_cam_keypoints_stack_dict = ensemble(markers_list_right_cam, keys)
