@@ -19,7 +19,9 @@ args = parser.parse_args()
 
 model_dir = args.model_dir
 if args.save_dir is None:
-    save_dir = model_dir
+    save_dir = args.model_dir + '/outputs'
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
     
 #parameters hand-picked for smoothing purposes (diameter_s, com_s, com_s)
 state_transition_matrix = np.asarray([[args.diameter_s, 0, 0], [0, args.com_s, 0], [0, 0, args.com_s]]) 
@@ -27,7 +29,8 @@ print(f"Smoothing matrix: {state_transition_matrix}")
 
 markers_list = []
 keypoint_names = ['pupil_top_r', 'pupil_right_r', 'pupil_bottom_r', 'pupil_left_r']
-for i, marker_path in enumerate(glob.glob(model_dir + '/*')):
+marker_paths = [path for path in glob.glob(model_dir + '/*') if not os.path.isdir(path)]
+for i, marker_path in enumerate(marker_paths):
     print(f"model {i}: {marker_path}")
     markers_tmp = pd.read_csv(marker_path, header=[0, 1, 2], index_col=0)
     if '.dlc' not in marker_path:

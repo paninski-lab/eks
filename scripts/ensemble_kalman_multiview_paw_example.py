@@ -19,7 +19,9 @@ args = parser.parse_args()
 
 model_dir = args.model_dir
 if args.save_dir is None:
-    save_dir = model_dir
+    save_dir = args.model_dir + '/outputs'
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
 
 s = args.s
 quantile_keep_pca = args.quantile_keep_pca
@@ -29,8 +31,8 @@ markers_list_left_cam = []
 markers_list_right_cam = []
 time_stamps_left_cam = None
 time_stamps_right_cam = None
-print(model_dir)
-for i, path in enumerate(glob.glob(model_dir + '/*')):
+paths = [path for path in glob.glob(model_dir + '/*') if not os.path.isdir(path)]
+for i, path in enumerate(paths):
     if 'timestamps' not in path:
         marker_path = path
         print(f"model: {marker_path}")
