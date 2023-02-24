@@ -1,44 +1,66 @@
 import numpy as np
 import os
 import pandas as pd
-
 from eks.utils import convert_lp_dlc
 from eks.multiview_pca_smoother import ensemble_kalman_smoother_paw_asynchronous
+import argparse
+import glob
 
+parser = argparse.ArgumentParser()
+parser.add_argument("-model-dir", help="directory of models for ensembling",
+                    type=str)
+parser.add_argument("--save-dir", help="save directory for outputs (default is model-dir)",
+                    default=None, type=float)
+parser.add_argument("--s", help="smoothing parameter ranges from .01-2 (smaller values = more smoothing)",
+                    default=2, type=float)
+parser.add_argument("--quantile_keep_pca", help="percentage of the points are kept for multi-view PCA (lowest ensemble variance)",
+                    default=25, type=float)
+args = parser.parse_args()
 
-base_path = '/media/cat/cole/ibl-paw_ensembling/'
-video_name = '032ffcdf-7692-40b3-b9ff-8def1fc18b2e'
-s = 2  # smoothing param, Ranges from 2-10 (needs more exploration)
-quantile_keep_pca = 25  # percentage of the points are kept for multi-view PCA (lowest ensemble variance)
+model_dir = args.model_dir
+if args.save_dir is None:
+    save_dir = model_dir
+
+s = args.s
+quantile_keep_pca = args.quantile_keep_pca
 
 keypoint_names = ['paw_l', 'paw_r']
 markers_list_left_cam = []
 markers_list_right_cam = []
-num_models = 10
-for i in range(num_models):
-    marker_path_left_cam = os.path.join(base_path, f'{video_name}.left.rng={i}.csv')
-    markers_tmp_left_cam = pd.read_csv(marker_path_left_cam, header=[0, 1, 2], index_col=0)
-    marker_path_right_cam = os.path.join(base_path, f'{video_name}.right.rng={i}.csv')
-    markers_tmp_right_cam = pd.read_csv(marker_path_right_cam, header=[0, 1, 2], index_col=0)
-    if '.dlc' not in marker_path_left_cam:
-        markers_tmp_left_cam = convert_lp_dlc(markers_tmp_left_cam, keypoint_names)
-    if '.dlc' not in marker_path_right_cam:
-        markers_tmp_right_cam = convert_lp_dlc(markers_tmp_right_cam, keypoint_names)
-    markers_list_left_cam.append(markers_tmp_left_cam)
-    # switch right camera paws
-    columns = {
-        'paw_l_x': 'paw_r_x', 'paw_l_y': 'paw_r_y',
-        'paw_l_likelihood': 'paw_r_likelihood',
-        'paw_r_x': 'paw_l_x', 'paw_r_y': 'paw_l_y',
-        'paw_r_likelihood': 'paw_l_likelihood'
-    }
-    markers_tmp_right_cam = markers_tmp_right_cam.rename(columns=columns)
-    # reorder columns
-    markers_tmp_right_cam = markers_tmp_right_cam.loc[:, columns.keys()]
-    markers_list_right_cam.append(markers_tmp_right_cam)
-
-time_stamps_left_cam = np.load(os.path.join(base_path, f'{video_name}.timestamps.left.npy'))
-time_stamps_right_cam = np.load(os.path.join(base_path, f'{video_name}.timestamps.right.npy'))
+time_stamps_left_cam = None
+time_stamps_right_cam = None
+print(model_dir)
+for i, path in enumerate(glob.glob(model_dir + '/*')):
+    if 'timestamps' not in path:
+        print(path)
+        marker_path = path
+        markers_tmp = pd.read_csv(marker_path, header=[0, 1, 2], index_col=0)
+        if '.dlc' not in marker_path:
+            markers_tmp = convert_lp_dlc(markers_tmp, keypoint_names)
+        if 'left' in marker_path:
+            markers_list_left_cam.append(markers_tmp)
+        else:
+            # switch right camera paws
+            columns = {
+                'paw_l_x': 'paw_r_x', 'paw_l_y': 'paw_r_y',
+                'paw_l_likelihood': 'paw_r_likelihood',
+                'paw_r_x': 'paw_l_x', 'paw_r_y': 'paw_l_y',
+                'paw_r_likelihood': 'paw_l_likelihood'
+            }
+            markers_tmp = markers_tmp.rename(columns=columns)
+            # reorder columns
+            markers_tmp = markers_tmp.loc[:, columns.keys()]
+            markers_list_right_cam.append(markers_tmp)
+    else:
+        if 'left' in path:
+            print(path)
+            time_stamps_left_cam = np.load(path)
+        else:
+            print(path)
+            time_stamps_right_cam = np.load(path)
+            
+if time_stamps_left_cam is None or time_stamps_right_cam is None:
+    raise ValueError('Need timestamps for both cameras')
 
 df_dict = ensemble_kalman_smoother_paw_asynchronous(
     markers_list_left_cam=markers_list_left_cam,
@@ -52,6 +74,6 @@ df_dict = ensemble_kalman_smoother_paw_asynchronous(
 
 # save smoothed markers from each view
 for view in ['left', 'right']:
-    save_path = base_path + f'/kalman_smoothed_paw_traces_{video_name}.{view}.csv'
+    save_path = save_dir + f'/kalman_smoothed_paw_traces.{view}.csv'
     print(f'saving smoothed markers from {view} view to ' + save_path)
     df_dict[f'{view}_df'].to_csv(save_path)

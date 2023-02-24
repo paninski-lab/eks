@@ -49,7 +49,7 @@ def ensemble_kalman_smoother_paw_asynchronous(
     keypoint_names : list
         list of names in the order they appear in marker dfs
     smooth_param : float
-        ranges from 2-10 (needs more exploration)
+        ranges from .01-2 (smaller values = more smoothing)
     quantile_keep_pca
         percentage of the points are kept for multi-view PCA (lowest ensemble variance)
 
