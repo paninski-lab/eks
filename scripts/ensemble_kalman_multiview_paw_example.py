@@ -32,8 +32,8 @@ time_stamps_right_cam = None
 print(model_dir)
 for i, path in enumerate(glob.glob(model_dir + '/*')):
     if 'timestamps' not in path:
-        print(path)
         marker_path = path
+        print(f"model: {marker_path}")
         markers_tmp = pd.read_csv(marker_path, header=[0, 1, 2], index_col=0)
         if '.dlc' not in marker_path:
             markers_tmp = convert_lp_dlc(markers_tmp, keypoint_names)
@@ -53,10 +53,8 @@ for i, path in enumerate(glob.glob(model_dir + '/*')):
             markers_list_right_cam.append(markers_tmp)
     else:
         if 'left' in path:
-            print(path)
             time_stamps_left_cam = np.load(path)
         else:
-            print(path)
             time_stamps_right_cam = np.load(path)
             
 if time_stamps_left_cam is None or time_stamps_right_cam is None:
