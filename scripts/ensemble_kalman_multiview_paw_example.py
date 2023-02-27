@@ -7,7 +7,7 @@ import argparse
 import glob
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-model-dir", help="directory of models for ensembling",
+parser.add_argument("-model-dir", required=True, help="directory of models for ensembling",
                     type=str)
 parser.add_argument("--save-dir", help="save directory for outputs (default is model-dir)",
                     default=None, type=float)
