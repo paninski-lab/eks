@@ -18,6 +18,9 @@ parser.add_argument("--com-s", help="smoothing parameter for center of mass (clo
 args = parser.parse_args()
 
 model_dir = args.model_dir
+if not os.path.isdir(model_dir):
+    raise ValueError("model-dir must be a valid path to a directory")
+    
 if args.save_dir is None:
     save_dir = args.model_dir + '/outputs'
     if not os.path.exists(save_dir):
@@ -36,6 +39,9 @@ for i, marker_path in enumerate(marker_paths):
     if '.dlc' not in marker_path:
         markers_tmp = convert_lp_dlc(markers_tmp, keypoint_names, model_name='heatmap_tracker')
     markers_list.append(markers_tmp)
+    
+if len(markers_list) == 0:
+    raise ValueError("There must be >=1 model for ensembling")
     
 df_dicts = ensemble_kalman_smoother_pupil(markers_list, keypoint_names, tracker_name='heatmap_tracker', state_transition_matrix=state_transition_matrix)
 

@@ -18,6 +18,9 @@ parser.add_argument("--quantile_keep_pca", help="percentage of the points are ke
 args = parser.parse_args()
 
 model_dir = args.model_dir
+if not os.path.isdir(model_dir):
+    raise ValueError("model-dir must be a valid path to a directory")
+
 if args.save_dir is None:
     save_dir = args.model_dir + '/outputs'
     if not os.path.exists(save_dir):
@@ -61,6 +64,9 @@ for i, path in enumerate(paths):
             
 if time_stamps_left_cam is None or time_stamps_right_cam is None:
     raise ValueError('Need timestamps for both cameras')
+    
+if len(markers_list_right_cam) != len(markers_list_left_cam) or len(markers_list_left_cam) == 0:
+    raise ValueError("There must be the same number of left and right camera models and >=1 model for each.")
 
 df_dict = ensemble_kalman_smoother_paw_asynchronous(
     markers_list_left_cam=markers_list_left_cam,
