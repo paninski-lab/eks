@@ -467,7 +467,7 @@ def ensemble_kalman_smoother_multi_cam(
         camera_indices.append([camera*2, camera*2+1])
  
     camera_dfs = {}
-    for camera_name in camera_names:
+    for camera, camera_name in enumerate(camera_names):
         var = np.empty(y_m_smooth.T[camera_indices[camera][0]].shape)
         var[:] = np.nan
         pred_arr = np.vstack([
