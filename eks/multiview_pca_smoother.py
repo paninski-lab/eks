@@ -397,7 +397,7 @@ def ensemble_kalman_smoother_multi_cam(
     #filter by low ensemble variances
     hstacked_vars = np.hstack(cam_ensemble_vars)
     max_vars = np.max(hstacked_vars,1)
-    quantile_keep = 25
+    quantile_keep = quantile_keep_pca
     good_frames = np.where(max_vars <= np.percentile(max_vars, quantile_keep))[0]
 
     good_cam_ensemble_preds = []
