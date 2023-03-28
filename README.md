@@ -1,23 +1,64 @@
-# eks
-Ensembling and kalman smoothing for pose estimation
+# EKS
+This repo contains code to run an Ensemble Kalman Smoother (EKS) for improving pose estimation outputs. 
 
-### Pupil
-The ```ensemble_kalman_pupil_example.py``` script requires a ```model-dir``` which contains lightning-pose or DLC model predictions. To run this script you can execute the following command from a local ```eks``` folder:
+## Installation
 
-```console 
-python scripts/ensemble_kalman_pupil_example.py -model-dir <PATH-TO-MODEL-DIR>
+First you'll have to install the `git` package in order to access the code on github. 
+Follow the directions [here](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git) 
+for your specific OS.
+Then, in the command line, navigate to where you'd like to install the `eks` package and move 
+into that directory:
+```
+$: git clone https://github.com/colehurwitz/eks
+$: cd eks
 ```
 
-### Multiview Paw
-The ```ensemble_kalman_multiview_paw_example.py``` script requires a ```model-dir``` which contains lightning-pose or DLC model predictions for the left and right camera views. Also, this director needs timestamp files to align the two cameras. To run this script you can execute the following command:
-
-```console 
-python scripts/ensemble_kalman_multiview_paw_example.py -model-dir <PATH-TO-MODEL-DIR>
+Install the requirements:
+```
+$: pip install -r requirements.txt 
 ```
 
-### Multicam
-The ```ensemble_kalman_multicam_example.py``` script requires a ```parquet-path``` which contains lightning-pose predictions. You also need to specify the video name to be processed, the number of train frames and model type, the keypoints to be processed, and the camera names. To run this script for the mirror-mouse dataset, you can execute the following command:
+To make the package modules visible to the python interpreter, locally run pip 
+install from inside the main `eks` directory:
+
+```
+$: pip install -e .
+```
+
+## Example scripts
+
+We provide several example datasets and fitting scripts to illustrate use of the package.
+
+### Multi-camera datasets
+The `multicam_example.py` script demonstrates how to run the EKS code for multi-camera
+setups where the pose predictions for a given model are all stored in a single csv file. 
+For example, if there is a body part names `nose_tip` and three cameras named 
+`top`, `bottom`, and `side`, then the csv file should have columns named
+`nose_tip_top`, `nose_tip_bottom`, and `nose_tip_side`.
+We provide example data in the `data/mirror-mouse` directory inside this repo, 
+for a two-view video of a mouse with cameras named `top` and `bot`. 
+To run the EKS on the example data provided, execute the following command from inside this repo:
 
 ```console 
-python scripts/ensemble_kalman_multicam_example.py -parquet-path <PATH-TO-PARQUET-FILE> -video-name <VIDEO-NAME> -train-frames 1 -model-type 'semi-super context' -keypoint-ensemble-list 'paw1LH' 'paw2LF' -camera-names 'top' 'bot’
+python scripts/multicam_example.py --csv-dir ./data/mirror-mouse --bodypart-list paw1LH paw2LF paw3RF paw4RH --camera-names top bot
 ```
+
+### IBL pupil dataset
+The ```pupil_example.py``` script requires a ```model-dir``` which contains lightning-pose or DLC 
+model predictions. 
+To run this script you can execute the following command from a local ```eks``` folder:
+
+```console 
+python scripts/pupil_example.py -model-dir <PATH-TO-MODEL-DIR>
+```
+
+### IBL paw dataset (multiple asynchronous views)
+The ```multiview_paw_example.py``` script requires a ```model-dir``` which contains lightning-pose 
+or DLC model predictions for the left and right camera views. 
+Also, this director needs timestamp files to align the two cameras. 
+To run this script you can execute the following command:
+
+```console 
+python scripts/multiview_paw_example.py -model-dir <PATH-TO-MODEL-DIR>
+```
+
