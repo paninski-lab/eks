@@ -5,6 +5,7 @@ from sklearn.decomposition import PCA
 from eks.utils import make_dlc_pandas_index
 from eks.ensemble_kalman import ensemble, filtering_pass, kalman_dot, smooth_backward
 
+
 # -----------------------
 # funcs for kalman paw
 # -----------------------
@@ -15,12 +16,14 @@ def remove_camera_means(ensemble_stacks, camera_means):
             scaled_ensemble_stacks[k][:,camera_id] = ensemble_stacks[k][:,camera_id] - camera_mean
     return scaled_ensemble_stacks
 
+
 def add_camera_means(ensemble_stacks, camera_means):
     scaled_ensemble_stacks = ensemble_stacks.copy()
     for k in range(len(ensemble_stacks)):
         for camera_id, camera_mean in enumerate(camera_means):
             scaled_ensemble_stacks[k][:,camera_id] = ensemble_stacks[k][:,camera_id] + camera_mean
     return scaled_ensemble_stacks
+
 
 def pca(S, n_comps):
     pca_ = PCA(n_components=n_comps)
@@ -317,10 +320,10 @@ def ensemble_kalman_smoother_paw_asynchronous(
 
     return {'left_df': df_left, 'right_df': df_right}
 
+
 # -----------------------
 # funcs for mirror-mouse
 # -----------------------
-
 def ensemble_kalman_smoother_multi_cam(
         markers_list_cameras, keypoint_ensemble, smooth_param, quantile_keep_pca, camera_names):
     """Use multi-view constraints to fit a 3d latent subspace for each body part.

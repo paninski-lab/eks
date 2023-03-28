@@ -1,5 +1,6 @@
 import pandas as pd
 
+
 def make_dlc_pandas_index(keypoint_names):
     xyl_labels = ["x", "y", "likelihood"]
     pdindex = pd.MultiIndex.from_product(
@@ -8,7 +9,8 @@ def make_dlc_pandas_index(keypoint_names):
     )
     return pdindex
 
-def convert_lp_dlc(df_lp, keypoint_names, model_name='heatmap_tracker'):
+
+def convert_lp_dlc(df_lp, keypoint_names, model_name=None):
     df_dlc = {} 
     for feat in keypoint_names: 
         for feat2 in ['x', 'y', 'likelihood']: 

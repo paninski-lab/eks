@@ -6,6 +6,7 @@ from eks.utils import make_dlc_pandas_index
 from eks.ensemble_kalman import ensemble, filtering_pass, kalman_dot, smooth_backward
 import warnings
 
+
 # -----------------------
 # funcs for kalman pupil
 # -----------------------
@@ -35,6 +36,7 @@ def get_pupil_location(dlc):
     tmp_y2 = np.nanmedian(np.hstack([r[:, 1, None], l[:, 1, None]]), axis=1)
     center[:, 1] = np.nanmedian(np.hstack([tmp_y1[:, None], tmp_y2[:, None]]), axis=1)
     return center
+
 
 def get_pupil_diameter(dlc):
     """
