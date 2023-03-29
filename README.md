@@ -53,12 +53,11 @@ python scripts/pupil_example.py --csv-dir ./data/ibl-pupil
 ```
 
 ### IBL paw dataset (multiple asynchronous views)
-The ```multiview_paw_example.py``` script requires a ```model-dir``` which contains lightning-pose 
-or DLC model predictions for the left and right camera views. 
-Also, this director needs timestamp files to align the two cameras. 
-To run this script you can execute the following command:
+The `multiview_paw_example.py` script requires a `csv-dir` which contains lightning-pose 
+or DLC model predictions for the left and right camera views, as well as timestamp files to align 
+the two cameras. 
+To run this script on the example data provided, execute the following command from inside this repo:
 
 ```console 
-python scripts/multiview_paw_example.py -model-dir <PATH-TO-MODEL-DIR>
+python scripts/multiview_paw_example.py --csv-dir ./data/ibl-paw
 ```
-
