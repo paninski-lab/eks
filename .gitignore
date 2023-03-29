@@ -130,3 +130,5 @@ dmypy.json
 
 .idea/*
 outputs/
+data/ibl-pupil/outputs/
+data/mirror-mouse/outputs/

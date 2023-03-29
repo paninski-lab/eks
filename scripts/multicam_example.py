@@ -12,38 +12,38 @@ from eks.multiview_pca_smoother import ensemble_kalman_smoother_multi_cam
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
-    "--csv-dir",
+    '--csv-dir',
     required=True,
-    help="directory of model prediction csv files",
+    help='directory of model prediction csv files',
     type=str,
 )
 parser.add_argument(
-    "--bodypart-list",
+    '--bodypart-list',
     required=True,
     nargs='+',
-    help="the list of body parts to be ensembled and smoothed",
+    help='the list of body parts to be ensembled and smoothed',
 )
 parser.add_argument(
-    "--camera-names",
+    '--camera-names',
     required=True,
     nargs='+',
-    help="the camera names",
+    help='the camera names',
 )
 parser.add_argument(
-    "--save-dir",
-    help="save directory for outputs (default is csv-dir)",
+    '--save-dir',
+    help='save directory for outputs (default is csv-dir)',
     default=None,
     type=float,
 )
 parser.add_argument(
-    "--s",
-    help="smoothing parameter ranges from .01-2 (smaller values = more smoothing)",
+    '--s',
+    help='smoothing parameter ranges from .01-2 (smaller values = more smoothing)',
     default=.01,
     type=float,
 )
 parser.add_argument(
-    "--quantile_keep_pca",
-    help="percentage of the points are kept for multi-view PCA (lowest ensemble variance)",
+    '--quantile_keep_pca',
+    help='percentage of the points are kept for multi-view PCA (lowest ensemble variance)',
     default=25,
     type=float,
 )
@@ -65,7 +65,7 @@ quantile_keep_pca = args.quantile_keep_pca
 
 # handle I/O
 if not os.path.isdir(csv_dir):
-    raise ValueError("csv-dir must be a valid directory containing prediction csv files")
+    raise ValueError('--csv-dir must be a valid directory containing prediction csv files')
 
 if save_dir is None:
     save_dir = os.getcwd() + '/outputs'

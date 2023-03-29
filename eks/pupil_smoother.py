@@ -78,7 +78,8 @@ def add_mean_to_array(pred_arr, keys, mean_x, mean_y):
     return processed_arr_dict
 
 
-def ensemble_kalman_smoother_pupil(markers_list, keypoint_names, tracker_name, state_transition_matrix):
+def ensemble_kalman_smoother_pupil(
+        markers_list, keypoint_names, tracker_name, state_transition_matrix):
     """
 
     Parameters
