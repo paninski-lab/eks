@@ -44,12 +44,12 @@ python scripts/multicam_example.py --csv-dir ./data/mirror-mouse --bodypart-list
 ```
 
 ### IBL pupil dataset
-The ```pupil_example.py``` script requires a ```model-dir``` which contains lightning-pose or DLC 
+The `pupil_example.py` script requires a `csv-dir` which contains lightning-pose or DLC 
 model predictions. 
-To run this script you can execute the following command from a local ```eks``` folder:
+To run this script on the example data provided, execute the following command from inside this repo:
 
 ```console 
-python scripts/pupil_example.py -model-dir <PATH-TO-MODEL-DIR>
+python scripts/pupil_example.py --csv-dir ./data/ibl-pupil
 ```
 
 ### IBL paw dataset (multiple asynchronous views)
