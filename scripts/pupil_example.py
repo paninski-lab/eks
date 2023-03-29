@@ -19,9 +19,9 @@ parser.add_argument(
 )
 parser.add_argument(
     '--save-dir',
-    help='save directory for outputs (default is model-dir)',
+    help='save directory for outputs (default is csv-dir)',
     default=None,
-    type=float
+    type=str,
 )
 parser.add_argument(
     '--diameter-s',
@@ -51,7 +51,7 @@ if not os.path.isdir(csv_dir):
     raise ValueError('--csv-dir must be a valid path to a directory')
     
 if save_dir is None:
-    save_dir = csv_dir + '/outputs'
+    save_dir = os.path.join(os.getcwd(), 'outputs')
     os.makedirs(save_dir, exist_ok=True)
 
 # load files and put them in correct format
@@ -92,11 +92,12 @@ save_file = os.path.join(save_dir, 'kalman_smoothed_latents.csv')
 print(f'saving latents to {save_file}')
 df_dicts['latents_df'].to_csv(save_file)
 
+
 # ---------------------------------------------
 # plot results
 # ---------------------------------------------
 
-# select example keypoint from example camera view
+# select example keypoint
 kp = keypoint_names[0]
 idxs = (0, 500)
 

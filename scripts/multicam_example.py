@@ -33,7 +33,7 @@ parser.add_argument(
     '--save-dir',
     help='save directory for outputs (default is csv-dir)',
     default=None,
-    type=float,
+    type=str,
 )
 parser.add_argument(
     '--s',
@@ -68,7 +68,7 @@ if not os.path.isdir(csv_dir):
     raise ValueError('--csv-dir must be a valid directory containing prediction csv files')
 
 if save_dir is None:
-    save_dir = os.getcwd() + '/outputs'
+    save_dir = os.path.join(os.getcwd(), 'outputs')
     os.makedirs(save_dir, exist_ok=True)
 
 # load files and put them in correct format
