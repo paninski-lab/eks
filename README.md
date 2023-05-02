@@ -62,4 +62,7 @@ To run this script on the example data provided, execute the following command f
 python scripts/multiview_paw_example.py --csv-dir ./data/ibl-paw
 ```
 
-Authors: Cole Hurwitz and Matt Whiteway
+### Authors 
+Cole Hurwitz
+
+Matt Whiteway
