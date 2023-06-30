@@ -58,8 +58,8 @@ def ensemble_kalman_smoother_paw_asynchronous(
     Returns
     -------
     dict
-        markers_df: dataframe containing smoothed markers; same format as input dataframes
-        latents_df: dataframe containing 3d latents: multiview PCA
+        left: dataframe containing smoothed left paw markers; same format as input dataframes
+        right: dataframe containing smoothed right paw markers; same format as input dataframes
 
     """
 
@@ -347,9 +347,7 @@ def ensemble_kalman_smoother_multi_cam(
     Returns
     -------
     dict
-        markers_df: dataframe containing smoothed markers; same format as input dataframes
-        latents_df: dataframe containing 3d latents: multiview PCA
-
+        camera_dfs: dataframe containing smoothed markers for each camera; same format as input dataframes
     """
 
     # --------------------------------------------------------------
