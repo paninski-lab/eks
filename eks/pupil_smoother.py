@@ -208,12 +208,16 @@ def ensemble_kalman_smoother_pupil(
                      ['pupil_bottom_r_x', 'pupil_bottom_r_y'],
                      ['pupil_left_r_x', 'pupil_left_r_y']]
     pred_arr = []
-    for key_pair in key_pair_list:
+    for i, key_pair in enumerate(key_pair_list):
         pred_arr.append(processed_arr_dict[key_pair[0]])
         pred_arr.append(processed_arr_dict[key_pair[1]])
         var = np.empty(processed_arr_dict[key_pair[0]].shape)
         var[:] = likelihood_default
         pred_arr.append(var)
+        x_var = y_v_smooth[:,i, i]
+        y_var = y_v_smooth[:,i+1, i+1]
+        pred_arr.append(x_var)
+        pred_arr.append(y_var)
     pred_arr = np.asarray(pred_arr)
     markers_df = pd.DataFrame(pred_arr.T, columns=pdindex)
 

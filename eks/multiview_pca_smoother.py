@@ -286,6 +286,10 @@ def ensemble_kalman_smoother_paw_asynchronous(
             var = np.empty(scaled_y_m_smooth.T[0 + 2 * i].shape)
             var[:] = np.nan
             pred_arr.append(var)
+            x_var = y_v_smooth[:, 0 + 2 * i, 0 + 2 * i]
+            y_var = y_v_smooth[:, 1 + 2 * i, 1 + 2 * i]
+            pred_arr.append(x_var)
+            pred_arr.append(y_var)            
         pred_arr = np.asarray(pred_arr)
         dfs[paw] = pd.DataFrame(pred_arr.T, columns=pdindex)
 
@@ -299,9 +303,13 @@ def ensemble_kalman_smoother_paw_asynchronous(
         dfs['left'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_l', 'x')].to_numpy()[:, None],
         dfs['left'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_l', 'y')].to_numpy()[:, None],
         dfs['left'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_l', 'likelihood')].to_numpy()[:, None],
+        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_l', 'x_var')].to_numpy()[:, None],
+        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_l', 'y_var')].to_numpy()[:, None],
         dfs['right'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_r', 'x')].to_numpy()[:, None],
         dfs['right'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_r', 'y')].to_numpy()[:, None],
         dfs['right'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_r', 'likelihood')].to_numpy()[:, None],
+        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_r', 'x_var')].to_numpy()[:, None],
+        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_r', 'y_var')].to_numpy()[:, None],
     ])
     df_left = pd.DataFrame(pred_arr, columns=pdindex)
 
@@ -312,9 +320,13 @@ def ensemble_kalman_smoother_paw_asynchronous(
         img_width - dfs['right'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_r', 'x')].to_numpy()[:, None],
         dfs['right'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_r', 'y')].to_numpy()[:, None],
         dfs['right'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_r', 'likelihood')].to_numpy()[:, None],
+        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_r', 'x_var')].to_numpy()[:, None],
+        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_r', 'y_var')].to_numpy()[:, None],
         img_width - dfs['left'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_l', 'x')].to_numpy()[:, None],
         dfs['left'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_l', 'y')].to_numpy()[:, None],
         dfs['left'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_l', 'likelihood')].to_numpy()[:, None],
+        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_l', 'x_var')].to_numpy()[:, None],
+        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_l', 'y_var')].to_numpy()[:, None],
     ])
     df_right = pd.DataFrame(pred_arr, columns=pdindex)
 
@@ -387,7 +399,6 @@ def ensemble_kalman_smoother_multi_cam(
     cam_keypoints_var_dict = []
     cam_keypoints_stack_dict = []
     for camera in range(num_cameras):
-        print(markers_list_cams[camera])
         cam_ensemble_preds_curr, cam_ensemble_vars_curr, cam_ensemble_stacks_curr, cam_keypoints_mean_dict_curr, cam_keypoints_var_dict_curr, cam_keypoints_stack_dict_curr = ensemble(markers_list_cams[camera], keys)
         cam_ensemble_preds.append(cam_ensemble_preds_curr)
         cam_ensemble_vars.append(cam_ensemble_vars_curr)
@@ -476,6 +487,8 @@ def ensemble_kalman_smoother_multi_cam(
             y_m_smooth.T[camera_indices[camera][0]] + means_camera[camera_indices[camera][0]],
             y_m_smooth.T[camera_indices[camera][1]] + means_camera[camera_indices[camera][1]],
             var,
+            y_v_smooth[:,camera_indices[camera][0],camera_indices[camera][0]],
+            y_v_smooth[:,camera_indices[camera][1],camera_indices[camera][1]],
         ]).T
         camera_dfs[camera_name + '_df'] = pd.DataFrame(pred_arr, columns=pdindex)
 
