@@ -79,19 +79,18 @@ def ensemble_kalman_smoother_single_view(
     # Smoothed posterior over y
     y_m_smooth = np.dot(C, ms.T).T
     y_v_smooth = np.swapaxes(np.dot(C, np.dot(Vs, C.T)), 0, 1)
-
     # --------------------------------------
     # final cleanup
     # --------------------------------------
     pdindex = make_dlc_pandas_index([keypoint_ensemble])
-     
     var = np.empty(y_m_smooth.T[0].shape)
     var[:] = np.nan
     pred_arr = np.vstack([
         y_m_smooth.T[0] + mean_x_obs,
         y_m_smooth.T[1] + mean_y_obs,
         var,
+        y_v_smooth[:,0,0],
+        y_v_smooth[:,1,1],
     ]).T
     df = pd.DataFrame(pred_arr, columns=pdindex)
-
     return {keypoint_ensemble+'_df': df}

@@ -2,9 +2,9 @@ import pandas as pd
 
 
 def make_dlc_pandas_index(keypoint_names):
-    xyl_labels = ["x", "y", "likelihood"]
+    labels = ["x", "y", "likelihood",  "x_var",  "y_var"]
     pdindex = pd.MultiIndex.from_product(
-        [["ensemble-kalman_tracker"], keypoint_names, xyl_labels],
+        [["ensemble-kalman_tracker"], keypoint_names, labels],
         names=["scorer", "bodyparts", "coords"],
     )
     return pdindex
