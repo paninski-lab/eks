@@ -29,6 +29,17 @@ $: pip install -e .
 
 We provide several example datasets and fitting scripts to illustrate use of the package.
 
+### Single-camera datasets
+The `singlecam_example.py` script demonstrates how to run the EKS code for standard single-camera
+setups. 
+Any of the provided datasets are compatible with this script; below we'll use `data/ibl-pupil` as
+our example. 
+To run the EKS on the example data, execute the following command from inside this repo:
+
+```console 
+python scripts/singlecam_example.py --csv-dir ./data/ibl-pupil --bodypart-list pupil_top_r  pupil_bottom_r pupil_left_r pupil_right_r
+```
+ 
 ### Multi-camera datasets
 The `multicam_example.py` script demonstrates how to run the EKS code for multi-camera
 setups where the pose predictions for a given model are all stored in a single csv file. 

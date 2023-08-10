@@ -24,12 +24,6 @@ parser.add_argument(
     help='the list of body parts to be ensembled and smoothed',
 )
 parser.add_argument(
-    '--camera-name',
-    help='camera for singleview smoothing',
-    default='top',
-    type=str,
-)
-parser.add_argument(
     '--save-dir',
     help='save directory for outputs (default is csv-dir)',
     default=None,
@@ -46,7 +40,6 @@ args = parser.parse_args()
 # collect user-provided args
 csv_dir = os.path.abspath(args.csv_dir)
 bodypart_list = args.bodypart_list
-camera_name = args.camera_name
 save_dir = args.save_dir
 s = args.s
 
@@ -95,14 +88,16 @@ for keypoint_ensemble in bodypart_list:
     for markers_curr in markers_list:
         non_likelihood_keys = [
             key for key in markers_curr.keys()
-             if camera_name in key 
-             and 'likelihood' not in key 
+             if 'likelihood' not in key
              and keypoint_ensemble in key
         ]
         src_cols = non_likelihood_keys
         dst_cols = [keypoint_ensemble + '_x', keypoint_ensemble + 'y']
         df = markers_curr[non_likelihood_keys]
-        df = df.rename(columns={non_likelihood_keys[0]: keypoint_ensemble + '_x', non_likelihood_keys[1]: keypoint_ensemble + '_y'})
+        df = df.rename(columns={
+            non_likelihood_keys[0]: keypoint_ensemble + '_x',
+            non_likelihood_keys[1]: keypoint_ensemble + '_y',
+        })
         marker_list.append(df)
     # run eks
     keypoint_df_dict = ensemble_kalman_smoother_single_view(
@@ -135,7 +130,7 @@ for ax, coord in zip(axes, ['x', 'y', 'likelihood']):
     # plot individual models
     for m, markers_curr in enumerate(markers_list):
         ax.plot(
-            markers_curr.loc[slice(*idxs), f'{kp}_{camera_name}_{coord}'], color=[0.5, 0.5, 0.5],
+            markers_curr.loc[slice(*idxs), f'{kp}_{coord}'], color=[0.5, 0.5, 0.5],
             label='Individual models' if m == 0 else None,
         )
     ax.set_ylabel(coord, fontsize=12)
