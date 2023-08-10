@@ -82,26 +82,9 @@ for col in markers_eks.columns:
 
 # loop over keypoints; apply eks to each individually
 for keypoint_ensemble in bodypart_list:
-    # this structure assumes all camera views are stored in the same csv file
-    # here we separate body part predictions by camera view
-    marker_list = []
-    for markers_curr in markers_list:
-        non_likelihood_keys = [
-            key for key in markers_curr.keys()
-             if 'likelihood' not in key
-             and keypoint_ensemble in key
-        ]
-        src_cols = non_likelihood_keys
-        dst_cols = [keypoint_ensemble + '_x', keypoint_ensemble + 'y']
-        df = markers_curr[non_likelihood_keys]
-        df = df.rename(columns={
-            non_likelihood_keys[0]: keypoint_ensemble + '_x',
-            non_likelihood_keys[1]: keypoint_ensemble + '_y',
-        })
-        marker_list.append(df)
     # run eks
     keypoint_df_dict = ensemble_kalman_smoother_single_view(
-        markers_list=marker_list,
+        markers_list=markers_list,
         keypoint_ensemble=keypoint_ensemble,
         smooth_param=s,
     )
