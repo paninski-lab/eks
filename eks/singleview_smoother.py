@@ -46,7 +46,7 @@ def ensemble_kalman_smoother_single_view(
     x_t_obs, y_t_obs = keypoints_mean_dict[x_key] - mean_x_obs, keypoints_mean_dict[y_key] - mean_y_obs 
     z_t_obs = np.vstack((x_t_obs, y_t_obs)) #latent variables - true x and y
     
-            ##### Set values for kalman filter #####
+     ##### Set values for kalman filter #####
     m0 = np.asarray([0.0, 0.0]) # initial state: mean
     S0 =  np.asarray([[np.var(x_t_obs), 0.0], [0.0 , np.var(y_t_obs)]]) # diagonal: var
 
