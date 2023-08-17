@@ -32,7 +32,7 @@ def pca(S, n_comps):
 
 def ensemble_kalman_smoother_paw_asynchronous(
         markers_list_left_cam, markers_list_right_cam, timestamps_left_cam,
-        timestamps_right_cam, keypoint_names, smooth_param, quantile_keep_pca):
+        timestamps_right_cam, keypoint_names, smooth_param, quantile_keep_pca, ensembling_mode='median'):
     """Use multi-view constraints to fit a 3d latent subspace for each body part.
 
     Parameters
@@ -51,6 +51,8 @@ def ensemble_kalman_smoother_paw_asynchronous(
         ranges from .01-2 (smaller values = more smoothing)
     quantile_keep_pca
         percentage of the points are kept for multi-view PCA (lowest ensemble variance)
+    ensembling_mode:
+        the function used for ensembling ('mean', 'median', or 'confidence_weighted_mean')
 
     Returns
     -------
@@ -111,10 +113,10 @@ def ensemble_kalman_smoother_paw_asynchronous(
         markers_list_right_cam.append(markers_right_cam)
 
     # compute ensemble median left camera
-    left_cam_ensemble_preds, left_cam_ensemble_vars, left_cam_ensemble_stacks, left_cam_keypoints_mean_dict, left_cam_keypoints_var_dict, left_cam_keypoints_stack_dict =  ensemble(markers_list_left_cam, keys)
+    left_cam_ensemble_preds, left_cam_ensemble_vars, left_cam_ensemble_stacks, left_cam_keypoints_mean_dict, left_cam_keypoints_var_dict, left_cam_keypoints_stack_dict =  ensemble(markers_list_left_cam, keys, mode=ensembling_mode)
 
     # compute ensemble median right camera
-    right_cam_ensemble_preds, right_cam_ensemble_vars, right_cam_ensemble_stacks, right_cam_keypoints_mean_dict, right_cam_keypoints_var_dict, right_cam_keypoints_stack_dict = ensemble(markers_list_right_cam, keys)
+    right_cam_ensemble_preds, right_cam_ensemble_vars, right_cam_ensemble_stacks, right_cam_keypoints_mean_dict, right_cam_keypoints_var_dict, right_cam_keypoints_stack_dict = ensemble(markers_list_right_cam, keys, mode=ensembling_mode)
 
     # ensemble_stacked = np.median(markers_list_stacked_interp, 0)
     # ensemble_stacked_vars = np.var(markers_list_stacked_interp, 0)
@@ -337,7 +339,7 @@ def ensemble_kalman_smoother_paw_asynchronous(
 # funcs for mirror-mouse
 # -----------------------
 def ensemble_kalman_smoother_multi_cam(
-        markers_list_cameras, keypoint_ensemble, smooth_param, quantile_keep_pca, camera_names):
+        markers_list_cameras, keypoint_ensemble, smooth_param, quantile_keep_pca, camera_names, ensembling_mode='median'):
     """Use multi-view constraints to fit a 3d latent subspace for each body part.
 
     Parameters
@@ -368,29 +370,37 @@ def ensemble_kalman_smoother_multi_cam(
     num_cameras = len(camera_names)
     markers_list_stacked_interp = []
     markers_list_interp = [[] for i in range(num_cameras)]
+    camera_likelihoods_stacked = []
     for model_id in range(len(markers_list_cameras[0])):
         bl_markers_curr = []
         camera_markers_curr = [[] for i in range(num_cameras)]
+        camera_likelihoods = [[] for i in range(num_cameras)]
         for i in range(markers_list_cameras[0][0].shape[0]):
             curr_markers = []
             for camera in range(num_cameras):
                 markers = np.array(markers_list_cameras[camera][model_id].to_numpy()[i, [0, 1]])
+                likelihood = np.array(markers_list_cameras[camera][model_id].to_numpy()[i, [2]])[0]
                 camera_markers_curr[camera].append(markers)
                 curr_markers.append(markers)
-            bl_markers_curr.append(np.concatenate(curr_markers)) #combine predictions for both cameras
+                camera_likelihoods[camera].append(likelihood)
+            bl_markers_curr.append(np.concatenate(curr_markers)) #combine predictions for all cameras
         markers_list_stacked_interp.append(bl_markers_curr)
+        camera_likelihoods_stacked.append(camera_likelihoods)
+        camera_likelihoods = np.asarray(camera_likelihoods)
         for camera in range(num_cameras):
             markers_list_interp[camera].append(camera_markers_curr[camera])
+            camera_likelihoods[camera] = np.asarray(camera_likelihoods[camera])
     markers_list_stacked_interp = np.asarray(markers_list_stacked_interp)
     markers_list_interp = np.asarray(markers_list_interp)
+    camera_likelihoods_stacked = np.asarray(camera_likelihoods_stacked)
     
     keys = [keypoint_ensemble+'_x', keypoint_ensemble+'_y']
     markers_list_cams = [[] for i in range(num_cameras)]
     for k in range(len(markers_list_interp[0])):
         for camera in range(num_cameras):
-            markers_cam = pd.DataFrame(markers_list_interp[camera][k], columns = keys)
+            markers_cam = pd.DataFrame(markers_list_interp[camera][k], columns=keys)
+            markers_cam[f'{keypoint_ensemble}_likelihood'] = camera_likelihoods_stacked[k][camera]
             markers_list_cams[camera].append(markers_cam)
-            
     #compute ensemble median for each camera
     cam_ensemble_preds = []
     cam_ensemble_vars = []
@@ -399,7 +409,7 @@ def ensemble_kalman_smoother_multi_cam(
     cam_keypoints_var_dict = []
     cam_keypoints_stack_dict = []
     for camera in range(num_cameras):
-        cam_ensemble_preds_curr, cam_ensemble_vars_curr, cam_ensemble_stacks_curr, cam_keypoints_mean_dict_curr, cam_keypoints_var_dict_curr, cam_keypoints_stack_dict_curr = ensemble(markers_list_cams[camera], keys)
+        cam_ensemble_preds_curr, cam_ensemble_vars_curr, cam_ensemble_stacks_curr, cam_keypoints_mean_dict_curr, cam_keypoints_var_dict_curr, cam_keypoints_stack_dict_curr = ensemble(markers_list_cams[camera], keys, mode=ensembling_mode)
         cam_ensemble_preds.append(cam_ensemble_preds_curr)
         cam_ensemble_vars.append(cam_ensemble_vars_curr)
         cam_ensemble_stacks.append(cam_ensemble_stacks_curr)
@@ -492,4 +502,4 @@ def ensemble_kalman_smoother_multi_cam(
         ]).T
         camera_dfs[camera_name + '_df'] = pd.DataFrame(pred_arr, columns=pdindex)
 
-    return camera_dfs
+    return camera_dfs, cam_keypoints_mean_dict, cam_keypoints_var_dict

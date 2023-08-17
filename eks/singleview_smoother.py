@@ -9,7 +9,7 @@ from eks.ensemble_kalman import ensemble, filtering_pass, kalman_dot, smooth_bac
 # funcs for single-view
 # -----------------------
 def ensemble_kalman_smoother_single_view(
-        markers_list, keypoint_ensemble, smooth_param, verbose=False):
+        markers_list, keypoint_ensemble, smooth_param, ensembling_mode='median', verbose=False):
     """Use an identity observation matrix and smoothes by adjusting the smoothing parameter in the state-covariance matrix.
 
     Parameters
@@ -20,6 +20,8 @@ def ensemble_kalman_smoother_single_view(
         the name of the keypoint to be ensembled and smoothed
     smooth_param : float
         ranges from .01-20 (smaller values = more smoothing)
+    ensembling_mode:
+        the function used for ensembling ('mean', 'median', or 'confidence_weighted_mean')
     verbose: bool
         If True, progress will be printed for the user.
     Returns
@@ -39,7 +41,7 @@ def ensemble_kalman_smoother_single_view(
     y_key = keys[1]
 
     #compute ensemble median
-    ensemble_preds, ensemble_vars, ensemble_stacks, keypoints_mean_dict, keypoints_var_dict, keypoints_stack_dict = ensemble(markers_list, keys)
+    ensemble_preds, ensemble_vars, ensemble_stacks, keypoints_mean_dict, keypoints_var_dict, keypoints_stack_dict = ensemble(markers_list, keys, mode=ensembling_mode)
 
     mean_x_obs = np.mean(keypoints_mean_dict[x_key])
     mean_y_obs = np.mean(keypoints_mean_dict[y_key])

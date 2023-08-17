@@ -9,7 +9,7 @@ def ensemble(markers_list, keys, mode='median'):
         keys: list
             List of keys in each marker dataframe
         mode: string
-            Averaging mode which includes 'median' or 'mean'. 
+            Averaging mode which includes 'median', 'mean', or 'confidence_weighted_mean'. 
             
     Returns:
         ensemble_preds: np.ndarray
@@ -31,26 +31,52 @@ def ensemble(markers_list, keys, mode='median'):
     keypoints_avg_dict = {}
     keypoints_var_dict = {}
     keypoints_stack_dict = defaultdict(dict)
-    if mode == 'median':
-        average_func = np.median
-    elif mode == 'mean':
-        average_func = np.mean
-    else:
-        raise ValueError(f"{mode} averaging not supported")
+    if mode != 'confidence_weighted_mean':
+        if mode == 'median':
+            average_func = np.median
+        elif mode == 'mean':
+            average_func = np.mean
+        else:
+            raise ValueError(f"{mode} averaging not supported")
     for key in keys:
-        stack = np.zeros((len(markers_list), markers_list[0].shape[0]))
-        for k in range(len(markers_list)):
-            stack[k] = markers_list[k][key]
-        stack = stack.T
-        avg = average_func(stack, 1)
-        var = np.var(stack, 1) / len(markers_list)  # variance of the sample mean
-        ensemble_preds.append(avg)
-        ensemble_vars.append(var)
-        ensemble_stacks.append(stack)
-        keypoints_avg_dict[key] = avg
-        keypoints_var_dict[key] = var
-        for i, keypoints in enumerate(stack.T):
-            keypoints_stack_dict[i][key] = stack.T[i]
+        if mode != 'confidence_weighted_mean':
+            stack = np.zeros((len(markers_list), markers_list[0].shape[0]))
+            for k in range(len(markers_list)):
+                stack[k] = markers_list[k][key]
+            stack = stack.T
+            avg = average_func(stack, 1)
+            var = np.var(stack, 1) # variance of the sample mean
+            ensemble_preds.append(avg)
+            ensemble_vars.append(var)
+            ensemble_stacks.append(stack)
+            keypoints_avg_dict[key] = avg
+            keypoints_var_dict[key] = var
+            for i, keypoints in enumerate(stack.T):
+                keypoints_stack_dict[i][key] = stack.T[i]
+        else:
+            likelihood_key = key[:-1] + 'likelihood'
+            if likelihood_key not in markers_list[0]:
+                raise ValueError(f"{likelihood_key} needs to be in your marker_df to use {mode}")
+            stack = np.zeros((len(markers_list), markers_list[0].shape[0]))
+            likelihood_stack = np.zeros((len(markers_list), markers_list[0].shape[0]))
+            for k in range(len(markers_list)):
+                stack[k] = markers_list[k][key]
+                likelihood_stack[k] = markers_list[k][likelihood_key]
+            stack = stack.T
+            likelihood_stack = likelihood_stack.T
+            conf_per_keypoint = np.sum(likelihood_stack, 1)
+            mean_conf_per_keypoint = np.sum(likelihood_stack, 1) / likelihood_stack.shape[1]
+            avg = np.sum(stack * likelihood_stack, 1) / conf_per_keypoint
+            var = np.var(stack, 1)
+            var = var / mean_conf_per_keypoint # low-confidence keypoints get inflated obs variances
+            ensemble_preds.append(avg)
+            ensemble_vars.append(var)
+            ensemble_stacks.append(stack)
+            keypoints_avg_dict[key] = avg
+            keypoints_var_dict[key] = var
+            for i, keypoints in enumerate(stack.T):
+                keypoints_stack_dict[i][key] = stack.T[i]
+            
     ensemble_preds = np.asarray(ensemble_preds).T
     ensemble_vars = np.asarray(ensemble_vars).T
     ensemble_stacks = np.asarray(ensemble_stacks).T
