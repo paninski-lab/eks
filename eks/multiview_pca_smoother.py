@@ -337,7 +337,8 @@ def ensemble_kalman_smoother_paw_asynchronous(
 # funcs for mirror-mouse
 # -----------------------
 def ensemble_kalman_smoother_multi_cam(
-        markers_list_cameras, keypoint_ensemble, smooth_param, quantile_keep_pca, camera_names):
+        markers_list_cameras, keypoint_ensemble, smooth_param, quantile_keep_pca, camera_names,
+        subspace_obs=None):
     """Use multi-view constraints to fit a 3d latent subspace for each body part.
 
     Parameters
@@ -430,8 +431,16 @@ def ensemble_kalman_smoother_multi_cam(
     ensemble_stacks = np.concatenate(cam_ensemble_stacks,2)
     scaled_ensemble_stacks = remove_camera_means(ensemble_stacks, means_camera)
 
-    good_scaled_ensemble_preds = remove_camera_means(good_ensemble_preds[None,:,:], means_camera)[0]
-    ensemble_pca, ensemble_ex_var = pca(good_scaled_ensemble_preds, 3)
+    if subspace_obs is not None:
+        means_camera = []
+        for i in range(subspace_obs.shape[1]):
+            means_camera.append(subspace_obs[:, i].mean())
+        subspace_obs_nomean = remove_camera_means(subspace_obs[None, :, :], means_camera)[0]
+        ensemble_pca, ensemble_ex_var = pca(subspace_obs_nomean, 3)
+    else:
+        good_scaled_ensemble_preds = remove_camera_means(
+            good_ensemble_preds[None,:,:], means_camera)[0]
+        ensemble_pca, ensemble_ex_var = pca(good_scaled_ensemble_preds, 3)
 
     scaled_ensemble_preds = remove_camera_means(ensemble_preds[None,:,:], means_camera)[0]
     ensemble_pcs = ensemble_pca.transform(scaled_ensemble_preds)
