@@ -502,4 +502,5 @@ def ensemble_kalman_smoother_multi_cam(
         ]).T
         camera_dfs[camera_name + '_df'] = pd.DataFrame(pred_arr, columns=pdindex)
 
+    #return camera_dfs, cam_keypoints_mean_dict, cam_keypoints_var_dict, ensemble_pcs, good_ensemble_pcs
     return camera_dfs, cam_keypoints_mean_dict, cam_keypoints_var_dict

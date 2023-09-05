@@ -45,7 +45,7 @@ def ensemble(markers_list, keys, mode='median'):
                 stack[k] = markers_list[k][key]
             stack = stack.T
             avg = average_func(stack, 1)
-            var = np.var(stack, 1) # variance of the sample mean
+            var = np.var(stack, 1)
             ensemble_preds.append(avg)
             ensemble_vars.append(var)
             ensemble_stacks.append(stack)
@@ -188,3 +188,25 @@ def smooth_backward(y, mf, Vf, S, A, Q, C):
         CV[i] = np.dot(Vs[i+1], J.T)
         
     return ms, Vs, CV
+
+def eks_zscore(eks_prediction, ensemble_mean, ensemble_std, min_ensemble_std=2):
+    """Computes zscore between eks prediction and the ensemble.
+    Args:
+        eks_prediction: list
+            EKS prediction for each coordinate (x and y) - (samples, 2)
+        ensemble_mean: list
+            Ensemble mean for each coordinate (x and y) - (samples, 2)
+        ensemble_std: string
+            Ensemble std over both coordinates - (samples, 1)
+        min_ensemble_std:
+            Minimum std threshold to reduce the effect of low ensemble std (default 2).
+    Returns:
+        z_score
+            z_score for each time point - (samples, 1)
+    """
+    num = np.sqrt((eks_prediction[:,0] - ensemble_mean[:,0])**2 + (eks_prediction[:,1] - ensemble_mean[:,1])**2)
+    thresh_ensemble_std = ensemble_std.copy()
+    thresh_ensemble_std[thresh_ensemble_std < min_ensemble_std] = min_ensemble_std
+    den = thresh_ensemble_std
+    z_score = num/den
+    return z_score
