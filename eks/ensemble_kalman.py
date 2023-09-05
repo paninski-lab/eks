@@ -189,24 +189,24 @@ def smooth_backward(y, mf, Vf, S, A, Q, C):
         
     return ms, Vs, CV
 
-def eks_zscore(eks_prediction, ensemble_mean, ensemble_std, min_ensemble_std=2):
-    """Computes zscore between eks prediction and the ensemble.
+def eks_zscore(eks_predictions, ensemble_means, ensemble_vars, min_ensemble_std=2):
+    """Computes zscore between eks prediction and the ensemble for a single keypoint.
     Args:
-        eks_prediction: list
-            EKS prediction for each coordinate (x and y) - (samples, 2)
-        ensemble_mean: list
-            Ensemble mean for each coordinate (x and y) - (samples, 2)
-        ensemble_std: string
-            Ensemble std over both coordinates - (samples, 1)
+        eks_predictions: list
+            EKS prediction for each coordinate (x and y) for as single keypoint - (samples, 2)
+        ensemble_means: list
+            Ensemble mean for each coordinate (x and y) for as single keypoint - (samples, 2)
+        ensemble_vars: string
+            Ensemble var for each coordinate (x and y) for as single keypoint - (samples, 2)
         min_ensemble_std:
             Minimum std threshold to reduce the effect of low ensemble std (default 2).
     Returns:
         z_score
             z_score for each time point - (samples, 1)
     """
-    num = np.sqrt((eks_prediction[:,0] - ensemble_mean[:,0])**2 + (eks_prediction[:,1] - ensemble_mean[:,1])**2)
+    ensemble_std = np.sqrt(ensemble_vars[:,0] + ensemble_vars[:,1]) #trace of covariance matrix - multi-d variance measure
+    num = np.sqrt((eks_predictions[:,0] - ensemble_means[:,0])**2 + (eks_predictions[:,1] - ensemble_means[:,1])**2)
     thresh_ensemble_std = ensemble_std.copy()
     thresh_ensemble_std[thresh_ensemble_std < min_ensemble_std] = min_ensemble_std
-    den = thresh_ensemble_std
-    z_score = num/den
+    z_score = num/thresh_ensemble_std
     return z_score
