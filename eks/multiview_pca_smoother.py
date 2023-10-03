@@ -3,7 +3,7 @@ import pandas as pd
 from scipy.interpolate import interp1d
 from sklearn.decomposition import PCA
 from eks.utils import make_dlc_pandas_index
-from eks.ensemble_kalman import ensemble, filtering_pass, kalman_dot, smooth_backward
+from eks.ensemble_kalman import ensemble, filtering_pass, kalman_dot, smooth_backward, eks_zscore
 
 
 # -----------------------
@@ -32,8 +32,8 @@ def pca(S, n_comps):
 
 def ensemble_kalman_smoother_paw_asynchronous(
         markers_list_left_cam, markers_list_right_cam, timestamps_left_cam,
-        timestamps_right_cam, keypoint_names, smooth_param, quantile_keep_pca, ensembling_mode='median'):
-    """Use multi-view constraints to fit a 3d latent subspace for each body part.
+        timestamps_right_cam, keypoint_names, smooth_param, quantile_keep_pca, ensembling_mode='median', zscore_threshold=2, img_width=128):
+    """--(IBL-specific)- -Use multi-view constraints to fit a 3d latent subspace for each body part with 2 ansynchronous cameras.
 
     Parameters
     ----------
@@ -53,7 +53,10 @@ def ensemble_kalman_smoother_paw_asynchronous(
         percentage of the points are kept for multi-view PCA (lowest ensemble variance)
     ensembling_mode:
         the function used for ensembling ('mean', 'median', or 'confidence_weighted_mean')
-
+    zscore_threshold:
+        Minimum std threshold to reduce the effect of low ensemble std on a zscore metric (default 2).
+    img_width
+        The width of the image being smoothed (128 default, IBL-specific).
     Returns
     -------
 
@@ -70,7 +73,6 @@ def ensemble_kalman_smoother_paw_asynchronous(
     # --------------------------------------------------------------
     markers_list_stacked_interp = []
     markers_list_interp = [[], []]
-    img_width = 128
     for model_id in range(len(markers_list_left_cam)):
         bl_markers_curr = []
         left_markers_curr = []
@@ -195,7 +197,7 @@ def ensemble_kalman_smoother_paw_asynchronous(
         remove_camera_means(left_paw_ensemble_preds[None, :, :], means_camera)[0]
     ensemble_pcs_left_paw = ensemble_pca.transform(scaled_left_paw_ensemble_preds)
     good_ensemble_pcs_left_paw = ensemble_pcs_left_paw[good_frames]
-
+    
     scaled_right_paw_ensemble_preds = \
         remove_camera_means(right_paw_ensemble_preds[None, :, :], means_camera)[0]
     ensemble_pcs_right_paw = ensemble_pca.transform(scaled_right_paw_ensemble_preds)
@@ -278,9 +280,10 @@ def ensemble_kalman_smoother_paw_asynchronous(
         # cleanup for this paw
         # --------------------------------------
         save_keypoint_names = ['l_cam_' + save_keypoint_name, 'r_cam_' + save_keypoint_name]
-        pdindex = make_dlc_pandas_index(save_keypoint_names)
+        pdindex = make_dlc_pandas_index(save_keypoint_names, labels=["x", "y", "likelihood", "x_var", "y_var", "zscore"])
 
         scaled_y_m_smooth = add_camera_means(y_m_smooth[None, :, :], means_camera)[0]
+        scaled_y = add_camera_means(y[None, :, :], means_camera)[0]
         pred_arr = []
         for i in range(len(save_keypoint_names)):
             pred_arr.append(scaled_y_m_smooth.T[0 + 2 * i])
@@ -291,14 +294,22 @@ def ensemble_kalman_smoother_paw_asynchronous(
             x_var = y_v_smooth[:, 0 + 2 * i, 0 + 2 * i]
             y_var = y_v_smooth[:, 1 + 2 * i, 1 + 2 * i]
             pred_arr.append(x_var)
-            pred_arr.append(y_var)            
+            pred_arr.append(y_var)
+            ###
+            eks_predictions = np.asarray([scaled_y_m_smooth.T[0 + 2 * i], scaled_y_m_smooth.T[1 + 2 * i]]).T
+            ensemble_preds = scaled_y[:,2*i:2*(i+1)]
+            ensemble_vars_curr = ensemble_vars[:,2*i:2*(i+1)]
+            zscore = eks_zscore(eks_predictions, ensemble_preds, ensemble_vars_curr, min_ensemble_std=4)
+            pred_arr.append(zscore)
+            ###
         pred_arr = np.asarray(pred_arr)
         dfs[paw] = pd.DataFrame(pred_arr.T, columns=pdindex)
 
     # --------------------------------------
     # final cleanup
     # --------------------------------------
-    pdindex = make_dlc_pandas_index(keypoint_names)
+    pdindex = make_dlc_pandas_index(keypoint_names, labels=["x", "y", "likelihood", "x_var", "y_var", "zscore"])
+
 
     # make left cam dataframe
     pred_arr = np.hstack([
@@ -307,11 +318,13 @@ def ensemble_kalman_smoother_paw_asynchronous(
         dfs['left'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_l', 'likelihood')].to_numpy()[:, None],
         dfs['left'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_l', 'x_var')].to_numpy()[:, None],
         dfs['left'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_l', 'y_var')].to_numpy()[:, None],
+        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_l', 'zscore')].to_numpy()[:, None],
         dfs['right'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_r', 'x')].to_numpy()[:, None],
         dfs['right'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_r', 'y')].to_numpy()[:, None],
         dfs['right'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_r', 'likelihood')].to_numpy()[:, None],
         dfs['right'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_r', 'x_var')].to_numpy()[:, None],
         dfs['right'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_r', 'y_var')].to_numpy()[:, None],
+        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_r', 'zscore')].to_numpy()[:, None],
     ])
     df_left = pd.DataFrame(pred_arr, columns=pdindex)
 
@@ -324,22 +337,24 @@ def ensemble_kalman_smoother_paw_asynchronous(
         dfs['right'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_r', 'likelihood')].to_numpy()[:, None],
         dfs['right'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_r', 'x_var')].to_numpy()[:, None],
         dfs['right'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_r', 'y_var')].to_numpy()[:, None],
+        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_r', 'zscore')].to_numpy()[:, None],
         img_width - dfs['left'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_l', 'x')].to_numpy()[:, None],
         dfs['left'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_l', 'y')].to_numpy()[:, None],
         dfs['left'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_l', 'likelihood')].to_numpy()[:, None],
         dfs['left'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_l', 'x_var')].to_numpy()[:, None],
         dfs['left'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_l', 'y_var')].to_numpy()[:, None],
+        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_l', 'zscore')].to_numpy()[:, None],
     ])
     df_right = pd.DataFrame(pred_arr, columns=pdindex)
 
-    return {'left_df': df_left, 'right_df': df_right}
+    return {'left_df': df_left, 'right_df': df_right}, markers_list_left_cam, markers_list_right_cam
 
 
 # -----------------------
 # funcs for mirror-mouse
 # -----------------------
 def ensemble_kalman_smoother_multi_cam(
-        markers_list_cameras, keypoint_ensemble, smooth_param, quantile_keep_pca, camera_names, ensembling_mode='median'):
+        markers_list_cameras, keypoint_ensemble, smooth_param, quantile_keep_pca, camera_names, ensembling_mode='median', zscore_threshold=2):
     """Use multi-view constraints to fit a 3d latent subspace for each body part.
 
     Parameters
@@ -354,6 +369,10 @@ def ensemble_kalman_smoother_multi_cam(
         percentage of the points are kept for multi-view PCA (lowest ensemble variance)
     camera_names: list
         the camera names (should be the same length as markers_list_cameras).
+    ensembling_mode:
+        the function used for ensembling ('mean', 'median', or 'confidence_weighted_mean')
+    zscore_threshold:
+        Minimum std threshold to reduce the effect of low ensemble std on a zscore metric (default 2).
 
     Returns
     -------
@@ -484,23 +503,27 @@ def ensemble_kalman_smoother_multi_cam(
     # --------------------------------------
     # final cleanup
     # --------------------------------------
-    pdindex = make_dlc_pandas_index([keypoint_ensemble])
+    pdindex = make_dlc_pandas_index([keypoint_ensemble], labels=["x", "y", "likelihood", "x_var", "y_var", "zscore"])
     camera_indices = []
     for camera in range(num_cameras):
         camera_indices.append([camera*2, camera*2+1])
- 
     camera_dfs = {}
     for camera, camera_name in enumerate(camera_names):
         var = np.empty(y_m_smooth.T[camera_indices[camera][0]].shape)
         var[:] = np.nan
+        eks_pred_x = y_m_smooth.T[camera_indices[camera][0]] + means_camera[camera_indices[camera][0]]
+        eks_pred_y = y_m_smooth.T[camera_indices[camera][1]] + means_camera[camera_indices[camera][1]]
+        #compute zscore for EKS to see how it deviates from the ensemble
+        eks_predictions = np.asarray([eks_pred_x, eks_pred_y]).T
+        zscore = eks_zscore(eks_predictions, cam_ensemble_preds[camera], cam_ensemble_vars[camera], min_ensemble_std=zscore_threshold)
         pred_arr = np.vstack([
-            y_m_smooth.T[camera_indices[camera][0]] + means_camera[camera_indices[camera][0]],
-            y_m_smooth.T[camera_indices[camera][1]] + means_camera[camera_indices[camera][1]],
+            eks_pred_x,
+            eks_pred_y,
             var,
             y_v_smooth[:,camera_indices[camera][0],camera_indices[camera][0]],
             y_v_smooth[:,camera_indices[camera][1],camera_indices[camera][1]],
+            zscore,
         ]).T
         camera_dfs[camera_name + '_df'] = pd.DataFrame(pred_arr, columns=pdindex)
-
-    #return camera_dfs, cam_keypoints_mean_dict, cam_keypoints_var_dict, ensemble_pcs, good_ensemble_pcs
-    return camera_dfs, cam_keypoints_mean_dict, cam_keypoints_var_dict
+    return camera_dfs
+    #return camera_dfs, cam_keypoints_mean_dict, cam_keypoints_var_dict

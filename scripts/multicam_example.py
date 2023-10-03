@@ -106,7 +106,6 @@ for keypoint_ensemble in bodypart_list:
             non_likelihood_keys = [
                 key for key in markers_curr.keys()
                 if camera_names[c] in key
-                   and 'likelihood' not in key
                    and keypoint_ensemble in key
             ]
             marker_list_by_cam[c].append(markers_curr[non_likelihood_keys])
@@ -121,7 +120,7 @@ for keypoint_ensemble in bodypart_list:
     # put results into new dataframe
     for camera in camera_names:
         df_tmp = cameras_df[f'{camera}_df']
-        for coord in ['x', 'y']:
+        for coord in ['x', 'y', 'zscore']:
             src_cols = ('ensemble-kalman_tracker', f'{keypoint_ensemble}', coord)
             dst_cols = ('ensemble-kalman_tracker', f'{keypoint_ensemble}_{camera}', coord)
             markers_eks.loc[:, dst_cols] = df_tmp.loc[:, src_cols]
@@ -139,17 +138,22 @@ kp = bodypart_list[0]
 cam = camera_names[0]
 idxs = (0, 500)
 
-fig, axes = plt.subplots(3, 1, figsize=(9, 6))
+fig, axes = plt.subplots(4, 1, figsize=(9, 6))
 
-for ax, coord in zip(axes, ['x', 'y', 'likelihood']):
+for ax, coord in zip(axes, ['x', 'y', 'likelihood', 'zscore']):
     # plot individual models
+    ax.set_ylabel(coord, fontsize=12)
+    if coord == 'zscore':
+        ax.plot(
+        markers_eks.loc[slice(*idxs), ('ensemble-kalman_tracker', f'{kp}_{cam}', coord)],
+        color=[0.5, 0.5, 0.5])
+        ax.set_xlabel('Time (frames)', fontsize=12)
+        continue
     for m, markers_curr in enumerate(markers_list):
         ax.plot(
             markers_curr.loc[slice(*idxs), f'{kp}_{cam}_{coord}'], color=[0.5, 0.5, 0.5],
             label='Individual models' if m == 0 else None,
         )
-    ax.set_ylabel(coord, fontsize=12)
-    ax.set_xlabel('Time (frames)', fontsize=12)
     # plot eks
     if coord == 'likelihood':
         continue
@@ -163,7 +167,7 @@ for ax, coord in zip(axes, ['x', 'y', 'likelihood']):
 plt.suptitle(f'EKS results for {kp} ({cam} view)', fontsize=14)
 plt.tight_layout()
 
-save_file = os.path.join(save_dir, 'example_eks_result.pdf')
+save_file = os.path.join(save_dir, 'example_multicam_eks_result.pdf')
 plt.savefig(save_file)
 plt.close()
 print(f'see example EKS output at {save_file}')

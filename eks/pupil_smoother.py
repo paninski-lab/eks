@@ -3,7 +3,7 @@ import pandas as pd
 from scipy.interpolate import interp1d
 from sklearn.decomposition import PCA
 from eks.utils import make_dlc_pandas_index
-from eks.ensemble_kalman import ensemble, filtering_pass, kalman_dot, smooth_backward
+from eks.ensemble_kalman import ensemble, filtering_pass, kalman_dot, smooth_backward, eks_zscore
 import warnings
 
 
@@ -83,7 +83,8 @@ def ensemble_kalman_smoother_pupil(
     keypoint_names,
     tracker_name,
     state_transition_matrix,
-    likelihood_default=np.nan
+    likelihood_default=np.nan,
+    zscore_threshold=2,
 ):
     """
 
@@ -97,6 +98,8 @@ def ensemble_kalman_smoother_pupil(
     state_transition_matrix : np.ndarray
     likelihood_default
         value to store in likelihood column; should be np.nan or int in [0, 1]
+    zscore_threshold:
+        Minimum std threshold to reduce the effect of low ensemble std on a zscore metric (default 2).
 
     Returns
     -------
@@ -111,7 +114,6 @@ def ensemble_kalman_smoother_pupil(
             'pupil_right_r_x', 'pupil_right_r_y', 'pupil_left_r_x', 'pupil_left_r_y']
     ensemble_preds, ensemble_vars, ensemble_stacks, keypoints_mean_dict, keypoints_var_dict, keypoints_stack_dict = ensemble(
         markers_list, keys)
-
     # ## Set parameters
     # compute center of mass
     pupil_locations = get_pupil_location(keypoints_mean_dict)
@@ -201,12 +203,13 @@ def ensemble_kalman_smoother_pupil(
     # cleanup
     # --------------------------------------
     # save out marker info
-    pdindex = make_dlc_pandas_index(keypoint_names)
+    pdindex = make_dlc_pandas_index(keypoint_names, labels=["x", "y", "likelihood", "x_var", "y_var", "zscore"])
     processed_arr_dict = add_mean_to_array(y_m_smooth, keys, mean_x_obs, mean_y_obs)
     key_pair_list = [['pupil_top_r_x', 'pupil_top_r_y'],
                      ['pupil_right_r_x', 'pupil_right_r_y'],
                      ['pupil_bottom_r_x', 'pupil_bottom_r_y'],
                      ['pupil_left_r_x', 'pupil_left_r_y']]
+    ensemble_indices = [(0,1), (4,5), (2,3), (6,7)]
     pred_arr = []
     for i, key_pair in enumerate(key_pair_list):
         pred_arr.append(processed_arr_dict[key_pair[0]])
@@ -218,6 +221,13 @@ def ensemble_kalman_smoother_pupil(
         y_var = y_v_smooth[:,i+1, i+1]
         pred_arr.append(x_var)
         pred_arr.append(y_var)
+        #compute zscore for EKS to see how it deviates from the ensemble
+        eks_predictions = np.asarray([processed_arr_dict[key_pair[0]], processed_arr_dict[key_pair[1]]]).T
+        ensemble_preds_curr = ensemble_preds[:,ensemble_indices[i][0]: ensemble_indices[i][1]+1]
+        ensemble_vars_curr = ensemble_vars[:,ensemble_indices[i][0]: ensemble_indices[i][1]+1]
+        zscore = eks_zscore(eks_predictions, ensemble_preds_curr, ensemble_vars_curr, min_ensemble_std=zscore_threshold)
+        pred_arr.append(zscore)
+    
     pred_arr = np.asarray(pred_arr)
     markers_df = pd.DataFrame(pred_arr.T, columns=pdindex)
 

@@ -97,7 +97,7 @@ if len(markers_list_right) != len(markers_list_left) or len(markers_list_left) =
         'There must be the same number of left and right camera models and >=1 model for each.')
 
 # run eks
-df_dicts = ensemble_kalman_smoother_paw_asynchronous(
+df_dicts, markers_list_left_cam, markers_list_right_cam = ensemble_kalman_smoother_paw_asynchronous(
     markers_list_left_cam=markers_list_left,
     markers_list_right_cam=markers_list_right,
     timestamps_left_cam=timestamps_left,
@@ -118,21 +118,51 @@ for view in ['left', 'right']:
 # ---------------------------------------------
 
 # select example keypoint from example camera view
-kp = keypoint_names[0]
+kp = keypoint_names[0] 
 view = 'left'  # NOTE: if you want to use right view, must swap paw identities
-idxs = (0, 500)
+idxs = (0, 200)
+kp_swap = [x for x in keypoint_names if x != kp][0]
+if view == 'right':
+    markers_list_curr = markers_list_right_cam
+else:
+    markers_list_curr = markers_list_left_cam
+    
+fig, axes = plt.subplots(4, 1, figsize=(9, 6))
 
-fig, axes = plt.subplots(3, 1, figsize=(9, 6))
-
-for ax, coord in zip(axes, ['x', 'y', 'likelihood']):
-    # plot individual models
-    for m, markers_curr in enumerate(markers_list_left):
-        ax.plot(
-            markers_curr.loc[slice(*idxs), f'{kp}_{coord}'], color=[0.5, 0.5, 0.5],
-            label='Individual models' if m == 0 else None,
-        )
+for ax, coord in zip(axes, ['x', 'y', 'likelihood', 'zscore']):
     ax.set_ylabel(coord, fontsize=12)
-    ax.set_xlabel('Time (frames)', fontsize=12)
+    if coord == 'zscore':
+        zscores = df_dicts[f'{view}_df'].loc[slice(*idxs), ('ensemble-kalman_tracker', kp, coord)].values
+        ax.plot(
+            df_dicts[f'{view}_df'].loc[slice(*idxs), ('ensemble-kalman_tracker', kp, coord)],
+            color=[0.5, 0.5, 0.5]
+        )
+        ax.set_xlabel('Time (frames)', fontsize=12)
+        continue
+    # plot individual models
+    for m, markers_curr in enumerate(markers_list_curr):
+        if coord == 'likelihood':
+            ax.plot(
+                markers_list_left[m].loc[slice(*idxs), f'{kp}_{coord}'], color=[0.5, 0.5, 0.5],
+                label='Individual models' if m == 0 else None,
+            )
+        else:
+            if view == 'right':
+                if coord == 'x':
+                    ax.plot(
+                        128 - markers_curr.loc[slice(*idxs), f'{kp_swap}_{coord}'], color=[0.5, 0.5, 0.5],
+                        label='Individual models' if m == 0 else None,
+                    )
+                else:
+                    ax.plot(
+                        markers_curr.loc[slice(*idxs), f'{kp_swap}_{coord}'], color=[0.5, 0.5, 0.5],
+                        label='Individual models' if m == 0 else None,
+                    )
+            else:
+                ax.plot(
+                    markers_curr.loc[slice(*idxs), f'{kp}_{coord}'], color=[0.5, 0.5, 0.5],
+                    label='Individual models' if m == 0 else None,
+                )
     # plot eks
     if coord == 'likelihood':
         continue
@@ -146,7 +176,7 @@ for ax, coord in zip(axes, ['x', 'y', 'likelihood']):
 plt.suptitle(f'EKS results for {kp} ({view} view)', fontsize=14)
 plt.tight_layout()
 
-save_file = os.path.join(save_dir, 'example_eks_result.pdf')
+save_file = os.path.join(save_dir, 'example_multiview_paw_eks_result.pdf')
 plt.savefig(save_file)
 plt.close()
 print(f'see example EKS output at {save_file}')

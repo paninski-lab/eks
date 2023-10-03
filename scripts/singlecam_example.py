@@ -90,7 +90,7 @@ for keypoint_ensemble in bodypart_list:
     )
     keypoint_df = keypoint_df_dict[keypoint_ensemble+'_df']
     # put results into new dataframe
-    for coord in ['x', 'y']:
+    for coord in ['x', 'y', 'zscore']:
         src_cols = ('ensemble-kalman_tracker', f'{keypoint_ensemble}', coord)
         dst_cols = ('ensemble-kalman_tracker', f'{keypoint_ensemble}', coord)
         markers_eks.loc[:, dst_cols] = keypoint_df.loc[:, src_cols]
@@ -107,17 +107,22 @@ markers_eks.to_csv(os.path.join(save_dir, 'eks.csv'))
 kp = bodypart_list[0]
 idxs = (0, 500)
 
-fig, axes = plt.subplots(3, 1, figsize=(9, 6))
+fig, axes = plt.subplots(4, 1, figsize=(9, 8))
 
-for ax, coord in zip(axes, ['x', 'y', 'likelihood']):
+for ax, coord in zip(axes, ['x', 'y', 'likelihood', 'zscore']):
     # plot individual models
+    ax.set_ylabel(coord, fontsize=12)
+    if coord == 'zscore':
+        ax.plot(
+        markers_eks.loc[slice(*idxs), ('ensemble-kalman_tracker', f'{kp}', coord)],
+        color='k', linewidth=2)
+        ax.set_xlabel('Time (frames)', fontsize=12)
+        continue
     for m, markers_curr in enumerate(markers_list):
         ax.plot(
             markers_curr.loc[slice(*idxs), f'{kp}_{coord}'], color=[0.5, 0.5, 0.5],
             label='Individual models' if m == 0 else None,
         )
-    ax.set_ylabel(coord, fontsize=12)
-    ax.set_xlabel('Time (frames)', fontsize=12)
     # plot eks
     if coord == 'likelihood':
         continue
@@ -127,11 +132,12 @@ for ax, coord in zip(axes, ['x', 'y', 'likelihood']):
     )
     if coord == 'x':
         ax.legend()
+    
 
 plt.suptitle(f'EKS results for {kp}', fontsize=14)
 plt.tight_layout()
 
-save_file = os.path.join(save_dir, 'example_eks_result.pdf')
+save_file = os.path.join(save_dir, 'example_singlecam_eks_result.pdf')
 plt.savefig(save_file)
 plt.close()
 print(f'see example EKS output at {save_file}')

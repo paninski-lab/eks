@@ -1,8 +1,7 @@
 import pandas as pd
 
 
-def make_dlc_pandas_index(keypoint_names):
-    labels = ["x", "y", "likelihood",  "x_var",  "y_var"]
+def make_dlc_pandas_index(keypoint_names, labels=["x", "y", "likelihood"]):
     pdindex = pd.MultiIndex.from_product(
         [["ensemble-kalman_tracker"], keypoint_names, labels],
         names=["scorer", "bodyparts", "coords"],

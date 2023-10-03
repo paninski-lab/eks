@@ -3,13 +3,13 @@ import pandas as pd
 from scipy.interpolate import interp1d
 from sklearn.decomposition import PCA
 from eks.utils import make_dlc_pandas_index
-from eks.ensemble_kalman import ensemble, filtering_pass, kalman_dot, smooth_backward
+from eks.ensemble_kalman import ensemble, filtering_pass, kalman_dot, smooth_backward, eks_zscore
 
 # -----------------------
 # funcs for single-view
 # -----------------------
 def ensemble_kalman_smoother_single_view(
-        markers_list, keypoint_ensemble, smooth_param, ensembling_mode='median', verbose=False):
+        markers_list, keypoint_ensemble, smooth_param, ensembling_mode='median', zscore_threshold=2, verbose=False):
     """Use an identity observation matrix and smoothes by adjusting the smoothing parameter in the state-covariance matrix.
 
     Parameters
@@ -22,6 +22,8 @@ def ensemble_kalman_smoother_single_view(
         ranges from .01-20 (smaller values = more smoothing)
     ensembling_mode:
         the function used for ensembling ('mean', 'median', or 'confidence_weighted_mean')
+    zscore_threshold:
+        Minimum std threshold to reduce the effect of low ensemble std on a zscore metric (default 2).
     verbose: bool
         If True, progress will be printed for the user.
     Returns
@@ -81,10 +83,15 @@ def ensemble_kalman_smoother_single_view(
     # Smoothed posterior over y
     y_m_smooth = np.dot(C, ms.T).T
     y_v_smooth = np.swapaxes(np.dot(C, np.dot(Vs, C.T)), 0, 1)
+    
+    #compute zscore for EKS to see how it deviates from the ensemble
+    eks_predictions = y_m_smooth.copy()
+    eks_predictions = np.asarray([eks_predictions.T[0] + mean_x_obs, eks_predictions.T[1] + mean_y_obs]).T
+    zscore = eks_zscore(eks_predictions, ensemble_preds, ensemble_vars, min_ensemble_std=zscore_threshold)
     # --------------------------------------
     # final cleanup
     # --------------------------------------
-    pdindex = make_dlc_pandas_index([keypoint_ensemble])
+    pdindex = make_dlc_pandas_index([keypoint_ensemble], labels=["x", "y", "likelihood", "x_var", "y_var", "zscore"])
     var = np.empty(y_m_smooth.T[0].shape)
     var[:] = np.nan
     pred_arr = np.vstack([
@@ -93,6 +100,7 @@ def ensemble_kalman_smoother_single_view(
         var,
         y_v_smooth[:,0,0],
         y_v_smooth[:,1,1],
+        zscore,
     ]).T
     df = pd.DataFrame(pred_arr, columns=pdindex)
     return {keypoint_ensemble+'_df': df}
