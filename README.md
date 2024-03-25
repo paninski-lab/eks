@@ -13,7 +13,8 @@ $: git clone https://github.com/colehurwitz/eks
 $: cd eks
 ```
 
-Install the requirements (information on requirements and their functions are in `docs/requirements.md`):
+Install the requirements (see [Requirements](docs/requirements.md) for information on
+requirements and their functions):
 ```
 $: pip install -r requirements.txt 
 ```
@@ -27,7 +28,8 @@ $: pip install -e .
 
 ## Example scripts
 
-We provide several example datasets and fitting scripts to illustrate use of the package.
+We provide several example datasets and fitting scripts to illustrate use of the package. See
+[Command-Line Arguments](docs/command-line_arguments.md) for more information on arguments.
 
 ### Single-camera datasets
 The `singlecam_example.py` script demonstrates how to run the EKS code for standard single-camera
