@@ -3,7 +3,7 @@ This repo contains code to run an Ensemble Kalman Smoother (EKS) for improving p
 
 ## Installation
 
-First you'll have to install the `git` package in order to access the code on github. 
+First you'll have to install the `git` package in order to access the code on GitHub. 
 Follow the directions [here](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git) 
 for your specific OS.
 Then, in the command line, navigate to where you'd like to install the `eks` package and move 
@@ -13,7 +13,7 @@ $: git clone https://github.com/colehurwitz/eks
 $: cd eks
 ```
 
-Install the requirements:
+Install the requirements (information on requirements and their functions are in `docs/requirements.md`):
 ```
 $: pip install -r requirements.txt 
 ```
@@ -77,3 +77,5 @@ python scripts/multiview_paw_example.py --csv-dir ./data/ibl-paw
 Cole Hurwitz
 
 Matt Whiteway
+
+Keemin Lee
