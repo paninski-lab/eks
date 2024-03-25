@@ -57,7 +57,8 @@ option.
 
 ## Example scripts
 
-We provide several example datasets and fitting scripts to illustrate use of the package.
+We provide several example datasets and fitting scripts to illustrate use of the package. See
+[Command-Line Arguments](docs/command-line_arguments.md) for more information on arguments.
 
 ### Single-camera datasets
 The `singlecam_example.py` script demonstrates how to run the EKS code for standard single-camera
