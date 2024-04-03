@@ -8,6 +8,7 @@ import pandas as pd
 
 from eks.utils import convert_lp_dlc
 from eks.multiview_pca_smoother import ensemble_kalman_smoother_multi_cam
+from scripts.general_scripts import handle_io
 
 
 parser = argparse.ArgumentParser()
@@ -64,12 +65,7 @@ quantile_keep_pca = args.quantile_keep_pca
 # ---------------------------------------------
 
 # handle I/O
-if not os.path.isdir(csv_dir):
-    raise ValueError('--csv-dir must be a valid directory containing prediction csv files')
-
-if save_dir is None:
-    save_dir = os.path.join(os.getcwd(), 'outputs')
-    os.makedirs(save_dir, exist_ok=True)
+save_dir = handle_io(csv_dir, save_dir)
 
 # load files and put them in correct format
 csv_files = os.listdir(csv_dir)

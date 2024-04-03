@@ -1,4 +1,4 @@
-# EKS Smoothers (WIP)
+# EKS Smoothers
 
 This document covers the three EKS smoothers for Single-view, Multi-view, and Pupil use-cases,
 working through their main functions while noting their similarities and differences.
