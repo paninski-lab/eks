@@ -7,6 +7,21 @@ We offer two methods for installing the `eks` package:
 * Method 1, `github+conda`: this is the preferred installation method and will give you access to example scripts and data
 * Method 2, `pip`: this option is intended for non-interactive environments, such as remote servers.
 
+For both installation methods we recommend using
+`conda <https://docs.anaconda.com/free/anaconda/install/index.html>`_
+to create a new environment in which this package and its dependencies will be installed:
+
+```
+conda create --name eks python=3.10
+```
+
+Activate the new environment:
+```
+conda activate <YOUR_ENVIRONMENT_NAME>
+```
+
+Make sure you are in the activated environment during the Lightning Pose installation.
+
 ### Method 1: github+conda
 
 First you'll have to install the `git` package in order to access the code on github. 
