@@ -1,10 +1,16 @@
 from distutils.core import setup
-from Pathlib import path
+from pathlib import Path
 
 
 # add the README.md file to the long_description
 with open('README.md', 'r') as fh:
     long_description = fh.read()
+
+
+def read(rel_path):
+    here = Path(__file__).parent.absolute()
+    with open(here.joinpath(rel_path), "r") as fp:
+        return fp.read()
 
 
 def get_version(rel_path):
