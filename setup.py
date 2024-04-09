@@ -51,7 +51,7 @@ extras_require = {
 
 
 setup(
-    name='eks',
+    name='ensemble-kalman-smoother',
     version=get_version(Path('eks').joinpath('__init__.py')),
     description='Ensembling and kalman smoothing for pose estimation',
     long_description=long_description,

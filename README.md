@@ -50,7 +50,7 @@ pip install -e ".[dev]"
 
 You can also install the `eks` package using the Python Package Index (PyPI):
 ```
-python3 -m pip install eks
+python3 -m pip install ensemble-kalman-smoother
 ```
 Note that you will not have access to the example data or example scripts with the pip install 
 option.
