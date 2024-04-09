@@ -116,8 +116,3 @@ def add_com_s(parser):
     )
     return parser
 
-
-# ---------------------------------------------
-# Parsing command line arguments
-# ---------------------------------------------
-

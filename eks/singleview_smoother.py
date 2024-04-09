@@ -3,7 +3,8 @@ import pandas as pd
 from scipy.interpolate import interp1d
 from sklearn.decomposition import PCA
 from eks.utils import make_dlc_pandas_index
-from eks.ensemble_kalman import ensemble, filtering_pass, kalman_dot, smooth_backward, eks_zscore
+from eks.ensemble_kalman import ensemble, filtering_pass, kalman_dot, smooth_backward, eks_zscore, compute_nll
+import matplotlib.pyplot as plt
 
 # -----------------------
 # funcs for single-view
@@ -88,6 +89,11 @@ def ensemble_kalman_smoother_single_view(
     eks_predictions = y_m_smooth.copy()
     eks_predictions = np.asarray([eks_predictions.T[0] + mean_x_obs, eks_predictions.T[1] + mean_y_obs]).T
     zscore = eks_zscore(eks_predictions, ensemble_preds, ensemble_vars, min_ensemble_std=zscore_threshold)
+
+    # compute NLL
+    nll = compute_nll(y_obs, mf, S, C)
+    print(f"NLL for {keypoint_ensemble}, smooth_param={smooth_param}, is {nll}")
+
     # --------------------------------------
     # final cleanup
     # --------------------------------------
@@ -104,3 +110,18 @@ def ensemble_kalman_smoother_single_view(
     ]).T
     df = pd.DataFrame(pred_arr, columns=pdindex)
     return {keypoint_ensemble+'_df': df}
+
+'''
+Plotting NLL traces
+    # Plot nll values against time
+    plt.plot(range(len(nll_values)), nll_values)
+    plt.xlabel('Time Step')
+    plt.ylabel('Negative Log Likelihood (nll)')
+    plt.title(f'Negative Log Likelihood vs Time for IBL Pupil s={smooth_param}')
+    plt.grid(True)
+
+    # Save the plot as a PDF file
+    plt.savefig('nll_plot.pdf')
+
+    plt.show()
+'''
