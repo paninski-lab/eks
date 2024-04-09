@@ -17,7 +17,7 @@ conda create --name eks python=3.10
 
 Activate the new environment:
 ```
-conda activate <YOUR_ENVIRONMENT_NAME>
+conda activate eks
 ```
 
 Make sure you are in the activated environment during the Lightning Pose installation.
@@ -50,7 +50,7 @@ pip install -e ".[dev]"
 
 You can also install the `eks` package using the Python Package Index (PyPI):
 ```
-pip install eks
+python3 -m pip install eks
 ```
 Note that you will not have access to the example data or example scripts with the pip install 
 option.
