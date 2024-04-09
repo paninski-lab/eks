@@ -8,36 +8,11 @@ import pandas as pd
 
 from eks.utils import convert_lp_dlc
 from eks.multiview_pca_smoother import ensemble_kalman_smoother_paw_asynchronous
-from scripts.general_scripts import handle_io
+from scripts.general_scripts import handle_io, handle_parse_args
 
-parser = argparse.ArgumentParser()
-parser.add_argument(
-    '--csv-dir',
-    required=True,
-    help='directory of models for ensembling',
-    type=str,
-)
-parser.add_argument(
-    '--save-dir',
-    help='save directory for outputs (default is csv-dir)',
-    default=None,
-    type=str,
-)
-parser.add_argument(
-    '--s',
-    help='smoothing parameter ranges from .01-2 (smaller values = more smoothing)',
-    default=1,
-    type=float,
-)
-parser.add_argument(
-    '--quantile_keep_pca',
-    help='percentage of the points are kept for multi-view PCA (lowest ensemble variance)',
-    default=25,
-    type=float,
-)
-args = parser.parse_args()
 
 # collect user-provided args
+args = handle_parse_args('paw')
 csv_dir = os.path.abspath(args.csv_dir)
 save_dir = args.save_dir
 s = args.s

@@ -8,37 +8,10 @@ import pandas as pd
 
 from eks.utils import convert_lp_dlc
 from eks.singleview_smoother import ensemble_kalman_smoother_single_view
-from scripts.general_scripts import handle_io
-
-
-parser = argparse.ArgumentParser()
-parser.add_argument(
-    '--csv-dir',
-    required=True,
-    help='directory of model prediction csv files',
-    type=str,
-)
-parser.add_argument(
-    '--bodypart-list',
-    required=True,
-    nargs='+',
-    help='the list of body parts to be ensembled and smoothed',
-)
-parser.add_argument(
-    '--save-dir',
-    help='save directory for outputs (default is csv-dir)',
-    default=None,
-    type=str,
-)
-parser.add_argument(
-    '--s',
-    help='smoothing parameter ranges from .01-20 (smaller values = more smoothing)',
-    default=10,
-    type=float,
-)
-args = parser.parse_args()
+from scripts.general_scripts import handle_io, handle_parse_args
 
 # collect user-provided args
+args = handle_parse_args('singlecam')
 csv_dir = os.path.abspath(args.csv_dir)
 bodypart_list = args.bodypart_list
 save_dir = args.save_dir

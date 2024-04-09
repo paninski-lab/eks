@@ -8,37 +8,11 @@ import pandas as pd
 
 from eks.utils import convert_lp_dlc
 from eks.pupil_smoother import ensemble_kalman_smoother_pupil
-from scripts.general_scripts import handle_io
+from scripts.general_scripts import handle_io, handle_parse_args
 
-
-parser = argparse.ArgumentParser()
-parser.add_argument(
-    '--csv-dir',
-    required=True,
-    help='directory of models for ensembling',
-    type=str
-)
-parser.add_argument(
-    '--save-dir',
-    help='save directory for outputs (default is csv-dir)',
-    default=None,
-    type=str,
-)
-parser.add_argument(
-    '--diameter-s',
-    help='smoothing parameter for diameter (closer to 1 = more smoothing)',
-    default=.9999,
-    type=float
-)
-parser.add_argument(
-    '--com-s',
-    help='smoothing parameter for center of mass (closer to 1 = more smoothing)',
-    default=.999,
-    type=float
-)
-args = parser.parse_args()
 
 # collect user-provided args
+args = handle_parse_args('pupil')
 csv_dir = os.path.abspath(args.csv_dir)
 save_dir = args.save_dir
 

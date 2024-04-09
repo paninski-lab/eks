@@ -8,49 +8,11 @@ import pandas as pd
 
 from eks.utils import convert_lp_dlc
 from eks.multiview_pca_smoother import ensemble_kalman_smoother_multi_cam
-from scripts.general_scripts import handle_io
+from scripts.general_scripts import handle_io, handle_parse_args
 
-
-parser = argparse.ArgumentParser()
-parser.add_argument(
-    '--csv-dir',
-    required=True,
-    help='directory of model prediction csv files',
-    type=str,
-)
-parser.add_argument(
-    '--bodypart-list',
-    required=True,
-    nargs='+',
-    help='the list of body parts to be ensembled and smoothed',
-)
-parser.add_argument(
-    '--camera-names',
-    required=True,
-    nargs='+',
-    help='the camera names',
-)
-parser.add_argument(
-    '--save-dir',
-    help='save directory for outputs (default is csv-dir)',
-    default=None,
-    type=str,
-)
-parser.add_argument(
-    '--s',
-    help='smoothing parameter ranges from .01-2 (smaller values = more smoothing)',
-    default=.01,
-    type=float,
-)
-parser.add_argument(
-    '--quantile_keep_pca',
-    help='percentage of the points are kept for multi-view PCA (lowest ensemble variance)',
-    default=25,
-    type=float,
-)
-args = parser.parse_args()
 
 # collect user-provided args
+args = handle_parse_args('multicam')
 csv_dir = os.path.abspath(args.csv_dir)
 bodypart_list = args.bodypart_list
 camera_names = args.camera_names
