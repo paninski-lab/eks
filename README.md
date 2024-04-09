@@ -8,7 +8,7 @@ We offer two methods for installing the `eks` package:
 * Method 2, `pip`: this option is intended for non-interactive environments, such as remote servers.
 
 For both installation methods we recommend using
-`conda <https://docs.anaconda.com/free/anaconda/install/index.html>`_
+[conda](https://docs.anaconda.com/free/anaconda/install/index.html)
 to create a new environment in which this package and its dependencies will be installed:
 
 ```
