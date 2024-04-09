@@ -3,27 +3,42 @@ This repo contains code to run an Ensemble Kalman Smoother (EKS) for improving p
 
 ## Installation
 
+We offer two methods for installing the `eks` package:
+* Method 1, `github+conda`: this is the preferred installation method and will give you access to example scripts and data
+* Method 2, `pip`: this option is intended for non-interactive environments, such as remote servers.
+
+### Method 1: github+conda
+
 First you'll have to install the `git` package in order to access the code on github. 
 Follow the directions [here](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git) 
 for your specific OS.
 Then, in the command line, navigate to where you'd like to install the `eks` package and move 
 into that directory:
 ```
-$: git clone https://github.com/colehurwitz/eks
-$: cd eks
-```
-
-Install the requirements:
-```
-$: pip install -r requirements.txt 
+git clone https://github.com/colehurwitz/eks
+cd eks
 ```
 
 To make the package modules visible to the python interpreter, locally run pip 
 install from inside the main `eks` directory:
 
 ```
-$: pip install -e .
+pip install -e .
 ```
+
+If you wish to install the developer version of the package, run installation like this:
+```
+pip install -e ".[dev]"
+```
+
+### Method 2: pip
+
+You can also install the `eks` package using the Python Package Index (PyPI):
+```
+pip install eks
+```
+Note that you will not have access to the example data or example scripts with the pip install 
+option.
 
 ## Example scripts
 
