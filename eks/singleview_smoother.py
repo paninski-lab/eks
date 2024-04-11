@@ -3,8 +3,9 @@ import pandas as pd
 from scipy.interpolate import interp1d
 from sklearn.decomposition import PCA
 from eks.utils import make_dlc_pandas_index
-from eks.ensemble_kalman import ensemble, filtering_pass, kalman_dot, smooth_backward, eks_zscore, compute_nll
+from eks.ensemble_kalman import ensemble, filtering_pass, kalman_dot, smooth_backward, eks_zscore, compute_nll, compute_nll_steps, compute_nll_2, compute_nll_2_steps
 import matplotlib.pyplot as plt
+
 
 # -----------------------
 # funcs for single-view
@@ -35,6 +36,8 @@ def ensemble_kalman_smoother_single_view(
     dict
         keypoint_df: dataframe containing smoothed markers for one keypoint; same format as input dataframes
     """
+
+    global nll_values
 
     # --------------------------------------------------------------
     # interpolate right cam markers to left cam timestamps
@@ -91,8 +94,9 @@ def ensemble_kalman_smoother_single_view(
     zscore = eks_zscore(eks_predictions, ensemble_preds, ensemble_vars, min_ensemble_std=zscore_threshold)
 
     # compute NLL
-    nll = compute_nll(y_obs, mf, S, C)
-    print(f"NLL for {keypoint_ensemble}, smooth_param={smooth_param}, is {nll}")
+    nll = compute_nll_2(y_obs, mf, S, C)
+    nll_values = compute_nll_2_steps(y_obs, mf, S, C)
+    print(f"NLL is {nll} for {keypoint_ensemble}, smooth_param={smooth_param}")
 
     # --------------------------------------
     # final cleanup
@@ -111,8 +115,12 @@ def ensemble_kalman_smoother_single_view(
     df = pd.DataFrame(pred_arr, columns=pdindex)
     return {keypoint_ensemble+'_df': df}
 
+
+def get_nll_values():
+    return nll_values
+
 '''
-Plotting NLL traces
+Plotting NLL traces (paste in before final cleanup)
     # Plot nll values against time
     plt.plot(range(len(nll_values)), nll_values)
     plt.xlabel('Time Step')

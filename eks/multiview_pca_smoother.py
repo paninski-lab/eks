@@ -3,7 +3,7 @@ import pandas as pd
 from scipy.interpolate import interp1d
 from sklearn.decomposition import PCA
 from eks.utils import make_dlc_pandas_index
-from eks.ensemble_kalman import ensemble, filtering_pass, kalman_dot, smooth_backward, eks_zscore
+from eks.ensemble_kalman import ensemble, filtering_pass, kalman_dot, smooth_backward, eks_zscore, compute_nll
 
 
 # -----------------------
@@ -524,6 +524,12 @@ def ensemble_kalman_smoother_multi_cam(
             y_v_smooth[:,camera_indices[camera][1],camera_indices[camera][1]],
             zscore,
         ]).T
+        '''
+        TODO: Figure out (3,3) and (4,) mismatch
+        # compute NLL
+        nll = compute_nll(y_obs, mf, S, C)
+        print(f"NLL for smooth_param={smooth_param} is {nll}")
         camera_dfs[camera_name + '_df'] = pd.DataFrame(pred_arr, columns=pdindex)
+        '''
     return camera_dfs
     #return camera_dfs, cam_keypoints_mean_dict, cam_keypoints_var_dict

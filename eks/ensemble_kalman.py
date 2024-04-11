@@ -216,6 +216,7 @@ def eks_zscore(eks_predictions, ensemble_means, ensemble_vars, min_ensemble_std=
     z_score = num / thresh_ensemble_std
     return z_score
 
+
 '''
 --- FOR ITERATING AND MINIMIZING NLL ---
 def negative_log_likelihood(smooth_param, y, m0, S0, C, A, R, ensemble_vars):
@@ -230,9 +231,32 @@ def negative_log_likelihood(smooth_param, y, m0, S0, C, A, R, ensemble_vars):
     return nll
 '''
 
+
 def compute_nll(y, mf, S, C, epsilon=1e-6):
     T, n_keypoints = y.shape
     nll = 0
+    k = np.log(2 * np.pi) * n_keypoints
+
+    for t in range(T):
+        # Compute the innovation for time t
+        innovation = y[t, :] - np.dot(C, mf[t, :])
+
+        S[t] += np.eye(S[t].shape[0]) + epsilon
+
+        # Compute the log determinant and the quadratic term
+        log_det_S = np.log(np.linalg.det(S[t]))
+        # print(f"log_det_S is {log_det_S}")
+        quadratic_term = np.dot(innovation.T, np.linalg.solve(S[t], innovation))
+        # print(f"quadratic_term is {quadratic_term}")
+        # if 250 < t < 350:
+        nll_increment = 0.5 * (log_det_S + quadratic_term + k)
+        nll += nll_increment
+
+    return nll
+
+
+def compute_nll_steps(y, mf, S, C, epsilon=1e-6):
+    T, n_keypoints = y.shape
     traces = []  # Array to store nll values at each time step
     k = np.log(2 * np.pi) * n_keypoints
 
@@ -240,16 +264,59 @@ def compute_nll(y, mf, S, C, epsilon=1e-6):
         # Compute the innovation for time t
         innovation = y[t, :] - np.dot(C, mf[t, :])
 
-        S[t] = np.eye(S[t].shape[0]) + epsilon
+        S[t] += np.eye(S[t].shape[0]) + epsilon
 
         # Compute the log determinant and the quadratic term
         log_det_S = np.log(np.linalg.det(S[t]))
+        # print(f"log_det_S is {log_det_S}")
         quadratic_term = np.dot(innovation.T, np.linalg.solve(S[t], innovation))
-        if 250 < t < 350:
-            nll_increment = 0.5 * (log_det_S + quadratic_term + k)
-            traces.append(nll_increment)  # Store trace at this time step
-            nll += nll_increment
+        # print(f"quadratic_term is {quadratic_term}")
+        # if 250 < t < 350:
+        nll_increment = 0.5 * (log_det_S + quadratic_term + k)
+        traces.append(nll_increment)  # Store trace at this time step
+    return traces
 
+
+def compute_nll_2(y, mf, S, C, epsilon=1e-6, lower_bound=0, upper_bound=0):
+    T, n_keypoints = y.shape
+    nll = 0
+    k = np.log(2 * np.pi) * n_keypoints
+
+    for t in range(T):
+        # Compute the innovation for time t
+        innovation = y[t, :] - np.dot(C, mf[t, :])
+
+        # Compute the log determinant and the quadratic term
+        A = np.dot(C, S[t])
+
+        # Add epsilon to the diagonal elements of A and S[t]
+        A += np.eye(A.shape[0]) + epsilon
+        S[t] += np.eye(S[t].shape[0]) + epsilon
+        #
+        log_det_S = np.log(np.linalg.det(A))
+        quadratic_term = np.dot(innovation.T, np.linalg.solve(S[t], innovation))
+        nll_increment = 0.5 * (log_det_S + quadratic_term + k)
+        nll += nll_increment
     return nll
-    #return traces
 
+
+def compute_nll_2_steps(y, mf, S, C, epsilon=1e-6):
+    T, n_keypoints = y.shape
+    traces = []  # Array to store nll values at each time step
+    k = np.log(2 * np.pi) * n_keypoints
+
+    for t in range(T):
+        # Compute the innovation for time t
+        innovation = y[t, :] - np.dot(C, mf[t, :])
+
+        # Compute the log determinant and the quadratic term
+        A = np.dot(C, S[t])
+        # Add epsilon to the diagonal elements of A and S[t]
+        A += np.eye(A.shape[0]) + epsilon
+        S[t] += np.eye(S[t].shape[0]) + epsilon
+        log_det_S = np.log(np.linalg.det(A))
+        quadratic_term = np.dot(innovation.T, np.linalg.solve(S[t], innovation))
+
+        nll_increment = 0.5 * (log_det_S + quadratic_term + k)
+        traces.append(nll_increment)  # Store trace at this time step
+    return traces
