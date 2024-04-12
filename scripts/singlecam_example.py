@@ -6,72 +6,52 @@ import numpy as np
 import os
 import pandas as pd
 
-from eks.utils import convert_lp_dlc
-from eks.singleview_smoother import ensemble_kalman_smoother_single_view, get_nll_values, get_smooth_param
-from scripts.general_scripts import handle_io, handle_parse_args
+from scripts.general_scripting import handle_io, handle_parse_args, format_csv, populate_output_dataframe
+from smoothers.utils import convert_lp_dlc
+from smoothers.singleview_smoother import ensemble_kalman_smoother_single_view
 
-# collect user-provided args
-args = handle_parse_args('singlecam')
+
+# Collect User-Provided Args
+smoother_type = 'singlecam'
+args = handle_parse_args(smoother_type)
+
 csv_dir = os.path.abspath(args.csv_dir)
+save_dir = args.save_dir # optional, defaults to outputs\
+
 bodypart_list = args.bodypart_list
-save_dir = args.save_dir
-s = args.s
+s = args.s  # optional, defaults to automatic optimization
 
-# ---------------------------------------------
-# run EKS algorithm
-# ---------------------------------------------
-
-# handle I/O
+# Find save directory if specified, otherwise defaults to outputs\
 save_dir = handle_io(csv_dir, save_dir)
 
-# load files and put them in correct format
-csv_files = os.listdir(csv_dir)
-markers_list = []
-for csv_file in csv_files:
-    if not csv_file.endswith('csv'):
-        continue
-    markers_curr = pd.read_csv(os.path.join(csv_dir, csv_file), header=[0, 1, 2], index_col=0)
-    keypoint_names = [c[1] for c in markers_curr.columns[::3]]
-    model_name = markers_curr.columns[0][0]
-    markers_curr_fmt = convert_lp_dlc(markers_curr, keypoint_names, model_name=model_name)
-    markers_list.append(markers_curr_fmt)
-if len(markers_list) == 0:
-    raise FileNotFoundError(f'No marker csv files found in {csv_dir}')
+# Load and format input files and prepare an empty DataFrame for output.
+# markers_list : list of input DataFrames
+# markers_eks : empty DataFrame for EKS output
+markers_list, markers_eks = format_csv(csv_dir, 'lp')
 
-# make empty dataframe to write eks results into
-markers_eks = markers_curr.copy()
-markers_eks.columns = markers_eks.columns.set_levels(['ensemble-kalman_tracker'], level=0)
-for col in markers_eks.columns:
-    if col[-1] == 'likelihood':
-        # set this to 1.0 so downstream filtering functions don't get
-        # tripped up
-        markers_eks[col].values[:] = 1.0
-    else:
-        markers_eks[col].values[:] = np.nan
 
-# make empty list for nll values
-nll_values = []
+# ---------------------------------------------
+# Run EKS Algorithm
+# ---------------------------------------------
 
 # loop over keypoints; apply eks to each individually
 for keypoint_ensemble in bodypart_list:
     # run eks
-    keypoint_df_dict = ensemble_kalman_smoother_single_view(
-        markers_list=markers_list,
-        keypoint_ensemble=keypoint_ensemble,
-        smooth_param=s,
+    keypoint_df_dict, s_final, nll_values = ensemble_kalman_smoother_single_view(
+        markers_list,
+        keypoint_ensemble,
+        s,
     )
-    keypoint_df = keypoint_df_dict[keypoint_ensemble+'_df']
-    # put results into new dataframe
-    for coord in ['x', 'y', 'zscore']:
-        src_cols = ('ensemble-kalman_tracker', f'{keypoint_ensemble}', coord)
-        dst_cols = ('ensemble-kalman_tracker', f'{keypoint_ensemble}', coord)
-        markers_eks.loc[:, dst_cols] = keypoint_df.loc[:, src_cols]
+    keypoint_df = keypoint_df_dict[keypoint_ensemble + '_df']
 
-# save optimized smoothing param
-s = get_smooth_param()
+    # put results into new dataframe
+    markers_eks = populate_output_dataframe(keypoint_df, keypoint_ensemble, markers_eks)
+
+# save optimized smoothing param for plot title
+s = s_final
 
 # save eks results
-markers_eks.to_csv(os.path.join(save_dir, 'eks.csv'))
+markers_eks.to_csv(os.path.join(save_dir, f'{smoother_type} {smooth_param_optimized}_.csv'))
 
 
 # ---------------------------------------------
@@ -82,11 +62,10 @@ markers_eks.to_csv(os.path.join(save_dir, 'eks.csv'))
 kp = bodypart_list[0]
 idxs = (0, 500)
 
-# get NLL values from the smoother object
-nll_values = get_nll_values()
+# crop NLL values
 nll_values_subset = nll_values[idxs[0]:idxs[1]]
 
-fig, axes = plt.subplots(5, 1, figsize=(9, 10))  # Increased the number of subplots to accommodate nll_values
+fig, axes = plt.subplots(5, 1, figsize=(9, 10))
 
 for ax, coord in zip(axes, ['x', 'y', 'likelihood', 'zscore']):
     # Rename axes label for likelihood and zscore coordinates

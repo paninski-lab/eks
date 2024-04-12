@@ -6,9 +6,9 @@ import numpy as np
 import os
 import pandas as pd
 
-from eks.utils import convert_lp_dlc
-from eks.multiview_pca_smoother import ensemble_kalman_smoother_paw_asynchronous
-from scripts.general_scripts import handle_io, handle_parse_args
+from smoothers.utils import convert_lp_dlc
+from smoothers.multiview_pca_smoother import ensemble_kalman_smoother_paw_asynchronous
+from scripts.general_scripting import handle_io, handle_parse_args
 
 
 # collect user-provided args
