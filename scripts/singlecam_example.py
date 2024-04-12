@@ -7,7 +7,7 @@ import os
 import pandas as pd
 
 from eks.utils import convert_lp_dlc
-from eks.singleview_smoother import ensemble_kalman_smoother_single_view, get_nll_values
+from eks.singleview_smoother import ensemble_kalman_smoother_single_view, get_nll_values, get_smooth_param
 from scripts.general_scripts import handle_io, handle_parse_args
 
 # collect user-provided args
@@ -66,6 +66,9 @@ for keypoint_ensemble in bodypart_list:
         src_cols = ('ensemble-kalman_tracker', f'{keypoint_ensemble}', coord)
         dst_cols = ('ensemble-kalman_tracker', f'{keypoint_ensemble}', coord)
         markers_eks.loc[:, dst_cols] = keypoint_df.loc[:, src_cols]
+
+# save optimized smoothing param
+s = get_smooth_param()
 
 # save eks results
 markers_eks.to_csv(os.path.join(save_dir, 'eks.csv'))

@@ -3,7 +3,7 @@ import pandas as pd
 from scipy.interpolate import interp1d
 from sklearn.decomposition import PCA
 from eks.utils import make_dlc_pandas_index
-from eks.ensemble_kalman import ensemble, filtering_pass, kalman_dot, smooth_backward, eks_zscore, compute_nll, compute_nll_steps, compute_nll_2, compute_nll_2_steps
+from eks.ensemble_kalman import ensemble, filtering_pass, kalman_dot, smooth_backward, eks_zscore, compute_nll, optimize_smoothing_param, filter_smooth_nll
 import matplotlib.pyplot as plt
 
 
@@ -38,6 +38,7 @@ def ensemble_kalman_smoother_single_view(
     """
 
     global nll_values
+    global smooth_param_final
 
     # --------------------------------------------------------------
     # interpolate right cam markers to left cam timestamps
@@ -68,7 +69,7 @@ def ensemble_kalman_smoother_single_view(
     scaled_ensemble_preds[:, 1] -= mean_y_obs
     
     y_obs = scaled_ensemble_preds
-    
+    '''
     if verbose:
         print(f"filtering {keypoint_ensemble}...")
     mf, Vf, S = filtering_pass(y_obs, m0, S0, C, R, A, Q, ensemble_vars)
@@ -83,6 +84,16 @@ def ensemble_kalman_smoother_single_view(
     ms, Vs, _ = smooth_backward(y_obs, mf, Vf, S, A, Q, C)
     if verbose:
         print("done smoothing")
+    # compute NLL
+    nll = compute_nll_2(y_obs, mf, S, C)
+    nll_values = compute_nll_2_steps(y_obs, mf, S, C)
+    '''
+
+    # Calls functions from ensemble_kalman to optimize the smoothing parameter before filtering and smoothing
+    smooth_param = optimize_smoothing_param(smooth_param, y_obs, m0, S0, C, A, R, ensemble_vars)
+    ms, Vs, nll, nll_values = filter_smooth_nll(smooth_param, y_obs, m0, S0, C, A, R, ensemble_vars)
+    print(f"NLL is {nll} for {keypoint_ensemble}, smooth_param={smooth_param}")
+    smooth_param_final = smooth_param
 
     # Smoothed posterior over y
     y_m_smooth = np.dot(C, ms.T).T
@@ -92,11 +103,6 @@ def ensemble_kalman_smoother_single_view(
     eks_predictions = y_m_smooth.copy()
     eks_predictions = np.asarray([eks_predictions.T[0] + mean_x_obs, eks_predictions.T[1] + mean_y_obs]).T
     zscore = eks_zscore(eks_predictions, ensemble_preds, ensemble_vars, min_ensemble_std=zscore_threshold)
-
-    # compute NLL
-    nll = compute_nll_2(y_obs, mf, S, C)
-    nll_values = compute_nll_2_steps(y_obs, mf, S, C)
-    print(f"NLL is {nll} for {keypoint_ensemble}, smooth_param={smooth_param}")
 
     # --------------------------------------
     # final cleanup
@@ -118,6 +124,9 @@ def ensemble_kalman_smoother_single_view(
 
 def get_nll_values():
     return nll_values
+
+def get_smooth_param():
+    return smooth_param_final
 
 '''
 Plotting NLL traces (paste in before final cleanup)

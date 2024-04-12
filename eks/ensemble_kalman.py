@@ -216,25 +216,65 @@ def eks_zscore(eks_predictions, ensemble_means, ensemble_vars, min_ensemble_std=
     z_score = num / thresh_ensemble_std
     return z_score
 
-
 '''
---- FOR ITERATING AND MINIMIZING NLL ---
-def negative_log_likelihood(smooth_param, y, m0, S0, C, A, R, ensemble_vars):
+# Optimization algorithm (simplified example)
+from scipy.optimize import minimize
+
+result = minimize(
+    negative_log_likelihood,
+    x0=[initial_smooth_param],  # Initial guess
+    args=(y, m0, S0, C, A, R, ensemble_vars),
+    method='Nelder-Mead'
+)
+
+optimized_smooth_param = result.x
+'''
+
+
+def optimize_smoothing_param(smooth_param, y, m0, s0, C, A, R, ensemble_vars):
+    result = minimize(
+        return_nll_only,
+        x0=smooth_param,
+        args=(y, m0, s0, C, A, R, ensemble_vars),
+        method='Nelder-Mead'
+    )
+    print(f'Optimal at s={result.x[0]}')
+    #return result.x[0]
+    return 0.1
+
+# Combines filtering_pass, smoothing, and computing nll
+def filter_smooth_nll(smooth_param, y, m0, S0, C, A, R, ensemble_vars):
     # Adjust Q based on smooth_param
+    smooth_param = smooth_param
     Q = np.asarray([[smooth_param, 0], [0, smooth_param]])
     # Run filtering and smoothing with the current smooth_param
     mf, Vf, S = filtering_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
     ms, Vs, CV = smooth_backward(y, mf, Vf, S, A, Q, C)
     # Compute the negative log-likelihood based on innovations and their covariance
-    nll = compute_nll(y, mf, S, C)
-    print("NLL Computed.")
+    nll, nll_values = compute_nll(y, mf, S, C)
+    return ms, Vs, nll, nll_values
+
+
+count = 0
+
+
+# filter_smooth_nll version for iterative calls from optimize_smoothing_param
+def return_nll_only(smooth_param, y, m0, S0, C, A, R, ensemble_vars):
+    # Adjust Q based on smooth_param
+    smooth_param = smooth_param[0]
+    Q = np.asarray([[smooth_param, 0], [0, smooth_param]])
+    # Run filtering and smoothing with the current smooth_param
+    mf, Vf, S = filtering_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
+    ms, Vs, CV = smooth_backward(y, mf, Vf, S, A, Q, C)
+    # Compute the negative log-likelihood based on innovations and their covariance
+    nll, nll_values = compute_nll(y, mf, S, C)
     return nll
-'''
 
 
 def compute_nll(y, mf, S, C, epsilon=1e-6):
     T, n_keypoints = y.shape
     nll = 0
+    nll_values = []
     k = np.log(2 * np.pi) * n_keypoints
 
     for t in range(T):
@@ -250,32 +290,15 @@ def compute_nll(y, mf, S, C, epsilon=1e-6):
         # print(f"quadratic_term is {quadratic_term}")
         # if 250 < t < 350:
         nll_increment = 0.5 * (log_det_S + quadratic_term + k)
+        nll_values.append(nll_increment)
         nll += nll_increment
 
-    return nll
+    return nll, nll_values
 
 
-def compute_nll_steps(y, mf, S, C, epsilon=1e-6):
-    T, n_keypoints = y.shape
-    traces = []  # Array to store nll values at each time step
-    k = np.log(2 * np.pi) * n_keypoints
+'''
 
-    for t in range(T):
-        # Compute the innovation for time t
-        innovation = y[t, :] - np.dot(C, mf[t, :])
-
-        S[t] += np.eye(S[t].shape[0]) + epsilon
-
-        # Compute the log determinant and the quadratic term
-        log_det_S = np.log(np.linalg.det(S[t]))
-        # print(f"log_det_S is {log_det_S}")
-        quadratic_term = np.dot(innovation.T, np.linalg.solve(S[t], innovation))
-        # print(f"quadratic_term is {quadratic_term}")
-        # if 250 < t < 350:
-        nll_increment = 0.5 * (log_det_S + quadratic_term + k)
-        traces.append(nll_increment)  # Store trace at this time step
-    return traces
-
+Alternative implementation of NLL
 
 def compute_nll_2(y, mf, S, C, epsilon=1e-6, lower_bound=0, upper_bound=0):
     T, n_keypoints = y.shape
@@ -320,3 +343,4 @@ def compute_nll_2_steps(y, mf, S, C, epsilon=1e-6):
         nll_increment = 0.5 * (log_det_S + quadratic_term + k)
         traces.append(nll_increment)  # Store trace at this time step
     return traces
+'''
