@@ -6,53 +6,29 @@ import numpy as np
 import os
 import pandas as pd
 
-from smoothers.utils import convert_lp_dlc
 from smoothers.multiview_pca_smoother import ensemble_kalman_smoother_multi_cam
-from scripts.general_scripts import handle_io, handle_parse_args
+from scripts.general_scripting import handle_io, handle_parse_args,format_csv, populate_output_dataframe
 
 
 # collect user-provided args
-args = handle_parse_args('multicam')
+smoother_type = 'multicam'
+args = handle_parse_args(smoother_type)
+
 csv_dir = os.path.abspath(args.csv_dir)
+# Find save directory if specified, otherwise defaults to outputs\
+save_dir = handle_io(csv_dir, args.save_dir)
+
 bodypart_list = args.bodypart_list
 camera_names = args.camera_names
 num_cameras = len(camera_names)
-save_dir = args.save_dir
-s = args.s
 quantile_keep_pca = args.quantile_keep_pca
+s = args.s  # optional, defaults to automatic optimization
 
 
-# ---------------------------------------------
-# run EKS algorithm
-# ---------------------------------------------
-
-# handle I/O
-save_dir = handle_io(csv_dir, save_dir)
-
-# load files and put them in correct format
-csv_files = os.listdir(csv_dir)
-markers_list = []
-for csv_file in csv_files:
-    if not csv_file.endswith('csv'):
-        continue
-    markers_curr = pd.read_csv(os.path.join(csv_dir, csv_file), header=[0, 1, 2], index_col=0)
-    keypoint_names = [c[1] for c in markers_curr.columns[::3]]
-    model_name = markers_curr.columns[0][0]
-    markers_curr_fmt = convert_lp_dlc(markers_curr, keypoint_names, model_name=model_name)
-    markers_list.append(markers_curr_fmt)
-if len(markers_list) == 0:
-    raise FileNotFoundError(f'No marker csv files found in {csv_dir}')
-
-# make empty dataframe to write eks results into
-markers_eks = markers_curr.copy()
-markers_eks.columns = markers_eks.columns.set_levels(['ensemble-kalman_tracker'], level=0)
-for col in markers_eks.columns:
-    if col[-1] == 'likelihood':
-        # set this to 1.0 so downstream filtering functions don't get
-        # tripped up
-        markers_eks[col].values[:] = 1.0
-    else:
-        markers_eks[col].values[:] = np.nan
+# Load and format input files and prepare an empty DataFrame for output.
+# markers_list : list of input DataFrames
+# markers_eks : empty DataFrame for EKS output
+markers_list, markers_eks = format_csv(csv_dir, 'lp')
 
 # loop over keypoints; apply eks to each individually
 for keypoint_ensemble in bodypart_list:
@@ -68,7 +44,7 @@ for keypoint_ensemble in bodypart_list:
             ]
             marker_list_by_cam[c].append(markers_curr[non_likelihood_keys])
     # run eks
-    cameras_df = ensemble_kalman_smoother_multi_cam(
+    cameras_df, s_final, nll_values = ensemble_kalman_smoother_multi_cam(
         markers_list_cameras=marker_list_by_cam,
         keypoint_ensemble=keypoint_ensemble,
         smooth_param=s,
@@ -78,13 +54,13 @@ for keypoint_ensemble in bodypart_list:
     # put results into new dataframe
     for camera in camera_names:
         df_tmp = cameras_df[f'{camera}_df']
-        for coord in ['x', 'y', 'zscore']:
-            src_cols = ('ensemble-kalman_tracker', f'{keypoint_ensemble}', coord)
-            dst_cols = ('ensemble-kalman_tracker', f'{keypoint_ensemble}_{camera}', coord)
-            markers_eks.loc[:, dst_cols] = df_tmp.loc[:, src_cols]
+        markers_eks = populate_output_dataframe(df_tmp, keypoint_ensemble, markers_eks)
+
+# save optimized smoothing param for plot title
+s = s_final
 
 # save eks results
-markers_eks.to_csv(os.path.join(save_dir, 'eks.csv'))
+markers_eks.to_csv(os.path.join(save_dir, f'{smoother_type}, s={s}_.csv'))
 
 
 # ---------------------------------------------
@@ -92,8 +68,8 @@ markers_eks.to_csv(os.path.join(save_dir, 'eks.csv'))
 # ---------------------------------------------
 
 # select example keypoint from example camera view
-kp = bodypart_list[0]
-cam = camera_names[0]
+kp = bodypart_list[-1]
+cam = camera_names[-1]
 idxs = (0, 500)
 
 fig, axes = plt.subplots(4, 1, figsize=(9, 6))

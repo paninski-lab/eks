@@ -171,7 +171,3 @@ def populate_output_dataframe(keypoint_df, keypoint_ensemble, markers_eks):
     return markers_eks
 
 
-# ---------------------------------------------
-# Calling EKS smoothers from smoothers\
-# ---------------------------------------------
-

@@ -7,7 +7,6 @@ import os
 import pandas as pd
 
 from scripts.general_scripting import handle_io, handle_parse_args, format_csv, populate_output_dataframe
-from smoothers.utils import convert_lp_dlc
 from smoothers.singleview_smoother import ensemble_kalman_smoother_single_view
 
 
@@ -16,13 +15,11 @@ smoother_type = 'singlecam'
 args = handle_parse_args(smoother_type)
 
 csv_dir = os.path.abspath(args.csv_dir)
-save_dir = args.save_dir # optional, defaults to outputs\
+# Find save directory if specified, otherwise defaults to outputs\
+save_dir = handle_io(csv_dir, args.save_dir)
 
 bodypart_list = args.bodypart_list
 s = args.s  # optional, defaults to automatic optimization
-
-# Find save directory if specified, otherwise defaults to outputs\
-save_dir = handle_io(csv_dir, save_dir)
 
 # Load and format input files and prepare an empty DataFrame for output.
 # markers_list : list of input DataFrames
@@ -51,7 +48,7 @@ for keypoint_ensemble in bodypart_list:
 s = s_final
 
 # save eks results
-markers_eks.to_csv(os.path.join(save_dir, f'{smoother_type} {smooth_param_optimized}_.csv'))
+markers_eks.to_csv(os.path.join(save_dir, f'{smoother_type}, s={s}_.csv'))
 
 
 # ---------------------------------------------
@@ -59,7 +56,7 @@ markers_eks.to_csv(os.path.join(save_dir, f'{smoother_type} {smooth_param_optimi
 # ---------------------------------------------
 
 # select example keypoint
-kp = bodypart_list[0]
+kp = bodypart_list[-1]
 idxs = (0, 500)
 
 # crop NLL values

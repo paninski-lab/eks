@@ -57,7 +57,7 @@ def ensemble_kalman_smoother_single_view(
     S0 =  np.asarray([[np.var(x_t_obs), 0.0], [0.0 , np.var(y_t_obs)]]) # diagonal: var
 
     A = np.asarray([[1.0, 0], [0, 1.0]]) #state-transition matrix,
-    Q = np.asarray([[smooth_param, 0], [0, smooth_param]]) #state covariance matrix -> smaller = more smoothing
+    cov_matrix = np.asarray([[1, 0], [0, 1]]) #state covariance matrix -> smaller = more smoothing
     C = np.asarray([[1, 0], [0, 1]]) # Measurement function
     R = np.eye(2) # placeholder diagonal matrix for ensemble variance
     
@@ -87,12 +87,12 @@ def ensemble_kalman_smoother_single_view(
     nll_values = compute_nll_2_steps(y_obs, mf, S, C)
     '''
 
-    # Calls functions from ensemble_kalman to optimize the smoothing parameter before filtering and smoothing
+    # Call functions from ensemble_kalman to optimize the smoothing parameter before filtering and smoothing
     if smooth_param is None:
-        smooth_param = optimize_smoothing_param(smooth_param, y_obs, m0, S0, C, A, R, ensemble_vars)
-    ms, Vs, nll, nll_values = filter_smooth_nll(smooth_param, y_obs, m0, S0, C, A, R, ensemble_vars)
-    print(f"NLL is {nll} for {keypoint_ensemble}, smooth_param={smooth_param}")
-    smooth_param_final = smooth_param
+        smooth_param_final = optimize_smoothing_param(cov_matrix, smooth_param, y_obs, m0, S0, C, A, R, ensemble_vars)
+    else:  smooth_param_final = smooth_param
+    ms, Vs, nll, nll_values = filter_smooth_nll(cov_matrix, smooth_param_final, y_obs, m0, S0, C, A, R, ensemble_vars)
+    print(f"NLL is {nll} for {keypoint_ensemble}, smooth_param={smooth_param_final}")
 
     # Smoothed posterior over y
     y_m_smooth = np.dot(C, ms.T).T
@@ -118,7 +118,7 @@ def ensemble_kalman_smoother_single_view(
         zscore,
     ]).T
     df = pd.DataFrame(pred_arr, columns=pdindex)
-    return {keypoint_ensemble+'_df': df}, smooth_param, nll_values
+    return {keypoint_ensemble+'_df': df}, smooth_param_final, nll_values
 
 '''
 Plotting NLL traces (paste in before final cleanup)

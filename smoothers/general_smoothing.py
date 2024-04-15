@@ -114,36 +114,41 @@ def filtering_pass(y, m0, S0, C, R, A, Q, ensemble_vars):
         S: np.ndarray
             shape (samples, n_latents, n_latents)
     """
-    # time-varying observation variance
+    #time-varying observation variance
     for i in range(ensemble_vars.shape[1]):
-        R[i, i] = ensemble_vars[0][i]
+        R[i,i] = ensemble_vars[0][i]
     T = y.shape[0]
     mf = np.zeros(shape=(T, m0.shape[0]))
     Vf = np.zeros(shape=(T, m0.shape[0], m0.shape[0]))
     S = np.zeros(shape=(T, m0.shape[0], m0.shape[0]))
-    mf[0] = m0 + kalman_dot(y[0, :] - np.dot(C, m0), S0, C, R)
-    Vf[0, :] = S0 - kalman_dot(np.dot(C, S0), S0, C, R)
+    K_array, _ = kalman_dot(y[0, :] - np.dot(C, m0), S0, C, R)
+    mf[0] = m0 + K_array
+    K_array, _ = kalman_dot(np.dot(C, m0), S0, C, R)
+    mf[0] = m0 + K_array
+    Vf[0, :] = S0 - K_array
     S[0] = S0
+    innovation_cov = np.zeros((T, C.shape[0], C.shape[0]))
+    innovations = np.zeros((T, y.shape[1]))  # Assuming y is m x T
+    innovations[0] = y[0] - np.dot(C, mf[0])
+    innovation_cov[0] = np.dot(C, np.dot(S0, C.T)) + R
 
-    for i in range(1, T):
-        for t in range(ensemble_vars.shape[1]):
-            R[t, t] = ensemble_vars[i][t]
-        S[i - 1] = np.dot(A, np.dot(Vf[i - 1, :], A.T)) + Q
-        y_minus_CAmf = y[i, :] - np.dot(C, np.dot(A, mf[i - 1, :]))
+    for t in range(1, T):
+        for i in range(ensemble_vars.shape[1]):
+            R[i,i] = ensemble_vars[t][i]
+            S[t-1] = np.dot(A, np.dot(Vf[t-1, :], A.T)) + Q
+            innovations[t] = y[t, :] - np.dot(C, np.dot(A, mf[t-1, :]))
+            K_array, _ = kalman_dot(innovations[t], S[t-1], C, R)
+            mf[t, :] = np.dot(A, mf[t-1, :]) + K_array
+            K_array, innovation_cov[t] = kalman_dot(np.dot(C, S[t-1]), S[t-1], C, R)
+            Vf[t, :] = S[t-1] -K_array
+    return mf, Vf, S, innovations, innovation_cov
 
-        mf[i, :] = np.dot(A, mf[i - 1, :]) + kalman_dot(y_minus_CAmf, S[i - 1], C, R)
-        Vf[i, :] = S[i - 1] - kalman_dot(np.dot(C, S[i - 1]), S[i - 1], C, R)
 
-    return mf, Vf, S
-
-
-def kalman_dot(array, V, C, R):
-    R_CVCT = R + np.dot(C, np.dot(V, C.T))
-    R_CVCT_inv_array = np.linalg.solve(R_CVCT, array)
-
-    K_array = np.dot(V, np.dot(C.T, R_CVCT_inv_array))
-
-    return K_array
+def kalman_dot(innovation, V, C, R):
+    innovation_cov = R + np.dot(C, np.dot(V, C.T))
+    innovation_cov_inv = np.linalg.solve(innovation_cov, innovation)
+    K_array = np.dot(V, np.dot(C.T, innovation_cov_inv))
+    return K_array, innovation_cov
 
 
 def smooth_backward(y, mf, Vf, S, A, Q, C):
@@ -216,6 +221,7 @@ def eks_zscore(eks_predictions, ensemble_means, ensemble_vars, min_ensemble_std=
     z_score = num / thresh_ensemble_std
     return z_score
 
+
 '''
 # Optimization algorithm (simplified example)
 from scipy.optimize import minimize
@@ -231,12 +237,12 @@ optimized_smooth_param = result.x
 '''
 
 
-def optimize_smoothing_param(smooth_param, y, m0, s0, C, A, R, ensemble_vars):
+def optimize_smoothing_param(cov_matrix, smooth_param, y, m0, s0, C, A, R, ensemble_vars):
     guess = compute_initial_guess(y, ensemble_vars)
     result = minimize(
         return_nll_only,
         x0=guess,  # initial smooth param guess
-        args=(y, m0, s0, C, A, R, ensemble_vars),
+        args=(cov_matrix, y, m0, s0, C, A, R, ensemble_vars),
         method='Nelder-Mead'
     )
     print(f'Optimal at s={result.x[0]}')
@@ -245,7 +251,6 @@ def optimize_smoothing_param(smooth_param, y, m0, s0, C, A, R, ensemble_vars):
 
 # Function to compute ensemble mean, temporal differences, and standard deviation
 def compute_initial_guess(y, ensemble_vars):
-
     # Compute ensemble mean
     ensemble_mean = np.mean(ensemble_vars, axis=0)
 
@@ -260,37 +265,60 @@ def compute_initial_guess(y, ensemble_vars):
 
     # Compute standard deviation of temporal differences
     std_dev_guess = np.std(temporal_diffs_list)
-
+    print(f'Initial guess: {std_dev_guess}')
     return std_dev_guess
 
 
 # Combines filtering_pass, smoothing, and computing nll
-def filter_smooth_nll(smooth_param, y, m0, S0, C, A, R, ensemble_vars):
-    # Adjust Q based on smooth_param
-    smooth_param = smooth_param
-    Q = np.asarray([[smooth_param, 0], [0, smooth_param]])
+def filter_smooth_nll(cov_matrix, smooth_param, y, m0, S0, C, A, R, ensemble_vars):
+    # Adjust Q based on smooth_param and cov_matrix
+    Q = smooth_param * cov_matrix
     # Run filtering and smoothing with the current smooth_param
-    mf, Vf, S = filtering_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
+    mf, Vf, S, innovs, innov_cov = filtering_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
     ms, Vs, CV = smooth_backward(y, mf, Vf, S, A, Q, C)
     # Compute the negative log-likelihood based on innovations and their covariance
-    nll, nll_values = compute_nll(y, mf, S, C)
+    nll, nll_values = compute_nll(innovs, innov_cov)
     return ms, Vs, nll, nll_values
 
 
 # filter_smooth_nll version for iterative calls from optimize_smoothing_param
-def return_nll_only(smooth_param, y, m0, S0, C, A, R, ensemble_vars):
-    # Adjust Q based on smooth_param
+def return_nll_only(cov_matrix, smooth_param, y, m0, S0, C, A, R, ensemble_vars):
+    # Adjust Q based on smooth_param and cov_matrix
+    Q = smooth_param * cov_matrix
     smooth_param = smooth_param[0]
-    Q = np.asarray([[smooth_param, 0], [0, smooth_param]])
     # Run filtering and smoothing with the current smooth_param
-    mf, Vf, S = filtering_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
+    mf, Vf, S, innovs, innov_cov = filtering_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
     ms, Vs, CV = smooth_backward(y, mf, Vf, S, A, Q, C)
     # Compute the negative log-likelihood based on innovations and their covariance
-    nll, nll_values = compute_nll(y, mf, S, C)
+    nll, nll_values = compute_nll(innovs, innov_cov)
     return nll
 
 
-def compute_nll(y, mf, S, C, epsilon=1e-6):
+def compute_nll(innovations, innovation_covs, epsilon=1e-6):
+    T = innovations.shape[0]
+    n_keypoints = innovations.shape[1]
+    nll = 0
+    nll_values = []
+    k = np.log(2 * np.pi) * n_keypoints  # The Gaussian normalization constant part
+    for t in range(T):
+        # Regularize the innovation covariance matrix by adding epsilon to the diagonal
+        reg_innovation_cov = innovation_covs[t] + epsilon * np.eye(n_keypoints)
+
+        # Compute the log determinant of the regularized covariance matrix
+        log_det_S = np.log(np.linalg.det(reg_innovation_cov) + epsilon)
+        solved_term = np.linalg.solve(reg_innovation_cov, innovations[t])
+        quadratic_term = np.dot(innovations[t], solved_term)
+
+        # Compute the NLL increment for time step t
+        nll_increment = 0.5 * (log_det_S + quadratic_term + k)
+        nll_values.append(nll_increment)
+        nll += nll_increment
+    return nll, nll_values
+
+
+# Alternative implementation of NLL
+
+def compute_nll_2(y, mf, S, C, epsilon=1e-6, lower_bound=0, upper_bound=0):
     T, n_keypoints = y.shape
     nll = 0
     nll_values = []
@@ -300,66 +328,16 @@ def compute_nll(y, mf, S, C, epsilon=1e-6):
         # Compute the innovation for time t
         innovation = y[t, :] - np.dot(C, mf[t, :])
 
+        # Compute the log determinant and the quadratic term
+        A = np.dot(C, S[t])
+
+        # Add epsilon to the diagonal elements of A and S[t]
+        A += np.eye(A.shape[0]) + epsilon
         S[t] += np.eye(S[t].shape[0]) + epsilon
 
-        # Compute the log determinant and the quadratic term
-        log_det_S = np.log(np.linalg.det(S[t]))
-        # print(f"log_det_S is {log_det_S}")
+        log_det_S = np.log(np.linalg.det(A))
         quadratic_term = np.dot(innovation.T, np.linalg.solve(S[t], innovation))
-        # print(f"quadratic_term is {quadratic_term}")
-        # if 250 < t < 350:
         nll_increment = 0.5 * (log_det_S + quadratic_term + k)
         nll_values.append(nll_increment)
         nll += nll_increment
-
     return nll, nll_values
-
-
-'''
-
-Alternative implementation of NLL
-
-def compute_nll_2(y, mf, S, C, epsilon=1e-6, lower_bound=0, upper_bound=0):
-    T, n_keypoints = y.shape
-    nll = 0
-    k = np.log(2 * np.pi) * n_keypoints
-
-    for t in range(T):
-        # Compute the innovation for time t
-        innovation = y[t, :] - np.dot(C, mf[t, :])
-
-        # Compute the log determinant and the quadratic term
-        A = np.dot(C, S[t])
-
-        # Add epsilon to the diagonal elements of A and S[t]
-        A += np.eye(A.shape[0]) + epsilon
-        S[t] += np.eye(S[t].shape[0]) + epsilon
-        #
-        log_det_S = np.log(np.linalg.det(A))
-        quadratic_term = np.dot(innovation.T, np.linalg.solve(S[t], innovation))
-        nll_increment = 0.5 * (log_det_S + quadratic_term + k)
-        nll += nll_increment
-    return nll
-
-
-def compute_nll_2_steps(y, mf, S, C, epsilon=1e-6):
-    T, n_keypoints = y.shape
-    traces = []  # Array to store nll values at each time step
-    k = np.log(2 * np.pi) * n_keypoints
-
-    for t in range(T):
-        # Compute the innovation for time t
-        innovation = y[t, :] - np.dot(C, mf[t, :])
-
-        # Compute the log determinant and the quadratic term
-        A = np.dot(C, S[t])
-        # Add epsilon to the diagonal elements of A and S[t]
-        A += np.eye(A.shape[0]) + epsilon
-        S[t] += np.eye(S[t].shape[0]) + epsilon
-        log_det_S = np.log(np.linalg.det(A))
-        quadratic_term = np.dot(innovation.T, np.linalg.solve(S[t], innovation))
-
-        nll_increment = 0.5 * (log_det_S + quadratic_term + k)
-        traces.append(nll_increment)  # Store trace at this time step
-    return traces
-'''
