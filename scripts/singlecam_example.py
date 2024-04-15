@@ -17,6 +17,7 @@ args = handle_parse_args(smoother_type)
 csv_dir = os.path.abspath(args.csv_dir)
 # Find save directory if specified, otherwise defaults to outputs\
 save_dir = handle_io(csv_dir, args.save_dir)
+save_filename = args.save_filename
 
 bodypart_list = args.bodypart_list
 s = args.s  # optional, defaults to automatic optimization
@@ -48,7 +49,8 @@ for keypoint_ensemble in bodypart_list:
 s = s_final
 
 # save eks results
-markers_eks.to_csv(os.path.join(save_dir, f'{smoother_type}, s={s}.csv'))
+save_filename = save_filename or f'{smoother_type}, s={s}_.csv'  # use type and s if no user input
+markers_eks.to_csv(os.path.join(save_dir, save_filename))
 
 
 # ---------------------------------------------

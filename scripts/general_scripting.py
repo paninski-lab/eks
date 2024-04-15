@@ -38,6 +38,12 @@ def handle_parse_args(script_type):
         default=None,
         type=str,
     )
+    parser.add_argument(
+        '--save-filename',
+        help='filename for outputs (default uses smoother type and s parameter)',
+        default=None,
+        type=str,
+    )
     if script_type == 'singlecam':
         add_bodyparts(parser)
         add_s(parser)
