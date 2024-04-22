@@ -1,6 +1,5 @@
 """Example script for ibl-paw dataset."""
 
-import argparse
 import matplotlib.pyplot as plt
 import numpy as np
 import os
@@ -61,21 +60,22 @@ for filename in filenames:
 # file checks
 if timestamps_left is None or timestamps_right is None:
     raise ValueError('Need timestamps for both cameras')
-    
+
 if len(markers_list_right) != len(markers_list_left) or len(markers_list_left) == 0:
     raise ValueError(
         'There must be the same number of left and right camera models and >=1 model for each.')
 
 # run eks
-df_dicts, markers_list_left_cam, markers_list_right_cam = ensemble_kalman_smoother_paw_asynchronous(
-    markers_list_left_cam=markers_list_left,
-    markers_list_right_cam=markers_list_right,
-    timestamps_left_cam=timestamps_left,
-    timestamps_right_cam=timestamps_right,
-    keypoint_names=keypoint_names,
-    smooth_param=s,
-    quantile_keep_pca=quantile_keep_pca,
-)
+df_dicts, markers_list_left_cam, markers_list_right_cam = \
+    ensemble_kalman_smoother_paw_asynchronous(
+        markers_list_left_cam=markers_list_left,
+        markers_list_right_cam=markers_list_right,
+        timestamps_left_cam=timestamps_left,
+        timestamps_right_cam=timestamps_right,
+        keypoint_names=keypoint_names,
+        smooth_param=0.1,
+        quantile_keep_pca=quantile_keep_pca,
+    )
 
 # save smoothed markers from each view
 for view in ['left', 'right']:
@@ -88,7 +88,7 @@ for view in ['left', 'right']:
 # ---------------------------------------------
 
 # select example keypoint from example camera view
-kp = keypoint_names[0] 
+kp = keypoint_names[0]
 view = 'left'  # NOTE: if you want to use right view, must swap paw identities
 idxs = (0, 200)
 kp_swap = [x for x in keypoint_names if x != kp][0]
@@ -96,13 +96,14 @@ if view == 'right':
     markers_list_curr = markers_list_right_cam
 else:
     markers_list_curr = markers_list_left_cam
-    
+
 fig, axes = plt.subplots(4, 1, figsize=(9, 6))
 
 for ax, coord in zip(axes, ['x', 'y', 'likelihood', 'zscore']):
     ax.set_ylabel(coord, fontsize=12)
     if coord == 'zscore':
-        zscores = df_dicts[f'{view}_df'].loc[slice(*idxs), ('ensemble-kalman_tracker', kp, coord)].values
+        zscores = df_dicts[f'{view}_df'].loc[slice(*idxs),
+                                             ('ensemble-kalman_tracker', kp, coord)].values
         ax.plot(
             df_dicts[f'{view}_df'].loc[slice(*idxs), ('ensemble-kalman_tracker', kp, coord)],
             color=[0.5, 0.5, 0.5]
@@ -120,12 +121,14 @@ for ax, coord in zip(axes, ['x', 'y', 'likelihood', 'zscore']):
             if view == 'right':
                 if coord == 'x':
                     ax.plot(
-                        128 - markers_curr.loc[slice(*idxs), f'{kp_swap}_{coord}'], color=[0.5, 0.5, 0.5],
+                        128 - markers_curr.loc[slice(*idxs), f'{kp_swap}_{coord}'],
+                        color=[0.5, 0.5, 0.5],
                         label='Individual models' if m == 0 else None,
                     )
                 else:
                     ax.plot(
-                        markers_curr.loc[slice(*idxs), f'{kp_swap}_{coord}'], color=[0.5, 0.5, 0.5],
+                        markers_curr.loc[slice(*idxs), f'{kp_swap}_{coord}'],
+                        color=[0.5, 0.5, 0.5],
                         label='Individual models' if m == 0 else None,
                     )
             else:

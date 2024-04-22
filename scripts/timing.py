@@ -1,10 +1,15 @@
 import subprocess
 import time
 
-# Time script version 1
+# Time script for timing runs of EKS.
 start_time = time.time()
-time_version_1 = subprocess.check_output(['python', 'scripts/multicam_example.py', '--csv-dir',
-                                          './data/mirror-mouse', '--bodypart-list', 'paw1LH', 'paw2LF', 'paw3RF', 'paw4RH', '--camera-names', 'top', 'bot'], text=True)
+time_version_1 = subprocess.check_output([
+    'python', 'scripts/multicam_example.py',
+    '--csv-dir', './data/mirror-mouse',
+    '--bodypart-list', 'paw1LH', 'paw2LF', 'paw3RF', 'paw4RH',
+    '--camera-names', 'top', 'bot'],
+    text=True
+)
 end_time = time.time()
 
 # Calculate the execution time

@@ -1,13 +1,10 @@
 """Example script for multi-camera datasets."""
 
-import argparse
 import matplotlib.pyplot as plt
-import numpy as np
 import os
-import pandas as pd
 
 from smoothers.multiview_pca_smoother import ensemble_kalman_smoother_multi_cam
-from scripts.general_scripting import handle_io, handle_parse_args, format_csv, populate_output_dataframe
+from scripts.general_scripting import handle_io, handle_parse_args, format_csv
 
 
 # collect user-provided args
@@ -38,8 +35,7 @@ for keypoint_ensemble in bodypart_list:
         for c, camera_name in enumerate(camera_names):
             non_likelihood_keys = [
                 key for key in markers_curr.keys()
-                if camera_names[c] in key
-                   and keypoint_ensemble in key
+                if camera_names[c] in key and keypoint_ensemble in key
             ]
             marker_list_by_cam[c].append(markers_curr[non_likelihood_keys])
     # run eks

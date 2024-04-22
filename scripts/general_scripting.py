@@ -15,7 +15,8 @@ The functions here are called by individual example scripts """
 # Command Line Arguments and File I/O
 # ---------------------------------------------
 
-def handle_io(csv_dir, save_dir): # Finds + returns save directory if specified, otherwise defaults to outputs\
+# Finds + returns save directory if specified, otherwise defaults to outputs
+def handle_io(csv_dir, save_dir):
     if not os.path.isdir(csv_dir):
         raise ValueError('--csv-dir must be a valid directory containing prediction csv files')
     if save_dir is None:
@@ -132,7 +133,8 @@ def format_csv(csv_dir, data_type='lp'):
     csv_files = os.listdir(csv_dir)
     markers_list = []
 
-    # Extracting markers from data. Applies correct format conversion and stores each file's markers in a list
+    # Extracting markers from data
+    # Applies correct format conversion and stores each file's markers in a list
     for csv_file in csv_files:
         if not csv_file.endswith('csv'):
             continue
@@ -151,7 +153,8 @@ def format_csv(csv_dir, data_type='lp'):
 
     markers_eks = make_output_dataframe(markers_curr)
 
-    return markers_list, markers_eks  # returns both the formatted marker data and the empty dataframe for EKS output
+    # returns both the formatted marker data and the empty dataframe for EKS output
+    return markers_list, markers_eks
 
 
 # Making empty DataFrame for EKS output
@@ -175,5 +178,3 @@ def populate_output_dataframe(keypoint_df, keypoint_ensemble, markers_eks):
         dst_cols = ('ensemble-kalman_tracker', f'{keypoint_ensemble}', coord)
         markers_eks.loc[:, dst_cols] = keypoint_df.loc[:, src_cols]
     return markers_eks
-
-

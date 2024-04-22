@@ -1,6 +1,5 @@
 """Example script for ibl-pupil dataset."""
 
-import argparse
 import matplotlib.pyplot as plt
 import numpy as np
 import os
@@ -8,7 +7,7 @@ import pandas as pd
 
 from smoothers.utils import convert_lp_dlc
 from smoothers.pupil_smoother import ensemble_kalman_smoother_pupil
-from scripts.general_scripts import handle_io, handle_parse_args
+from scripts.general_scripting import handle_io, handle_parse_args
 
 
 # collect user-provided args
@@ -78,8 +77,8 @@ for ax, coord in zip(axes, ['x', 'y', 'likelihood', 'zscore']):
     ax.set_ylabel(coord, fontsize=12)
     if coord == 'zscore':
         ax.plot(
-        df_dicts['markers_df'].loc[slice(*idxs), ('ensemble-kalman_tracker', f'{kp}', coord)],
-        color='k', linewidth=2)
+            df_dicts['markers_df'].loc[slice(*idxs), ('ensemble-kalman_tracker', f'{kp}', coord)],
+            color='k', linewidth=2)
         ax.set_xlabel('Time (frames)', fontsize=12)
         continue
     for m, markers_curr in enumerate(markers_list):

@@ -11,8 +11,8 @@ def ensemble(markers_list, keys, mode='median'):
         keys: list
             List of keys in each marker dataframe
         mode: string
-            Averaging mode which includes 'median', 'mean', or 'confidence_weighted_mean'. 
-            
+            Averaging mode which includes 'median', 'mean', or 'confidence_weighted_mean'.
+
     Returns:
         ensemble_preds: np.ndarray
             shape (samples, n_keypoints)
@@ -71,7 +71,7 @@ def ensemble(markers_list, keys, mode='median'):
             mean_conf_per_keypoint = np.sum(likelihood_stack, 1) / likelihood_stack.shape[1]
             avg = np.sum(stack * likelihood_stack, 1) / conf_per_keypoint
             var = np.var(stack, 1)
-            var = var / mean_conf_per_keypoint  # low-confidence keypoints get inflated obs variances
+            var = var / mean_conf_per_keypoint  # low-confidence --> inflated obs variances
             ensemble_preds.append(avg)
             ensemble_vars.append(var)
             ensemble_stacks.append(stack)
@@ -83,11 +83,12 @@ def ensemble(markers_list, keys, mode='median'):
     ensemble_preds = np.asarray(ensemble_preds).T
     ensemble_vars = np.asarray(ensemble_vars).T
     ensemble_stacks = np.asarray(ensemble_stacks).T
-    return ensemble_preds, ensemble_vars, ensemble_stacks, keypoints_avg_dict, keypoints_var_dict, keypoints_stack_dict
+    return ensemble_preds, ensemble_vars, ensemble_stacks, \
+        keypoints_avg_dict, keypoints_var_dict, keypoints_stack_dict
 
 
 def filtering_pass(y, m0, S0, C, R, A, Q, ensemble_vars):
-    """Implements Kalman-filter from - https://random-walks.org/content/misc/kalman/kalman.html
+    """Implements Kalman-filter
     Args:
         y: np.ndarray
             shape (samples, n_keypoints)
@@ -114,9 +115,9 @@ def filtering_pass(y, m0, S0, C, R, A, Q, ensemble_vars):
         S: np.ndarray
             shape (samples, n_latents, n_latents)
     """
-    #time-varying observation variance
+    # time-varying observation variance
     for i in range(ensemble_vars.shape[1]):
-        R[i,i] = ensemble_vars[0][i]
+        R[i, i] = ensemble_vars[0][i]
     T = y.shape[0]
     mf = np.zeros(shape=(T, m0.shape[0]))
     Vf = np.zeros(shape=(T, m0.shape[0], m0.shape[0]))
@@ -134,13 +135,13 @@ def filtering_pass(y, m0, S0, C, R, A, Q, ensemble_vars):
 
     for t in range(1, T):
         for i in range(ensemble_vars.shape[1]):
-            R[i,i] = ensemble_vars[t][i]
-            S[t-1] = np.dot(A, np.dot(Vf[t-1, :], A.T)) + Q
-            innovations[t] = y[t, :] - np.dot(C, np.dot(A, mf[t-1, :]))
-            K_array, _ = kalman_dot(innovations[t], S[t-1], C, R)
-            mf[t, :] = np.dot(A, mf[t-1, :]) + K_array
-            K_array, innovation_cov[t] = kalman_dot(np.dot(C, S[t-1]), S[t-1], C, R)
-            Vf[t, :] = S[t-1] -K_array
+            R[i, i] = ensemble_vars[t][i]
+            S[t - 1] = np.dot(A, np.dot(Vf[t - 1, :], A.T)) + Q
+            innovations[t] = y[t, :] - np.dot(C, np.dot(A, mf[t - 1, :]))
+            K_array, _ = kalman_dot(innovations[t], S[t - 1], C, R)
+            mf[t, :] = np.dot(A, mf[t - 1, :]) + K_array
+            K_array, innovation_cov[t] = kalman_dot(np.dot(C, S[t - 1]), S[t - 1], C, R)
+            Vf[t, :] = S[t - 1] - K_array
     return mf, Vf, S, innovations, innovation_cov
 
 
@@ -152,7 +153,7 @@ def kalman_dot(innovation, V, C, R):
 
 
 def smooth_backward(y, mf, Vf, S, A, Q, C):
-    """Implements Kalman-smoothing backwards from - https://random-walks.org/content/misc/kalman/kalman.html
+    """Implements Kalman-smoothing backwards
     Args:
         y: np.ndarray
             shape (samples, n_keypoints)
@@ -213,9 +214,12 @@ def eks_zscore(eks_predictions, ensemble_means, ensemble_vars, min_ensemble_std=
             z_score for each time point - (samples, 1)
     """
     ensemble_std = np.sqrt(
-        ensemble_vars[:, 0] + ensemble_vars[:, 1])  # trace of covariance matrix - multi-d variance measure
+        # trace of covariance matrix - multi-d variance measure
+        ensemble_vars[:, 0] + ensemble_vars[:, 1])
     num = np.sqrt(
-        (eks_predictions[:, 0] - ensemble_means[:, 0]) ** 2 + (eks_predictions[:, 1] - ensemble_means[:, 1]) ** 2)
+        (eks_predictions[:, 0]
+         - ensemble_means[:, 0]) ** 2
+        + (eks_predictions[:, 1] - ensemble_means[:, 1]) ** 2)
     thresh_ensemble_std = ensemble_std.copy()
     thresh_ensemble_std[thresh_ensemble_std < min_ensemble_std] = min_ensemble_std
     z_score = num / thresh_ensemble_std

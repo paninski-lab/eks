@@ -1,12 +1,10 @@
 """Example script for single-camera datasets."""
 
-import argparse
 import matplotlib.pyplot as plt
-import numpy as np
 import os
-import pandas as pd
 
-from scripts.general_scripting import handle_io, handle_parse_args, format_csv, populate_output_dataframe
+from scripts.general_scripting import handle_io, handle_parse_args, format_csv, \
+    populate_output_dataframe
 from smoothers.singleview_smoother import ensemble_kalman_smoother_single_view
 
 
@@ -74,7 +72,6 @@ for ax, coord in zip(axes, ['x', 'y', 'likelihood', 'zscore']):
         ylabel = 'EKS disagreement'
     else:
         ylabel = coord
-
 
     # plot individual models
     ax.set_ylabel(ylabel, fontsize=12)

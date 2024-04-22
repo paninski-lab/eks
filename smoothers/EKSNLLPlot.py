@@ -1,18 +1,27 @@
 import subprocess
 import matplotlib.pyplot as plt
 
+'''
+Generates a plot of EKS Negative Log Likelihood results at different Smoothing Parameters
+'''
+
 # Smooth params to try:
-smooth_params = [0.01, 0.1, 1, 5, 10, 100, 1000]
+smooth_params = [0.01, 0.1, 1, 5, 10, 100, 1000]  # parameters to be tested
 
 # Collect output nll lists as a list of lists
 nll_values_list = []
 
 print('Starting runs')
 for param in smooth_params:
-    # Run existing Python script with different parameter
-    result = subprocess.run(['python', 'scripts\multicam_example.py', '--csv-dir',
-                             './data/mirror-mouse', '--bodypart-list', 'paw1LH', 'paw2LF', 'paw3RF', 'paw4RH',
-                             '--camera-names', 'top', 'bot', '--s', str(param)], capture_output=True, text=True)
+    # Run existing Python script with different parameters
+    result = subprocess.run([
+        'python', 'scripts/multicam_example.py',
+        '--csv-dir', './data/mirror-mouse',
+        '--bodypart-list', 'paw1LH', 'paw2LF', 'paw3RF', 'paw4RH',
+        '--camera-names', 'top', 'bot', '--s', str(param)],
+        capture_output=True,
+        text=True
+    )
     print(f'Run successful at smooth_param {param}')
 
     # Extract nll_values from result
@@ -35,7 +44,7 @@ for i, nll_values in enumerate(nll_values_list):
 
 plt.xlabel('Smoothing Parameter')
 plt.ylabel('NLL')
-plt.xticks(range(len(smooth_params)), smooth_params)  # Set x-axis ticks to the smooth_params values
+plt.xticks(range(len(smooth_params)), smooth_params)  # Set x-axis ticks to smooth_params values
 plt.title('mirror-mouse multi-cam EKS NLL vs Smoothing Parameter')
 plt.grid(True)
 
