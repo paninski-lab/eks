@@ -48,7 +48,7 @@ for keypoint_ensemble in bodypart_list:
 s = s_final
 
 # save eks results
-markers_eks.to_csv(os.path.join(save_dir, f'{smoother_type}, s={s}_.csv'))
+markers_eks.to_csv(os.path.join(save_dir, f'{smoother_type}, s={s}.csv'))
 
 
 # ---------------------------------------------

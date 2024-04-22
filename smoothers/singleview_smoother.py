@@ -3,7 +3,8 @@ import pandas as pd
 from scipy.interpolate import interp1d
 from sklearn.decomposition import PCA
 from smoothers.utils import make_dlc_pandas_index
-from smoothers.general_smoothing import ensemble, filtering_pass, kalman_dot, smooth_backward, eks_zscore, compute_nll, optimize_smoothing_param, filter_smooth_nll
+from smoothers.general_smoothing import ensemble, filtering_pass, kalman_dot, smooth_backward, eks_zscore, compute_nll,\
+    optimize_smoothing_param, filter_smooth_nll
 import matplotlib.pyplot as plt
 
 
@@ -89,7 +90,7 @@ def ensemble_kalman_smoother_single_view(
 
     # Call functions from ensemble_kalman to optimize the smoothing parameter before filtering and smoothing
     if smooth_param is None:
-        smooth_param_final = optimize_smoothing_param(cov_matrix, smooth_param, y_obs, m0, S0, C, A, R, ensemble_vars)
+        smooth_param_final = optimize_smoothing_param_fast(cov_matrix, y_obs, m0, S0, C, A, R, ensemble_vars)
     else:  smooth_param_final = smooth_param
     ms, Vs, nll, nll_values = filter_smooth_nll(cov_matrix, smooth_param_final, y_obs, m0, S0, C, A, R, ensemble_vars)
     print(f"NLL is {nll} for {keypoint_ensemble}, smooth_param={smooth_param_final}")

@@ -7,7 +7,7 @@ import os
 import pandas as pd
 
 from smoothers.multiview_pca_smoother import ensemble_kalman_smoother_multi_cam
-from scripts.general_scripting import handle_io, handle_parse_args,format_csv, populate_output_dataframe
+from scripts.general_scripting import handle_io, handle_parse_args, format_csv, populate_output_dataframe
 
 
 # collect user-provided args
@@ -23,7 +23,6 @@ camera_names = args.camera_names
 num_cameras = len(camera_names)
 quantile_keep_pca = args.quantile_keep_pca
 s = args.s  # optional, defaults to automatic optimization
-
 
 # Load and format input files and prepare an empty DataFrame for output.
 # markers_list : list of input DataFrames
@@ -54,22 +53,21 @@ for keypoint_ensemble in bodypart_list:
     # put results into new dataframe
     for camera in camera_names:
         df_tmp = cameras_df[f'{camera}_df']
-        markers_eks = populate_output_dataframe(df_tmp, keypoint_ensemble, markers_eks)
-
-# save optimized smoothing param for plot title
-s = s_final
+        for coord in ['x', 'y', 'zscore']:
+            src_cols = ('ensemble-kalman_tracker', f'{keypoint_ensemble}', coord)
+            dst_cols = ('ensemble-kalman_tracker', f'{keypoint_ensemble}_{camera}', coord)
+            markers_eks.loc[:, dst_cols] = df_tmp.loc[:, src_cols]
 
 # save eks results
-markers_eks.to_csv(os.path.join(save_dir, f'{smoother_type}, s={s}_.csv'))
-
+markers_eks.to_csv(os.path.join(save_dir, 'eks.csv'))
 
 # ---------------------------------------------
 # plot results
 # ---------------------------------------------
 
 # select example keypoint from example camera view
-kp = bodypart_list[-1]
-cam = camera_names[-1]
+kp = bodypart_list[0]
+cam = camera_names[0]
 idxs = (0, 500)
 
 fig, axes = plt.subplots(4, 1, figsize=(9, 6))
@@ -79,8 +77,8 @@ for ax, coord in zip(axes, ['x', 'y', 'likelihood', 'zscore']):
     ax.set_ylabel(coord, fontsize=12)
     if coord == 'zscore':
         ax.plot(
-        markers_eks.loc[slice(*idxs), ('ensemble-kalman_tracker', f'{kp}_{cam}', coord)],
-        color=[0.5, 0.5, 0.5])
+            markers_eks.loc[slice(*idxs), ('ensemble-kalman_tracker', f'{kp}_{cam}', coord)],
+            color=[0.5, 0.5, 0.5])
         ax.set_xlabel('Time (frames)', fontsize=12)
         continue
     for m, markers_curr in enumerate(markers_list):

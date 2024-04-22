@@ -3,7 +3,8 @@ import pandas as pd
 from scipy.interpolate import interp1d
 from sklearn.decomposition import PCA
 from smoothers.utils import make_dlc_pandas_index
-from smoothers.general_smoothing import ensemble, filtering_pass, kalman_dot, smooth_backward, eks_zscore, compute_nll, optimize_smoothing_param, filter_smooth_nll
+from smoothers.general_smoothing import ensemble, filtering_pass, kalman_dot, smooth_backward, eks_zscore, compute_nll,\
+    optimize_smoothing_param, filter_smooth_nll
 
 
 # -----------------------
@@ -482,18 +483,16 @@ def ensemble_kalman_smoother_multi_cam(
     d_t = good_z_t_obs[1:] - good_z_t_obs[:-1]
 
     C = ensemble_pca.components_.T # Measurement function is inverse transform of PCA
-
     R = np.eye(ensemble_pca.components_.shape[1]) # placeholder diagonal matrix for ensemble variance
 
     cov_matrix = np.cov(d_t.T)
 
     # Call functions from ensemble_kalman to optimize the smoothing parameter before filtering and smoothing
     if smooth_param is None:
-        smooth_param = optimize_smoothing_param(cov_matrix, smooth_param, y_obs, m0, S0, C, A, R, ensemble_vars)
+        smooth_param = optimize_smoothing_param(cov_matrix, y_obs, m0, S0, C, A, R, ensemble_vars)
     ms, Vs, nll, nll_values = filter_smooth_nll(cov_matrix, smooth_param, y_obs, m0, S0, C, A, R, ensemble_vars)
     print(f"NLL is {nll} for {keypoint_ensemble}, smooth_param={smooth_param}")
     smooth_param_final = smooth_param
-
 
     # Smoothed posterior over y
     y_m_smooth = np.dot(C, ms.T).T
@@ -524,11 +523,5 @@ def ensemble_kalman_smoother_multi_cam(
             zscore,
         ]).T
         camera_dfs[camera_name + '_df'] = pd.DataFrame(pred_arr, columns=pdindex)
-        '''
-        TODO: Figure out (3,3) and (4,) mismatch
-        # compute NLL
-        nll = compute_nll(y_obs, mf, S, C)
-        print(f"NLL for smooth_param={smooth_param} is {nll}")
-        '''
     return camera_dfs, smooth_param_final, nll_values
     #return camera_dfs, cam_keypoints_mean_dict, cam_keypoints_var_dict

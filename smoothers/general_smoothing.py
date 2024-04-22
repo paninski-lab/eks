@@ -223,27 +223,42 @@ def eks_zscore(eks_predictions, ensemble_means, ensemble_vars, min_ensemble_std=
 
 
 '''
-# Optimization algorithm (simplified example)
-from scipy.optimize import minimize
+# Kept for reference -- Returns high-precision but low speed result
 
-result = minimize(
-    negative_log_likelihood,
-    x0=[initial_smooth_param],  # Initial guess
-    args=(y, m0, S0, C, A, R, ensemble_vars),
-    method='Nelder-Mead'
-)
-
-optimized_smooth_param = result.x
-'''
-
-
-def optimize_smoothing_param(cov_matrix, smooth_param, y, m0, s0, C, A, R, ensemble_vars):
+def optimize_smoothing_param(cov_matrix, y, m0, s0, C, A, R, ensemble_vars):
     guess = compute_initial_guess(y, ensemble_vars)
     result = minimize(
         return_nll_only,
         x0=guess,  # initial smooth param guess
         args=(cov_matrix, y, m0, s0, C, A, R, ensemble_vars),
         method='Nelder-Mead'
+    )
+    print(f'Optimal at s={result.x[0]}')
+    return result.x[0]
+'''
+
+
+def optimize_smoothing_param(cov_matrix, y, m0, s0, C, A, R, ensemble_vars):
+    guess = compute_initial_guess(y, ensemble_vars)
+
+    # Define a callback function to update xatol during optimization
+    def callback(xk):
+        # Update xatol based on the current solution xk
+        xatol = np.log(xk) * 0.01
+
+        # Update the options dictionary with the new xatol value
+        options['xatol'] = xatol
+
+    # Initialize options with initial xatol
+    options = {'xatol': np.log(guess)}
+
+    result = minimize(
+        return_nll_only,
+        x0=guess,  # initial smooth param guess
+        args=(cov_matrix, y, m0, s0, C, A, R, ensemble_vars),
+        method='Nelder-Mead',
+        options=options,
+        callback=callback  # Pass the callback function
     )
     print(f'Optimal at s={result.x[0]}')
     return result.x[0]
