@@ -3,9 +3,9 @@
 import matplotlib.pyplot as plt
 import os
 
-from smoothers.multiview_pca_smoother import ensemble_kalman_smoother_multi_cam
-from scripts.general_scripting import handle_io, handle_parse_args, format_csv
-
+from eks.multiview_pca_smoother import ensemble_kalman_smoother_multi_cam
+from scripts.general_scripting import handle_io, handle_parse_args
+from eks.utils import format_csv
 
 # collect user-provided args
 smoother_type = 'multicam'

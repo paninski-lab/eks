@@ -2,9 +2,9 @@ import numpy as np
 import pandas as pd
 from scipy.interpolate import interp1d
 from sklearn.decomposition import PCA
-from smoothers.utils import make_dlc_pandas_index
-from smoothers.general_smoothing import ensemble, filtering_pass, \
-    smooth_backward, eks_zscore, optimize_smoothing_param, filter_smooth_nll
+from eks.utils import make_dlc_pandas_index
+from eks.core import ensemble, forward_pass, \
+    backward_pass, eks_zscore, optimize_smoothing_param, filter_smooth_nll
 
 
 # -----------------------
@@ -277,7 +277,7 @@ def ensemble_kalman_smoother_paw_asynchronous(
         # --------------------------------------
         # do filtering pass with time-varying ensemble variances
         print(f"filtering {paw} paw...")
-        mf, Vf, S, _, _ = filtering_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
+        mf, Vf, S, _, _ = forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
         print("done filtering")
 
         # --------------------------------------
@@ -285,7 +285,7 @@ def ensemble_kalman_smoother_paw_asynchronous(
         # --------------------------------------
         # Do the smoothing step
         print(f"smoothing {paw} paw...")
-        ms, Vs, _ = smooth_backward(y, mf, Vf, S, A, Q, C)
+        ms, Vs, _ = backward_pass(y, mf, Vf, S, A, Q, C)
         print("done smoothing")
         # Smoothed posterior over y
         y_m_smooth = np.dot(C, ms.T).T

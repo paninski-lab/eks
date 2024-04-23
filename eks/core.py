@@ -87,7 +87,7 @@ def ensemble(markers_list, keys, mode='median'):
         keypoints_avg_dict, keypoints_var_dict, keypoints_stack_dict
 
 
-def filtering_pass(y, m0, S0, C, R, A, Q, ensemble_vars):
+def forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars):
     """Implements Kalman-filter
     Args:
         y: np.ndarray
@@ -152,7 +152,7 @@ def kalman_dot(innovation, V, C, R):
     return K_array, innovation_cov
 
 
-def smooth_backward(y, mf, Vf, S, A, Q, C):
+def backward_pass(y, mf, Vf, S, A, Q, C):
     """Implements Kalman-smoothing backwards
     Args:
         y: np.ndarray
@@ -293,8 +293,8 @@ def filter_smooth_nll(cov_matrix, smooth_param, y, m0, S0, C, A, R, ensemble_var
     # Adjust Q based on smooth_param and cov_matrix
     Q = smooth_param * cov_matrix
     # Run filtering and smoothing with the current smooth_param
-    mf, Vf, S, innovs, innov_cov = filtering_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
-    ms, Vs, CV = smooth_backward(y, mf, Vf, S, A, Q, C)
+    mf, Vf, S, innovs, innov_cov = forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
+    ms, Vs, CV = backward_pass(y, mf, Vf, S, A, Q, C)
     # Compute the negative log-likelihood based on innovations and their covariance
     nll, nll_values = compute_nll(innovs, innov_cov)
     return ms, Vs, nll, nll_values
@@ -306,8 +306,8 @@ def return_nll_only(cov_matrix, smooth_param, y, m0, S0, C, A, R, ensemble_vars)
     Q = smooth_param * cov_matrix
     smooth_param = smooth_param[0]
     # Run filtering and smoothing with the current smooth_param
-    mf, Vf, S, innovs, innov_cov = filtering_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
-    ms, Vs, CV = smooth_backward(y, mf, Vf, S, A, Q, C)
+    mf, Vf, S, innovs, innov_cov = forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
+    ms, Vs, CV = backward_pass(y, mf, Vf, S, A, Q, C)
     # Compute the negative log-likelihood based on innovations and their covariance
     nll, nll_values = compute_nll(innovs, innov_cov)
     return nll

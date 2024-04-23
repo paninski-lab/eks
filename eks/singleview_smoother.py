@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
-from smoothers.utils import make_dlc_pandas_index
-from smoothers.general_smoothing import ensemble, eks_zscore, optimize_smoothing_param, \
+from eks.utils import make_dlc_pandas_index
+from eks.core import ensemble, eks_zscore, optimize_smoothing_param, \
     filter_smooth_nll
 
 

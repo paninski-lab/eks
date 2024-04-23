@@ -3,9 +3,9 @@
 import matplotlib.pyplot as plt
 import os
 
-from scripts.general_scripting import handle_io, handle_parse_args, format_csv, \
-    populate_output_dataframe
-from smoothers.singleview_smoother import ensemble_kalman_smoother_single_view
+from scripts.general_scripting import handle_io, handle_parse_args
+from eks.utils import format_csv, populate_output_dataframe
+from eks.singleview_smoother import ensemble_kalman_smoother_single_view
 
 
 # Collect User-Provided Args

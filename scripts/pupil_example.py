@@ -5,8 +5,8 @@ import numpy as np
 import os
 import pandas as pd
 
-from smoothers.utils import convert_lp_dlc
-from smoothers.pupil_smoother import ensemble_kalman_smoother_pupil
+from eks.utils import convert_lp_dlc
+from eks.pupil_smoother import ensemble_kalman_smoother_pupil
 from scripts.general_scripting import handle_io, handle_parse_args
 
 

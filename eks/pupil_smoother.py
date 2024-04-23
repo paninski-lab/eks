@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
-from smoothers.utils import make_dlc_pandas_index
-from smoothers.general_smoothing import ensemble, filtering_pass, smooth_backward, eks_zscore
+from eks.utils import make_dlc_pandas_index
+from eks.core import ensemble, forward_pass, backward_pass, eks_zscore
 import warnings
 
 
@@ -184,7 +184,7 @@ def ensemble_kalman_smoother_pupil(
     # --------------------------------------
     # do filtering pass with time-varying ensemble variances
     print("filtering...")
-    mf, Vf, S, _, _ = filtering_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
+    mf, Vf, S, _, _ = forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
     print("done filtering")
 
     # --------------------------------------
@@ -192,7 +192,7 @@ def ensemble_kalman_smoother_pupil(
     # --------------------------------------
     # Do the smoothing step
     print("smoothing...")
-    ms, Vs, _ = smooth_backward(y, mf, Vf, S, A, Q, C)
+    ms, Vs, _ = backward_pass(y, mf, Vf, S, A, Q, C)
     print("done smoothing")
     # Smoothed posterior over y
     y_m_smooth = np.dot(C, ms.T).T
