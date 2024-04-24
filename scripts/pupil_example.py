@@ -1,6 +1,5 @@
 """Example script for ibl-pupil dataset."""
 
-import argparse
 import matplotlib.pyplot as plt
 import numpy as np
 import os
@@ -8,36 +7,11 @@ import pandas as pd
 
 from eks.utils import convert_lp_dlc
 from eks.pupil_smoother import ensemble_kalman_smoother_pupil
+from general_scripting import handle_io, handle_parse_args
 
-
-parser = argparse.ArgumentParser()
-parser.add_argument(
-    '--csv-dir',
-    required=True,
-    help='directory of models for ensembling',
-    type=str
-)
-parser.add_argument(
-    '--save-dir',
-    help='save directory for outputs (default is csv-dir)',
-    default=None,
-    type=str,
-)
-parser.add_argument(
-    '--diameter-s',
-    help='smoothing parameter for diameter (closer to 1 = more smoothing)',
-    default=.9999,
-    type=float
-)
-parser.add_argument(
-    '--com-s',
-    help='smoothing parameter for center of mass (closer to 1 = more smoothing)',
-    default=.999,
-    type=float
-)
-args = parser.parse_args()
 
 # collect user-provided args
+args = handle_parse_args('pupil')
 csv_dir = os.path.abspath(args.csv_dir)
 save_dir = args.save_dir
 
@@ -47,12 +21,7 @@ save_dir = args.save_dir
 # ---------------------------------------------
 
 # handle I/O
-if not os.path.isdir(csv_dir):
-    raise ValueError('--csv-dir must be a valid path to a directory')
-    
-if save_dir is None:
-    save_dir = os.path.join(os.getcwd(), 'outputs')
-    os.makedirs(save_dir, exist_ok=True)
+save_dir = handle_io(csv_dir, save_dir)
 
 # load files and put them in correct format
 csv_files = os.listdir(csv_dir)
@@ -108,8 +77,8 @@ for ax, coord in zip(axes, ['x', 'y', 'likelihood', 'zscore']):
     ax.set_ylabel(coord, fontsize=12)
     if coord == 'zscore':
         ax.plot(
-        df_dicts['markers_df'].loc[slice(*idxs), ('ensemble-kalman_tracker', f'{kp}', coord)],
-        color='k', linewidth=2)
+            df_dicts['markers_df'].loc[slice(*idxs), ('ensemble-kalman_tracker', f'{kp}', coord)],
+            color='k', linewidth=2)
         ax.set_xlabel('Time (frames)', fontsize=12)
         continue
     for m, markers_curr in enumerate(markers_list):

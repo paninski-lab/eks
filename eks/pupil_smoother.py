@@ -1,9 +1,7 @@
 import numpy as np
 import pandas as pd
-from scipy.interpolate import interp1d
-from sklearn.decomposition import PCA
 from eks.utils import make_dlc_pandas_index
-from eks.ensemble_kalman import ensemble, filtering_pass, kalman_dot, smooth_backward, eks_zscore
+from eks.core import ensemble, forward_pass, backward_pass, eks_zscore
 import warnings
 
 
@@ -20,20 +18,20 @@ def get_pupil_location(dlc):
     s = 1
     t = np.vstack((dlc['pupil_top_r_x'], dlc['pupil_top_r_y'])).T / s
     b = np.vstack((dlc['pupil_bottom_r_x'], dlc['pupil_bottom_r_y'])).T / s
-    l = np.vstack((dlc['pupil_left_r_x'], dlc['pupil_left_r_y'])).T / s
+    le = np.vstack((dlc['pupil_left_r_x'], dlc['pupil_left_r_y'])).T / s
     r = np.vstack((dlc['pupil_right_r_x'], dlc['pupil_right_r_y'])).T / s
     center = np.zeros(t.shape)
 
     # ok if either top or bottom is nan in x-dir
     tmp_x1 = np.nanmedian(np.hstack([t[:, 0, None], b[:, 0, None]]), axis=1)
     # both left and right must be present in x-dir
-    tmp_x2 = np.median(np.hstack([r[:, 0, None], l[:, 0, None]]), axis=1)
+    tmp_x2 = np.median(np.hstack([r[:, 0, None], le[:, 0, None]]), axis=1)
     center[:, 0] = np.nanmedian(np.hstack([tmp_x1[:, None], tmp_x2[:, None]]), axis=1)
 
     # both top and bottom must be present in y-dir
     tmp_y1 = np.median(np.hstack([t[:, 1, None], b[:, 1, None]]), axis=1)
     # ok if either left or right is nan in y-dir
-    tmp_y2 = np.nanmedian(np.hstack([r[:, 1, None], l[:, 1, None]]), axis=1)
+    tmp_y2 = np.nanmedian(np.hstack([r[:, 1, None], le[:, 1, None]]), axis=1)
     center[:, 1] = np.nanmedian(np.hstack([tmp_y1[:, None], tmp_y2[:, None]]), axis=1)
     return center
 
@@ -99,7 +97,8 @@ def ensemble_kalman_smoother_pupil(
     likelihood_default
         value to store in likelihood column; should be np.nan or int in [0, 1]
     zscore_threshold:
-        Minimum std threshold to reduce the effect of low ensemble std on a zscore metric (default 2).
+        Minimum std threshold to reduce the effect of low ensemble std on a zscore metric
+        (default 2).
 
     Returns
     -------
@@ -112,8 +111,8 @@ def ensemble_kalman_smoother_pupil(
     # compute ensemble median
     keys = ['pupil_top_r_x', 'pupil_top_r_y', 'pupil_bottom_r_x', 'pupil_bottom_r_y',
             'pupil_right_r_x', 'pupil_right_r_y', 'pupil_left_r_x', 'pupil_left_r_y']
-    ensemble_preds, ensemble_vars, ensemble_stacks, keypoints_mean_dict, keypoints_var_dict, keypoints_stack_dict = ensemble(
-        markers_list, keys)
+    ensemble_preds, ensemble_vars, ensemble_stacks, keypoints_mean_dict, keypoints_var_dict, \
+        keypoints_stack_dict = ensemble(markers_list, keys)
     # ## Set parameters
     # compute center of mass
     pupil_locations = get_pupil_location(keypoints_mean_dict)
@@ -185,7 +184,7 @@ def ensemble_kalman_smoother_pupil(
     # --------------------------------------
     # do filtering pass with time-varying ensemble variances
     print("filtering...")
-    mf, Vf, S = filtering_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
+    mf, Vf, S, _, _ = forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
     print("done filtering")
 
     # --------------------------------------
@@ -193,7 +192,7 @@ def ensemble_kalman_smoother_pupil(
     # --------------------------------------
     # Do the smoothing step
     print("smoothing...")
-    ms, Vs, _ = smooth_backward(y, mf, Vf, S, A, Q, C)
+    ms, Vs, _ = backward_pass(y, mf, Vf, S, A, Q, C)
     print("done smoothing")
     # Smoothed posterior over y
     y_m_smooth = np.dot(C, ms.T).T
@@ -203,13 +202,14 @@ def ensemble_kalman_smoother_pupil(
     # cleanup
     # --------------------------------------
     # save out marker info
-    pdindex = make_dlc_pandas_index(keypoint_names, labels=["x", "y", "likelihood", "x_var", "y_var", "zscore"])
+    pdindex = make_dlc_pandas_index(keypoint_names,
+                                    labels=["x", "y", "likelihood", "x_var", "y_var", "zscore"])
     processed_arr_dict = add_mean_to_array(y_m_smooth, keys, mean_x_obs, mean_y_obs)
     key_pair_list = [['pupil_top_r_x', 'pupil_top_r_y'],
                      ['pupil_right_r_x', 'pupil_right_r_y'],
                      ['pupil_bottom_r_x', 'pupil_bottom_r_y'],
                      ['pupil_left_r_x', 'pupil_left_r_y']]
-    ensemble_indices = [(0,1), (4,5), (2,3), (6,7)]
+    ensemble_indices = [(0, 1), (4, 5), (2, 3), (6, 7)]
     pred_arr = []
     for i, key_pair in enumerate(key_pair_list):
         pred_arr.append(processed_arr_dict[key_pair[0]])
@@ -217,20 +217,21 @@ def ensemble_kalman_smoother_pupil(
         var = np.empty(processed_arr_dict[key_pair[0]].shape)
         var[:] = likelihood_default
         pred_arr.append(var)
-        x_var = y_v_smooth[:,i, i]
-        y_var = y_v_smooth[:,i+1, i+1]
+        x_var = y_v_smooth[:, i, i]
+        y_var = y_v_smooth[:, i + 1, i + 1]
         pred_arr.append(x_var)
         pred_arr.append(y_var)
-        #compute zscore for EKS to see how it deviates from the ensemble
-        eks_predictions = np.asarray([processed_arr_dict[key_pair[0]], processed_arr_dict[key_pair[1]]]).T
-        ensemble_preds_curr = ensemble_preds[:,ensemble_indices[i][0]: ensemble_indices[i][1]+1]
-        ensemble_vars_curr = ensemble_vars[:,ensemble_indices[i][0]: ensemble_indices[i][1]+1]
-        zscore = eks_zscore(eks_predictions, ensemble_preds_curr, ensemble_vars_curr, min_ensemble_std=zscore_threshold)
+        # compute zscore for EKS to see how it deviates from the ensemble
+        eks_predictions = \
+            np.asarray([processed_arr_dict[key_pair[0]], processed_arr_dict[key_pair[1]]]).T
+        ensemble_preds_curr = ensemble_preds[:, ensemble_indices[i][0]: ensemble_indices[i][1] + 1]
+        ensemble_vars_curr = ensemble_vars[:, ensemble_indices[i][0]: ensemble_indices[i][1] + 1]
+        zscore = eks_zscore(eks_predictions, ensemble_preds_curr, ensemble_vars_curr,
+                            min_ensemble_std=zscore_threshold)
         pred_arr.append(zscore)
-    
+
     pred_arr = np.asarray(pred_arr)
     markers_df = pd.DataFrame(pred_arr.T, columns=pdindex)
-
     # save out latents info: pupil diam, center of mass
     pred_arr2 = []
     pred_arr2.append(ms[:, 0])

@@ -1,102 +1,54 @@
 """Example script for single-camera datasets."""
 
-import argparse
 import matplotlib.pyplot as plt
-import numpy as np
 import os
-import pandas as pd
 
-from eks.utils import convert_lp_dlc
+from general_scripting import handle_io, handle_parse_args
+from eks.utils import format_csv, populate_output_dataframe
 from eks.singleview_smoother import ensemble_kalman_smoother_single_view
 
 
-parser = argparse.ArgumentParser()
-parser.add_argument(
-    '--csv-dir',
-    required=True,
-    help='directory of model prediction csv files',
-    type=str,
-)
-parser.add_argument(
-    '--bodypart-list',
-    required=True,
-    nargs='+',
-    help='the list of body parts to be ensembled and smoothed',
-)
-parser.add_argument(
-    '--save-dir',
-    help='save directory for outputs (default is csv-dir)',
-    default=None,
-    type=str,
-)
-parser.add_argument(
-    '--s',
-    help='smoothing parameter ranges from .01-20 (smaller values = more smoothing)',
-    default=10,
-    type=float,
-)
-args = parser.parse_args()
+# Collect User-Provided Args
+smoother_type = 'singlecam'
+args = handle_parse_args(smoother_type)
 
-# collect user-provided args
 csv_dir = os.path.abspath(args.csv_dir)
+# Find save directory if specified, otherwise defaults to outputs\
+save_dir = handle_io(csv_dir, args.save_dir)
+save_filename = args.save_filename
+
 bodypart_list = args.bodypart_list
-save_dir = args.save_dir
-s = args.s
+s = args.s  # optional, defaults to automatic optimization
+
+# Load and format input files and prepare an empty DataFrame for output.
+# markers_list : list of input DataFrames
+# markers_eks : empty DataFrame for EKS output
+markers_list, markers_eks = format_csv(csv_dir, 'lp')
+
 
 # ---------------------------------------------
-# run EKS algorithm
+# Run EKS Algorithm
 # ---------------------------------------------
-
-# handle I/O
-if not os.path.isdir(csv_dir):
-    raise ValueError('--csv-dir must be a valid directory containing prediction csv files')
-
-if save_dir is None:
-    save_dir = os.path.join(os.getcwd(), 'outputs')
-    os.makedirs(save_dir, exist_ok=True)
-
-# load files and put them in correct format
-csv_files = os.listdir(csv_dir)
-markers_list = []
-for csv_file in csv_files:
-    if not csv_file.endswith('csv'):
-        continue
-    markers_curr = pd.read_csv(os.path.join(csv_dir, csv_file), header=[0, 1, 2], index_col=0)
-    keypoint_names = [c[1] for c in markers_curr.columns[::3]]
-    model_name = markers_curr.columns[0][0]
-    markers_curr_fmt = convert_lp_dlc(markers_curr, keypoint_names, model_name=model_name)
-    markers_list.append(markers_curr_fmt)
-if len(markers_list) == 0:
-    raise FileNotFoundError(f'No marker csv files found in {csv_dir}')
-
-# make empty dataframe to write eks results into
-markers_eks = markers_curr.copy()
-markers_eks.columns = markers_eks.columns.set_levels(['ensemble-kalman_tracker'], level=0)
-for col in markers_eks.columns:
-    if col[-1] == 'likelihood':
-        # set this to 1.0 so downstream filtering functions don't get
-        # tripped up
-        markers_eks[col].values[:] = 1.0
-    else:
-        markers_eks[col].values[:] = np.nan
 
 # loop over keypoints; apply eks to each individually
 for keypoint_ensemble in bodypart_list:
     # run eks
-    keypoint_df_dict = ensemble_kalman_smoother_single_view(
-        markers_list=markers_list,
-        keypoint_ensemble=keypoint_ensemble,
-        smooth_param=s,
+    keypoint_df_dict, s_final, nll_values = ensemble_kalman_smoother_single_view(
+        markers_list,
+        keypoint_ensemble,
+        s,
     )
-    keypoint_df = keypoint_df_dict[keypoint_ensemble+'_df']
+    keypoint_df = keypoint_df_dict[keypoint_ensemble + '_df']
+
     # put results into new dataframe
-    for coord in ['x', 'y', 'zscore']:
-        src_cols = ('ensemble-kalman_tracker', f'{keypoint_ensemble}', coord)
-        dst_cols = ('ensemble-kalman_tracker', f'{keypoint_ensemble}', coord)
-        markers_eks.loc[:, dst_cols] = keypoint_df.loc[:, src_cols]
+    markers_eks = populate_output_dataframe(keypoint_df, keypoint_ensemble, markers_eks)
+
+# save optimized smoothing param for plot title
+s = s_final
 
 # save eks results
-markers_eks.to_csv(os.path.join(save_dir, 'eks.csv'))
+save_filename = save_filename or f'{smoother_type}, s={s}_.csv'  # use type and s if no user input
+markers_eks.to_csv(os.path.join(save_dir, save_filename))
 
 
 # ---------------------------------------------
@@ -104,18 +56,29 @@ markers_eks.to_csv(os.path.join(save_dir, 'eks.csv'))
 # ---------------------------------------------
 
 # select example keypoint
-kp = bodypart_list[0]
+kp = bodypart_list[-1]
 idxs = (0, 500)
 
-fig, axes = plt.subplots(4, 1, figsize=(9, 8))
+# crop NLL values
+nll_values_subset = nll_values[idxs[0]:idxs[1]]
+
+fig, axes = plt.subplots(5, 1, figsize=(9, 10))
 
 for ax, coord in zip(axes, ['x', 'y', 'likelihood', 'zscore']):
+    # Rename axes label for likelihood and zscore coordinates
+    if coord == 'likelihood':
+        ylabel = 'model likelihoods'
+    elif coord == 'zscore':
+        ylabel = 'EKS disagreement'
+    else:
+        ylabel = coord
+
     # plot individual models
-    ax.set_ylabel(coord, fontsize=12)
+    ax.set_ylabel(ylabel, fontsize=12)
     if coord == 'zscore':
         ax.plot(
-        markers_eks.loc[slice(*idxs), ('ensemble-kalman_tracker', f'{kp}', coord)],
-        color='k', linewidth=2)
+            markers_eks.loc[slice(*idxs), ('ensemble-kalman_tracker', f'{kp}', coord)],
+            color='k', linewidth=2)
         ax.set_xlabel('Time (frames)', fontsize=12)
         continue
     for m, markers_curr in enumerate(markers_list):
@@ -132,12 +95,16 @@ for ax, coord in zip(axes, ['x', 'y', 'likelihood', 'zscore']):
     )
     if coord == 'x':
         ax.legend()
-    
 
-plt.suptitle(f'EKS results for {kp}', fontsize=14)
+    # Plot nll_values_subset against the time axis
+    axes[-1].plot(range(*idxs), nll_values_subset, color='k', linewidth=2)
+    axes[-1].set_ylabel('EKS NLL', fontsize=12)
+
+
+plt.suptitle(f'EKS results for {kp}, smoothing = {s}', fontsize=14)
 plt.tight_layout()
 
-save_file = os.path.join(save_dir, 'example_singlecam_eks_result.pdf')
+save_file = os.path.join(save_dir, f'singlecam s={s}.pdf')
 plt.savefig(save_file)
 plt.close()
 print(f'see example EKS output at {save_file}')

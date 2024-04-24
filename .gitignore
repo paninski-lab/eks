@@ -133,3 +133,5 @@ outputs/
 data/ibl-paw/outputs/
 data/ibl-pupil/outputs/
 data/mirror-mouse/outputs/
+
+*.pdf
