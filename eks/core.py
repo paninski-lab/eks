@@ -124,8 +124,6 @@ def forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars):
     S = np.zeros(shape=(T, m0.shape[0], m0.shape[0]))
     K_array, _ = kalman_dot(y[0, :] - np.dot(C, m0), S0, C, R)
     mf[0] = m0 + K_array
-    K_array, _ = kalman_dot(np.dot(C, m0), S0, C, R)
-    mf[0] = m0 + K_array
     Vf[0, :] = S0 - K_array
     S[0] = S0
     innovation_cov = np.zeros((T, C.shape[0], C.shape[0]))
