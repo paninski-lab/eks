@@ -57,7 +57,7 @@ def ensemble_kalman_smoother_single_view(
 
     # ------ Set values for kalman filter ------
     m0 = np.asarray([0.0, 0.0])  # initial state: mean
-    S0 = np.asarray([[np.var(x_t_obs), 0.0], [0.0 , np.var(y_t_obs)]])  # diagonal: var
+    S0 = np.asarray([[np.nanvar(x_t_obs), 0.0], [0.0 , np.nanvar(y_t_obs)]])  # diagonal: var
 
     A = np.asarray([[1.0, 0], [0, 1.0]])  # state-transition matrix,
     cov_matrix = np.asarray([[1, 0], [0, 1]])  # state covariance matrix; smaller = more smoothing

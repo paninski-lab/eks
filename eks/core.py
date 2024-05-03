@@ -48,7 +48,7 @@ def ensemble(markers_list, keys, mode='median'):
                 stack[k] = markers_list[k][key]
             stack = stack.T
             avg = average_func(stack, 1)
-            var = np.var(stack, 1)
+            var = np.nanvar(stack, 1)
             ensemble_preds.append(avg)
             ensemble_vars.append(var)
             ensemble_stacks.append(stack)
