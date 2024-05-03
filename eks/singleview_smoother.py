@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from eks.utils import make_dlc_pandas_index
-from eks.core import ensemble, eks_zscore, optimize_smoothing_param, \
+from eks.core import ensemble, eks_zscore, optimize_smoothing_params, \
     filter_smooth_nll
 
 
@@ -9,7 +9,7 @@ from eks.core import ensemble, eks_zscore, optimize_smoothing_param, \
 # funcs for single-view
 # -----------------------
 def ensemble_kalman_smoother_single_view(
-        markers_list, keypoint_ensemble, smooth_param, ensembling_mode='median',
+        markers_list, keypoint_ensemble, smooth_param, ensembling_mode='confidence_weighted_mean',
         zscore_threshold=2, verbose=False):
     """ Use an identity observation matrix and smoothes by adjusting the smoothing parameter in the
     state-covariance matrix.
@@ -49,9 +49,8 @@ def ensemble_kalman_smoother_single_view(
     # compute ensemble median
     ensemble_preds, ensemble_vars, ensemble_stacks, keypoints_mean_dict, keypoints_var_dict, \
         keypoints_stack_dict = ensemble(markers_list, keys, mode=ensembling_mode)
-
-    mean_x_obs = np.mean(keypoints_mean_dict[x_key])
-    mean_y_obs = np.mean(keypoints_mean_dict[y_key])
+    mean_x_obs = np.nanmean(keypoints_mean_dict[x_key])
+    mean_y_obs = np.nanmean(keypoints_mean_dict[y_key])
     x_t_obs, y_t_obs = \
         keypoints_mean_dict[x_key] - mean_x_obs, keypoints_mean_dict[y_key] - mean_y_obs
     # z_t_obs = np.vstack((x_t_obs, y_t_obs))  # latent variables - true x and y
@@ -91,10 +90,11 @@ def ensemble_kalman_smoother_single_view(
     nll_values = compute_nll_2_steps(y_obs, mf, S, C)
     '''
 
+
     # Call functions from ensemble_kalman to optimize smooth_param before filtering and smoothing
     if smooth_param is None:
         smooth_param_final = \
-            optimize_smoothing_param(cov_matrix, y_obs, m0, S0, C, A, R, ensemble_vars)
+            optimize_smoothing_params(cov_matrix, y_obs, m0, S0, C, A, R, ensemble_vars)
     else:
         smooth_param_final = smooth_param
     ms, Vs, nll, nll_values = \

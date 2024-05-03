@@ -12,9 +12,9 @@ The functions here are called by individual example scripts """
 # ---------------------------------------------
 
 # Finds + returns save directory if specified, otherwise defaults to outputs
-def handle_io(csv_dir, save_dir):
-    if not os.path.isdir(csv_dir):
-        raise ValueError('--csv-dir must be a valid directory containing prediction csv files')
+def handle_io(input_dir, save_dir):
+    if not os.path.isdir(input_dir):
+        raise ValueError('--input-dir must be a valid directory containing prediction files')
     if save_dir is None:
         save_dir = os.path.join(os.getcwd(), 'outputs')
         os.makedirs(save_dir, exist_ok=True)
@@ -24,14 +24,14 @@ def handle_io(csv_dir, save_dir):
 def handle_parse_args(script_type):
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        '--csv-dir',
+        '--input-dir',
         required=True,
         help='directory of model prediction csv files',
         type=str,
     )
     parser.add_argument(
         '--save-dir',
-        help='save directory for outputs (default is csv-dir)',
+        help='save directory for outputs (default is input-dir)',
         default=None,
         type=str,
     )
@@ -39,6 +39,12 @@ def handle_parse_args(script_type):
         '--save-filename',
         help='filename for outputs (default uses smoother type and s parameter)',
         default=None,
+        type=str,
+    )
+    parser.add_argument(
+        '--data-type',
+        help='format of input data (Lightning Pose = lp, SLEAP = slp), dlc by default.',
+        default='dlc',
         type=str,
     )
     if script_type == 'singlecam':

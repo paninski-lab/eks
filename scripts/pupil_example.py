@@ -12,7 +12,7 @@ from general_scripting import handle_io, handle_parse_args
 
 # collect user-provided args
 args = handle_parse_args('pupil')
-csv_dir = os.path.abspath(args.csv_dir)
+csv_dir = os.path.abspath(args.input_dir)
 save_dir = args.save_dir
 
 

@@ -5,15 +5,19 @@ import os
 
 from eks.multiview_pca_smoother import ensemble_kalman_smoother_multi_cam
 from general_scripting import handle_io, handle_parse_args
-from eks.utils import format_csv
+from eks.utils import format_data
 
 # collect user-provided args
 smoother_type = 'multicam'
 args = handle_parse_args(smoother_type)
 
-csv_dir = os.path.abspath(args.csv_dir)
+input_dir = os.path.abspath(args.input_dir)
+
+# Note: LP and DLC are .csv, SLP is .slp
+data_type = args.data_type
+
 # Find save directory if specified, otherwise defaults to outputs\
-save_dir = handle_io(csv_dir, args.save_dir)
+save_dir = handle_io(input_dir, args.save_dir)
 
 bodypart_list = args.bodypart_list
 camera_names = args.camera_names
@@ -24,7 +28,7 @@ s = args.s  # optional, defaults to automatic optimization
 # Load and format input files and prepare an empty DataFrame for output.
 # markers_list : list of input DataFrames
 # markers_eks : empty DataFrame for EKS output
-markers_list, markers_eks = format_csv(csv_dir, 'lp')
+markers_list, markers_eks = format_data(input_dir, data_type)
 
 # loop over keypoints; apply eks to each individually
 for keypoint_ensemble in bodypart_list:

@@ -68,7 +68,7 @@ our example.
 To run the EKS on the example data, execute the following command from inside this repo:
 
 ```console 
-python scripts/singlecam_example.py --csv-dir ./data/ibl-pupil --bodypart-list pupil_top_r  pupil_bottom_r pupil_left_r pupil_right_r
+python scripts/singlecam_example.py --input-dir ./data/ibl-pupil --data-type lp --bodypart-list pupil_top_r  pupil_bottom_r pupil_left_r pupil_right_r
 ```
  
 ### Multi-camera datasets
@@ -82,26 +82,26 @@ for a two-view video of a mouse with cameras named `top` and `bot`.
 To run the EKS on the example data provided, execute the following command from inside this repo:
 
 ```console 
-python scripts/multicam_example.py --csv-dir ./data/mirror-mouse --bodypart-list paw1LH paw2LF paw3RF paw4RH --camera-names top bot
+python scripts/multicam_example.py --input-dir ./data/mirror-mouse --data-type lp --bodypart-list paw1LH paw2LF paw3RF paw4RH --camera-names top bot
 ```
 
 ### IBL pupil dataset
-The `pupil_example.py` script requires a `csv-dir` which contains lightning-pose or DLC 
+The `pupil_example.py` script requires a `input-dir` which contains lightning-pose or DLC 
 model predictions. 
 To run this script on the example data provided, execute the following command from inside this repo:
 
 ```console 
-python scripts/pupil_example.py --csv-dir ./data/ibl-pupil
+python scripts/pupil_example.py --input-dir ./data/ibl-pupil
 ```
 
 ### IBL paw dataset (multiple asynchronous views)
-The `multiview_paw_example.py` script requires a `csv-dir` which contains lightning-pose 
+The `multiview_paw_example.py` script requires a `input-dir` which contains lightning-pose 
 or DLC model predictions for the left and right camera views, as well as timestamp files to align 
 the two cameras. 
 To run this script on the example data provided, execute the following command from inside this repo:
 
 ```console 
-python scripts/multiview_paw_example.py --csv-dir ./data/ibl-paw
+python scripts/multiview_paw_example.py --input-dir ./data/ibl-paw
 ```
 
 ### Authors 
