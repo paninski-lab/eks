@@ -29,6 +29,7 @@ def convert_slp_dlc(base_dir, slp_file):
     print(f'Reading {base_dir}/{slp_file}')
     # Read data from .slp file
     filepath = os.path.join(base_dir, slp_file)
+    print(filepath)
     labels = read_labels(filepath)
 
     # Determine the maximum number of instances
@@ -86,6 +87,8 @@ def format_data(input_dir, data_type):
     for input_file in input_files:
 
         if data_type == 'slp':
+            if not input_file.endswith('.slp'):
+                continue
             markers_curr = convert_slp_dlc(input_dir, input_file)
             markers_curr_fmt = markers_curr
 

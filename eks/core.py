@@ -3,7 +3,7 @@ import numpy as np
 from scipy.optimize import minimize
 
 
-def ensemble(markers_list, keys, mode='confidence_weighted_mean'):
+def ensemble(markers_list, keys, mode='median'):
     """Computes ensemble median (or mean) and variance of list of DLC marker dataframes
     Args:
         markers_list: list
@@ -126,20 +126,15 @@ def forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars):
     innovations = np.zeros((T, y.shape[1]))  # Assuming y is m x T
     innovation_cov = np.zeros((T, C.shape[0], C.shape[0]))
 
-    # Initialize first-time step
-    for t in range(1, T):
-        if not np.any(np.isnan(y[t])):  # Check if any value in y[t] is not NaN
-            # Update R for time-varying observation variance
-            for i in range(ensemble_vars.shape[1]):
-                R[i, i] = ensemble_vars[t][i]
-
-            # Update state estimate and covariance matrix
-            S[t - 1] = np.dot(A, np.dot(Vf[t - 1, :], A.T)) + Q
-            innovations[t] = y[t, :] - np.dot(C, np.dot(A, mf[t - 1, :]))
-            K_array, _ = kalman_dot(innovations[t], S[t - 1], C, R)
-            mf[t, :] = np.dot(A, mf[t - 1, :]) + K_array
-            K_array, innovation_cov[t] = kalman_dot(np.dot(C, S[t - 1]), S[t - 1], C, R)
-            Vf[t, :] = S[t - 1] - K_array
+    # time-varying observation variance
+    for i in range(ensemble_vars.shape[1]):
+        R[i, i] = ensemble_vars[0][i]
+    K_array, _ = kalman_dot(y[0, :] - np.dot(C, m0), S0, C, R)
+    mf[0] = m0 + K_array
+    Vf[0, :] = S0 - K_array
+    S[0] = S0
+    innovations[0] = y[0] - np.dot(C, mf[0])
+    innovation_cov[0] = np.dot(C, np.dot(S0, C.T)) + R
 
     # Kalman filter update for subsequent time steps
     for t in range(1, T):
