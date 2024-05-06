@@ -47,10 +47,9 @@ for keypoint in bodypart_list:
     output_df.to_csv('populated_output.csv', index=False)
     print(f"DataFrame successfully converted to CSV")
 # save optimized smoothing param for plot title
-s = s_final
 
 # save eks results
-save_filename = save_filename or f'{smoother_type}, s={s}_.csv'  # use type and s if no user input
+save_filename = save_filename or f'{smoother_type}.csv'  # use type and s if no user input
 output_df.to_csv(os.path.join(save_dir, save_filename))
 
 
@@ -63,7 +62,7 @@ kp = bodypart_list[-1]
 idxs = (0, 1990)
 
 # crop NLL values
-nll_values_subset = nll_values[idxs[0]:idxs[1]]
+# nll_values_subset = nll_values[idxs[0]:idxs[1]]
 
 fig, axes = plt.subplots(5, 1, figsize=(9, 10))
 
@@ -100,14 +99,14 @@ for ax, coord in zip(axes, ['x', 'y', 'likelihood', 'zscore']):
         ax.legend()
 
     # Plot nll_values_subset against the time axis
-    axes[-1].plot(range(*idxs), nll_values_subset, color='k', linewidth=2)
-    axes[-1].set_ylabel('EKS NLL', fontsize=12)
+    # axes[-1].plot(range(*idxs), nll_values_subset, color='k', linewidth=2)
+    # axes[-1].set_ylabel('EKS NLL', fontsize=12)
 
 
 plt.suptitle(f'EKS results for {kp}, smoothing = {s}', fontsize=14)
 plt.tight_layout()
 
-save_file = os.path.join(save_dir, f'singlecam s={s}.pdf')
+save_file = os.path.join(save_dir, f'singlecam_s={s}.pdf')
 plt.savefig(save_file)
 plt.close()
 print(f'see example EKS output at {save_file}')
