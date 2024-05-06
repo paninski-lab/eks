@@ -44,7 +44,6 @@ def ensemble(markers_list, keys, mode='median'):
         if mode != 'confidence_weighted_mean':
             stack = np.zeros((len(markers_list), markers_list[0].shape[0]))
             for k in range(len(markers_list)):
-                # print(markers_list[k][key].shape) Debugging list size from frame rate
                 stack[k] = markers_list[k][key]
             stack = stack.T
             avg = average_func(stack, 1)
