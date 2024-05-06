@@ -35,9 +35,9 @@ def ensemble(markers_list, keys, mode='median'):
     keypoints_stack_dict = defaultdict(dict)
     if mode != 'confidence_weighted_mean':
         if mode == 'median':
-            average_func = np.median
+            average_func = np.nanmedian
         elif mode == 'mean':
-            average_func = np.mean
+            average_func = np.nanmean
         else:
             raise ValueError(f"{mode} averaging not supported")
     for key in keys:
@@ -48,7 +48,7 @@ def ensemble(markers_list, keys, mode='median'):
                 stack[k] = markers_list[k][key]
             stack = stack.T
             avg = average_func(stack, 1)
-            var = np.var(stack, 1)
+            var = np.nanvar(stack, 1)
             ensemble_preds.append(avg)
             ensemble_vars.append(var)
             ensemble_stacks.append(stack)
@@ -70,7 +70,7 @@ def ensemble(markers_list, keys, mode='median'):
             conf_per_keypoint = np.sum(likelihood_stack, 1)
             mean_conf_per_keypoint = np.sum(likelihood_stack, 1) / likelihood_stack.shape[1]
             avg = np.sum(stack * likelihood_stack, 1) / conf_per_keypoint
-            var = np.var(stack, 1)
+            var = np.nanvar(stack, 1)
             var = var / mean_conf_per_keypoint  # low-confidence --> inflated obs variances
             ensemble_preds.append(avg)
             ensemble_vars.append(var)
@@ -114,32 +114,48 @@ def forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars):
             shape (samples, n_latents, n_latents)
         S: np.ndarray
             shape (samples, n_latents, n_latents)
+        innovations: np.ndarray
+            shape (samples, n_keypoints)
+        innovation_cov: np.ndarray
+            shape (samples, n_keypoints, n_keypoints)
     """
-    # time-varying observation variance
-    for i in range(ensemble_vars.shape[1]):
-        R[i, i] = ensemble_vars[0][i]
     T = y.shape[0]
     mf = np.zeros(shape=(T, m0.shape[0]))
     Vf = np.zeros(shape=(T, m0.shape[0], m0.shape[0]))
     S = np.zeros(shape=(T, m0.shape[0], m0.shape[0]))
+    innovations = np.zeros((T, y.shape[1]))  # Assuming y is m x T
+    innovation_cov = np.zeros((T, C.shape[0], C.shape[0]))
+
+    # time-varying observation variance
+    for i in range(ensemble_vars.shape[1]):
+        R[i, i] = ensemble_vars[0][i]
     K_array, _ = kalman_dot(y[0, :] - np.dot(C, m0), S0, C, R)
     mf[0] = m0 + K_array
     Vf[0, :] = S0 - K_array
     S[0] = S0
-    innovation_cov = np.zeros((T, C.shape[0], C.shape[0]))
-    innovations = np.zeros((T, y.shape[1]))  # Assuming y is m x T
     innovations[0] = y[0] - np.dot(C, mf[0])
     innovation_cov[0] = np.dot(C, np.dot(S0, C.T)) + R
 
+    # Kalman filter update for subsequent time steps
     for t in range(1, T):
-        for i in range(ensemble_vars.shape[1]):
-            R[i, i] = ensemble_vars[t][i]
-            S[t - 1] = np.dot(A, np.dot(Vf[t - 1, :], A.T)) + Q
+        # Propagate the state
+        mf[t, :] = np.dot(A, mf[t - 1, :])
+        S[t - 1] = np.dot(A, np.dot(Vf[t - 1, :], A.T)) + Q
+
+        if np.sum(~np.isnan(y[t, :])) >= 2:  # Check if any value in y[t] is not NaN
+            # Update R for time-varying observation variance
+            for i in range(ensemble_vars.shape[1]):
+                R[i, i] = ensemble_vars[t][i]
+
+            # Update state estimate and covariance matrix
             innovations[t] = y[t, :] - np.dot(C, np.dot(A, mf[t - 1, :]))
             K_array, _ = kalman_dot(innovations[t], S[t - 1], C, R)
-            mf[t, :] = np.dot(A, mf[t - 1, :]) + K_array
+            mf[t, :] += K_array
             K_array, innovation_cov[t] = kalman_dot(np.dot(C, S[t - 1]), S[t - 1], C, R)
             Vf[t, :] = S[t - 1] - K_array
+        else:
+            Vf[t, :] = S[t - 1]
+
     return mf, Vf, S, innovations, innovation_cov
 
 
@@ -187,11 +203,16 @@ def backward_pass(y, mf, Vf, S, A, Q, C):
 
     # Smoothing steps
     for i in range(T - 2, -1, -1):
-        J = np.linalg.solve(S[i], np.dot(A, Vf[i])).T
+        if not np.all(np.isnan(y[i])):  # Check if all values in y[i] are not NaN
+            try:
+                J = np.linalg.solve(S[i], np.dot(A, Vf[i])).T
+            except np.linalg.LinAlgError:
+                # Skip backward pass for this timestep if matrix is singular
+                continue
 
-        Vs[i] = Vf[i] + np.dot(J, np.dot(Vs[i + 1] - S[i], J.T))
-        ms[i] = mf[i] + np.dot(J, ms[i + 1] - np.dot(A, mf[i]))
-        CV[i] = np.dot(Vs[i + 1], J.T)
+            Vs[i] = Vf[i] + np.dot(J, np.dot(Vs[i + 1] - S[i], J.T))
+            ms[i] = mf[i] + np.dot(J, ms[i + 1] - np.dot(A, mf[i]))
+            CV[i] = np.dot(Vs[i + 1], J.T)
 
     return ms, Vs, CV
 
@@ -240,13 +261,12 @@ def optimize_smoothing_param(cov_matrix, y, m0, s0, C, A, R, ensemble_vars):
 '''
 
 
-def optimize_smoothing_param(cov_matrix, y, m0, s0, C, A, R, ensemble_vars):
-    guess = compute_initial_guess(y, ensemble_vars)
-
-    # Define a callback function to update xatol during optimization
+def optimize_smoothing_params(cov_matrix, y, m0, s0, C, A, R, ensemble_vars, max_frames=2000):
+    guess = compute_initial_guesses(ensemble_vars)
+    # Update xatol during optimization
     def callback(xk):
         # Update xatol based on the current solution xk
-        xatol = np.log(xk) * 0.01
+        xatol = np.log(np.abs(xk)) * 0.01
 
         # Update the options dictionary with the new xatol value
         options['xatol'] = xatol
@@ -257,7 +277,7 @@ def optimize_smoothing_param(cov_matrix, y, m0, s0, C, A, R, ensemble_vars):
     result = minimize(
         return_nll_only,
         x0=guess,  # initial smooth param guess
-        args=(cov_matrix, y, m0, s0, C, A, R, ensemble_vars),
+        args=(cov_matrix, y[:max_frames], m0, s0, C, A, R, ensemble_vars),
         method='Nelder-Mead',
         options=options,
         callback=callback  # Pass the callback function
@@ -267,9 +287,15 @@ def optimize_smoothing_param(cov_matrix, y, m0, s0, C, A, R, ensemble_vars):
 
 
 # Function to compute ensemble mean, temporal differences, and standard deviation
-def compute_initial_guess(y, ensemble_vars):
+def compute_initial_guesses(ensemble_vars):
+
+    # Consider only the first 2000 entries in ensemble_vars
+    ensemble_vars = ensemble_vars[:2000]
+
     # Compute ensemble mean
-    ensemble_mean = np.mean(ensemble_vars, axis=0)
+    ensemble_mean = np.nanmean(ensemble_vars, axis=0)
+    if ensemble_mean is None:
+        raise ValueError("No data found. Unable to compute ensemble mean.")
 
     # Initialize list to store temporal differences
     temporal_diffs_list = []
@@ -288,6 +314,7 @@ def compute_initial_guess(y, ensemble_vars):
 
 # Combines filtering_pass, smoothing, and computing nll
 def filter_smooth_nll(cov_matrix, smooth_param, y, m0, S0, C, A, R, ensemble_vars):
+
     # Adjust Q based on smooth_param and cov_matrix
     Q = smooth_param * cov_matrix
     # Run filtering and smoothing with the current smooth_param
@@ -305,7 +332,6 @@ def return_nll_only(cov_matrix, smooth_param, y, m0, S0, C, A, R, ensemble_vars)
     smooth_param = smooth_param[0]
     # Run filtering and smoothing with the current smooth_param
     mf, Vf, S, innovs, innov_cov = forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
-    ms, Vs, CV = backward_pass(y, mf, Vf, S, A, Q, C)
     # Compute the negative log-likelihood based on innovations and their covariance
     nll, nll_values = compute_nll(innovs, innov_cov)
     return nll
@@ -318,18 +344,19 @@ def compute_nll(innovations, innovation_covs, epsilon=1e-6):
     nll_values = []
     k = np.log(2 * np.pi) * n_keypoints  # The Gaussian normalization constant part
     for t in range(T):
-        # Regularize the innovation covariance matrix by adding epsilon to the diagonal
-        reg_innovation_cov = innovation_covs[t] + epsilon * np.eye(n_keypoints)
+        if not np.any(np.isnan(innovations[t])):  # Check if any value in innovations[t] is not NaN
+            # Regularize the innovation covariance matrix by adding epsilon to the diagonal
+            reg_innovation_cov = innovation_covs[t] + epsilon * np.eye(n_keypoints)
 
-        # Compute the log determinant of the regularized covariance matrix
-        log_det_S = np.log(np.linalg.det(reg_innovation_cov) + epsilon)
-        solved_term = np.linalg.solve(reg_innovation_cov, innovations[t])
-        quadratic_term = np.dot(innovations[t], solved_term)
+            # Compute the log determinant of the regularized covariance matrix
+            log_det_S = np.log(np.abs(np.linalg.det(reg_innovation_cov)) + epsilon)
+            solved_term = np.linalg.solve(reg_innovation_cov, innovations[t])
+            quadratic_term = np.dot(innovations[t], solved_term)
 
-        # Compute the NLL increment for time step t
-        nll_increment = 0.5 * (log_det_S + quadratic_term + k)
-        nll_values.append(nll_increment)
-        nll += nll_increment
+            # Compute the NLL increment for time step t
+            nll_increment = 0.5 * np.abs((log_det_S + quadratic_term + k))
+            nll_values.append(nll_increment)
+            nll += nll_increment
     return nll, nll_values
 
 

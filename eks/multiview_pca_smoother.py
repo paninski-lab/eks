@@ -4,7 +4,7 @@ from scipy.interpolate import interp1d
 from sklearn.decomposition import PCA
 from eks.utils import make_dlc_pandas_index
 from eks.core import ensemble, forward_pass, \
-    backward_pass, eks_zscore, optimize_smoothing_param, filter_smooth_nll
+    backward_pass, eks_zscore, optimize_smoothing_params, filter_smooth_nll
 
 
 # -----------------------
@@ -544,7 +544,7 @@ def ensemble_kalman_smoother_multi_cam(
 
     # Call functions from ensemble_kalman to optimize smooth_param before filtering and smoothing
     if smooth_param is None:
-        smooth_param = optimize_smoothing_param(cov_matrix, y_obs, m0, S0, C, A, R, ensemble_vars)
+        smooth_param = optimize_smoothing_params(cov_matrix, y_obs, m0, S0, C, A, R, ensemble_vars)
     ms, Vs, nll, nll_values = filter_smooth_nll(
         cov_matrix, smooth_param, y_obs, m0, S0, C, A, R, ensemble_vars)
     print(f"NLL is {nll} for {keypoint_ensemble}, smooth_param={smooth_param}")
