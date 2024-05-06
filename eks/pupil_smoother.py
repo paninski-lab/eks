@@ -140,9 +140,9 @@ def ensemble_kalman_smoother_pupil(
 
     # diagonal: var
     S0 = np.asarray([
-        [np.var(pupil_diameters), 0.0, 0.0],
-        [0.0, np.var(x_t_obs), 0.0],
-        [0.0, 0.0, np.var(y_t_obs)]
+        [np.nanvar(pupil_diameters), 0.0, 0.0],
+        [0.0, np.nanvar(x_t_obs), 0.0],
+        [0.0, 0.0, np.nanvar(y_t_obs)]
     ])
 
     # state-transition matrix
@@ -150,9 +150,9 @@ def ensemble_kalman_smoother_pupil(
 
     # state covariance matrix
     Q = np.asarray([
-        [np.var(pupil_diameters) * (1 - (A[0, 0] ** 2)), 0, 0],
-        [0, np.var(x_t_obs) * (1 - A[1, 1] ** 2), 0],
-        [0, 0, np.var(y_t_obs) * (1 - (A[2, 2] ** 2))]
+        [np.nanvar(pupil_diameters) * (1 - (A[0, 0] ** 2)), 0, 0],
+        [0, np.nanvar(x_t_obs) * (1 - A[1, 1] ** 2), 0],
+        [0, 0, np.nanvar(y_t_obs) * (1 - (A[2, 2] ** 2))]
     ])
 
     # Measurement function
