@@ -9,7 +9,7 @@ from eks.core import ensemble, eks_zscore, optimize_smoothing_params, \
 # funcs for single-view
 # -----------------------
 def ensemble_kalman_smoother_single_view(
-        markers_list, keypoint_ensemble, smooth_param, ensembling_mode='median',
+        markers_list, keypoint_ensemble, smooth_param, s_frames, ensembling_mode='median',
         zscore_threshold=2, verbose=False):
     """ Use an identity observation matrix and smoothes by adjusting the smoothing parameter in the
     state-covariance matrix.
@@ -22,6 +22,8 @@ def ensemble_kalman_smoother_single_view(
         the name of the keypoint to be ensembled and smoothed
     smooth_param : float
         ranges from .01-20 (smaller values = more smoothing)
+    s_frames : list of tuples or int
+        specifies frames to be used for smoothing parameter auto-tuning
     ensembling_mode:
         the function used for ensembling ('mean', 'median', or 'confidence_weighted_mean')
     zscore_threshold:
@@ -94,7 +96,7 @@ def ensemble_kalman_smoother_single_view(
     # Call functions from ensemble_kalman to optimize smooth_param before filtering and smoothing
     if smooth_param is None:
         smooth_param_final = \
-            optimize_smoothing_params(cov_matrix, y_obs, m0, S0, C, A, R, ensemble_vars)
+            optimize_smoothing_params(cov_matrix, y_obs, m0, S0, C, A, R, ensemble_vars, s_frames)
     else:
         smooth_param_final = smooth_param
     ms, Vs, nll, nll_values = \

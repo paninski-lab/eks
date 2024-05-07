@@ -1,5 +1,6 @@
 import os
 import argparse
+import re
 
 # -------------------------------------------------------------
 """ Collection of General Functions for EKS Scripting
@@ -47,6 +48,16 @@ def handle_parse_args(script_type):
         default='dlc',
         type=str,
     )
+    parser.add_argument(
+        '--s-frames',
+        help='frames to be considered for smoothing '
+             'parameter optimization, first 2k frames by default. Moot if --s flag is specified. '
+             'Format: "[(start_int, end_int), (start_int, end_int), ... ]" or int. '
+             'Inputting a single int uses all frames from 1 to the int. '
+             '(None, end_int) starts from first frame; (start_int, None) proceeds to last frame.',
+        default=[(1,2000)],
+        type=parse_s_frames,
+    )
     if script_type == 'singlecam':
         add_bodyparts(parser)
         add_s(parser)
@@ -66,6 +77,35 @@ def handle_parse_args(script_type):
     args = parser.parse_args()
     return args
 
+# Helper function for parsing s-frames
+def parse_s_frames(input_string):
+    try:
+        # First, check if the input is a single integer
+        if input_string.isdigit():
+            end = int(input_string)
+            return [(1, end)]  # Handle as from first to 'end'
+
+        # Remove spaces, replace with nothing
+        cleaned = re.sub(r'\s+', '', input_string)
+        # Match tuples in the form of (x,y), (x,), (,y)
+        tuple_pattern = re.compile(r'\((\d*),(\d*)\)')
+        matches = tuple_pattern.findall(cleaned)
+
+        if not matches:
+            raise ValueError("No valid tuples found.")
+
+        tuples = []
+        for start, end in matches:
+            # Convert numbers to integers or None if empty
+            start = int(start) if start else None
+            end = int(end) if end else None
+            if start is not None and end is not None and start > end:
+                raise ValueError("Start index cannot be greater than end index.")
+            tuples.append((start, end))
+
+        return tuples
+    except Exception as e:
+        raise argparse.ArgumentTypeError(f"Invalid format for --s-frames: {e}")
 
 # Helper Functions for handle_parse_args
 def add_bodyparts(parser):

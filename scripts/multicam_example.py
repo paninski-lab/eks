@@ -24,6 +24,7 @@ camera_names = args.camera_names
 num_cameras = len(camera_names)
 quantile_keep_pca = args.quantile_keep_pca
 s = args.s  # optional, defaults to automatic optimization
+s_frames = args.s_frames
 
 # Load and format input files and prepare an empty DataFrame for output.
 # markers_list : list of input DataFrames
@@ -49,6 +50,7 @@ for keypoint_ensemble in bodypart_list:
         smooth_param=s,
         quantile_keep_pca=quantile_keep_pca,
         camera_names=camera_names,
+        s_frames=s_frames
     )
     # put results into new dataframe
     for camera in camera_names:
@@ -96,7 +98,7 @@ for ax, coord in zip(axes, ['x', 'y', 'likelihood', 'zscore']):
     if coord == 'x':
         ax.legend()
 
-plt.suptitle(f'EKS results for {kp} ({cam} view)', fontsize=14)
+plt.suptitle(f'EKS results for {kp} ({cam} view), smoothing = {s_final}', fontsize=14)
 plt.tight_layout()
 
 save_file = os.path.join(save_dir, 'example_multicam_eks_result.pdf')

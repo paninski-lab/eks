@@ -36,7 +36,7 @@ def pca(S, n_comps):
 def ensemble_kalman_smoother_paw_asynchronous(
         markers_list_left_cam, markers_list_right_cam, timestamps_left_cam,
         timestamps_right_cam, keypoint_names, smooth_param, quantile_keep_pca,
-        ensembling_mode='median',
+        ensembling_mode='confidence_weighted_mean',
         zscore_threshold=2, img_width=128):
     """
     --(IBL-specific)-
@@ -398,7 +398,7 @@ def ensemble_kalman_smoother_paw_asynchronous(
 # -----------------------
 def ensemble_kalman_smoother_multi_cam(
     markers_list_cameras, keypoint_ensemble, smooth_param, quantile_keep_pca, camera_names,
-        ensembling_mode='median', zscore_threshold=2):
+        s_frames, ensembling_mode='median', zscore_threshold=2):
     """Use multi-view constraints to fit a 3d latent subspace for each body part.
 
     Parameters
@@ -414,7 +414,8 @@ def ensemble_kalman_smoother_multi_cam(
         percentage of the points are kept for multi-view PCA (lowest ensemble variance)
     camera_names: list
         the camera names (should be the same length as markers_list_cameras).
-    ensembling_mode:
+    s_frames : list of tuples or int
+        specifies frames to be used for smoothing parameter auto-tuning
         the function used for ensembling ('mean', 'median', or 'confidence_weighted_mean')
     zscore_threshold:
         Minimum std threshold to reduce the effect of low ensemble std on a zscore metric
@@ -544,7 +545,8 @@ def ensemble_kalman_smoother_multi_cam(
 
     # Call functions from ensemble_kalman to optimize smooth_param before filtering and smoothing
     if smooth_param is None:
-        smooth_param = optimize_smoothing_params(cov_matrix, y_obs, m0, S0, C, A, R, ensemble_vars)
+        smooth_param = optimize_smoothing_params(cov_matrix, y_obs, m0, S0, C, A, R, ensemble_vars,
+                                                 s_frames)
     ms, Vs, nll, nll_values = filter_smooth_nll(
         cov_matrix, smooth_param, y_obs, m0, S0, C, A, R, ensemble_vars)
     print(f"NLL is {nll} for {keypoint_ensemble}, smooth_param={smooth_param}")

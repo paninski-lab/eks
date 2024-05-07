@@ -23,6 +23,7 @@ save_filename = args.save_filename
 
 bodypart_list = args.bodypart_list
 s = args.s  # optional, defaults to automatic optimization
+s_frames = args.s_frames # frames to be used for automatic optimization
 
 # Load and format input files and prepare an empty DataFrame for output.
 input_dfs_list, output_df = format_data(args.input_dir, data_type)
@@ -39,6 +40,7 @@ for keypoint in bodypart_list:
         input_dfs_list,
         keypoint,
         s,
+        s_frames
     )
     keypoint_df = keypoint_df_dict[keypoint + '_df']
 
@@ -59,10 +61,10 @@ output_df.to_csv(os.path.join(save_dir, save_filename))
 
 # select example keypoint
 kp = bodypart_list[-1]
-idxs = (0, 1990)
+idxs = (0, 500)
 
 # crop NLL values
-# nll_values_subset = nll_values[idxs[0]:idxs[1]]
+nll_values_subset = nll_values[idxs[0]:idxs[1]]
 
 fig, axes = plt.subplots(5, 1, figsize=(9, 10))
 
@@ -98,15 +100,15 @@ for ax, coord in zip(axes, ['x', 'y', 'likelihood', 'zscore']):
     if coord == 'x':
         ax.legend()
 
-    # Plot nll_values_subset against the time axis
-    # axes[-1].plot(range(*idxs), nll_values_subset, color='k', linewidth=2)
-    # axes[-1].set_ylabel('EKS NLL', fontsize=12)
+    # Plot nll_values against the time axis
+    axes[-1].plot(range(*idxs), nll_values_subset, color='k', linewidth=2)
+    axes[-1].set_ylabel('EKS NLL', fontsize=12)
 
 
-plt.suptitle(f'EKS results for {kp}, smoothing = {s}', fontsize=14)
+plt.suptitle(f'EKS results for {kp}, smoothing = {s_final}', fontsize=14)
 plt.tight_layout()
 
-save_file = os.path.join(save_dir, f'singlecam_s={s}.pdf')
+save_file = os.path.join(save_dir, f'singlecam_s={s_final}.pdf')
 plt.savefig(save_file)
 plt.close()
 print(f'see example EKS output at {save_file}')

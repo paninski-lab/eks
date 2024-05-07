@@ -261,7 +261,8 @@ def optimize_smoothing_param(cov_matrix, y, m0, s0, C, A, R, ensemble_vars):
 '''
 
 
-def optimize_smoothing_params(cov_matrix, y, m0, s0, C, A, R, ensemble_vars, max_frames=2000):
+def optimize_smoothing_params(cov_matrix, y, m0, s0, C, A, R, ensemble_vars,
+                              s_frames=[(None, 2000)],):
     guess = compute_initial_guesses(ensemble_vars)
     # Update xatol during optimization
     def callback(xk):
@@ -274,16 +275,45 @@ def optimize_smoothing_params(cov_matrix, y, m0, s0, C, A, R, ensemble_vars, max
     # Initialize options with initial xatol
     options = {'xatol': np.log(guess)}
 
+    # Unpack s_frames
+    y = subset_by_frames(y, s_frames)
+
     result = minimize(
         return_nll_only,
         x0=guess,  # initial smooth param guess
-        args=(cov_matrix, y[:max_frames], m0, s0, C, A, R, ensemble_vars),
+        args=(cov_matrix, y, m0, s0, C, A, R, ensemble_vars),
         method='Nelder-Mead',
         options=options,
-        callback=callback  # Pass the callback function
+        callback=callback,  # Pass the callback function
+        bounds=[(0, None)]
     )
     print(f'Optimal at s={result.x[0]}')
     return result.x[0]
+
+
+# Function to slice y to include only specified frames for optimization
+def subset_by_frames(y, s_frames):
+    # Create an empty list to store arrays
+    result = []
+
+    for frame in s_frames:
+        # Unpack the frame, setting defaults for empty start or end
+        start, end = frame
+        # Default start to 0 if not specified (and adjust for zero indexing)
+        start = start - 1 if start is not None else 0
+        # Default end to the length of y if not specified
+        end = end if end is not None else len(y)
+
+        # Validate the indices
+        if start < 0 or end > len(y) or start >= end:
+            raise ValueError(f"Index range ({start + 1}, {end}) "
+                             f"is out of bounds for the list of length {len(y)}.")
+
+        # Use numpy slicing to preserve the data structure
+        result.append(y[start:end])
+
+    # Concatenate all slices into a single numpy array
+    return np.concatenate(result)
 
 
 # Function to compute ensemble mean, temporal differences, and standard deviation
