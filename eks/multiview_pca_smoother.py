@@ -36,7 +36,7 @@ def pca(S, n_comps):
 def ensemble_kalman_smoother_paw_asynchronous(
         markers_list_left_cam, markers_list_right_cam, timestamps_left_cam,
         timestamps_right_cam, keypoint_names, smooth_param, quantile_keep_pca,
-        ensembling_mode='confidence_weighted_mean',
+        ensembling_mode='median',
         zscore_threshold=2, img_width=128):
     """
     --(IBL-specific)-
@@ -420,9 +420,6 @@ def ensemble_kalman_smoother_multi_cam(
     zscore_threshold:
         Minimum std threshold to reduce the effect of low ensemble std on a zscore metric
         (default 2).
-
-    Returns
-    -------
 
     Returns
     -------

@@ -1,39 +1,35 @@
 """Example script for ibl-paw dataset."""
-
 import matplotlib.pyplot as plt
 import numpy as np
 import os
 import pandas as pd
 
-from eks.utils import convert_lp_dlc
-from eks.multiview_pca_smoother import ensemble_kalman_smoother_paw_asynchronous
 from general_scripting import handle_io, handle_parse_args
+from eks.utils import convert_lp_dlc, format_data, populate_output_dataframe, plot_results
+from eks.multiview_pca_smoother import ensemble_kalman_smoother_paw_asynchronous
 
 
-# collect user-provided args
-args = handle_parse_args('paw')
-csv_dir = os.path.abspath(args.input_dir)
-save_dir = args.save_dir
+
+# Collect User-Provided Args
+smoother_type = 'paw'
+args = handle_parse_args(smoother_type)
+input_dir = os.path.abspath(args.input_dir)
+data_type = args.data_type  # Note: LP and DLC are .csv, SLP is .slp
+save_dir = handle_io(input_dir, args.save_dir)  # defaults to outputs\
+save_filename = args.save_filename
 s = args.s
 quantile_keep_pca = args.quantile_keep_pca
-
-
-# ---------------------------------------------
-# run EKS algorithm
-# ---------------------------------------------
-
-# handle I/O
-save_dir = handle_io(csv_dir, save_dir)
+s_frames = args.s_frames # frames to be used for automatic optimization (only if no --s flag)
 
 # load files and put them in correct format
 markers_list_left = []
 markers_list_right = []
 timestamps_left = None
 timestamps_right = None
-filenames = os.listdir(csv_dir)
+filenames = os.listdir(input_dir)
 for filename in filenames:
     if 'timestamps' not in filename:
-        markers_curr = pd.read_csv(os.path.join(csv_dir, filename), header=[0, 1, 2], index_col=0)
+        markers_curr = pd.read_csv(os.path.join(input_dir, filename), header=[0, 1, 2], index_col=0)
         keypoint_names = [c[1] for c in markers_curr.columns[::3]]
         model_name = markers_curr.columns[0][0]
         markers_curr_fmt = convert_lp_dlc(markers_curr, keypoint_names, model_name=model_name)
@@ -53,9 +49,9 @@ for filename in filenames:
             markers_list_right.append(markers_curr_fmt)
     else:
         if 'left' in filename:
-            timestamps_left = np.load(os.path.join(csv_dir, filename))
+            timestamps_left = np.load(os.path.join(input_dir, filename))
         else:
-            timestamps_right = np.load(os.path.join(csv_dir, filename))
+            timestamps_right = np.load(os.path.join(input_dir, filename))
 
 # file checks
 if timestamps_left is None or timestamps_right is None:

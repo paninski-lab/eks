@@ -121,7 +121,9 @@ def add_bodyparts(parser):
 def add_s(parser):
     parser.add_argument(
         '--s',
-        help='smoothing parameter ranges from .01-20 (smaller values = more smoothing)',
+        help='Specifying a smoothing parameter overrides the auto-tuning function. '
+             'Providing multiple args will set each additional bodypart to the next s param',
+        nargs='+',
         type=float,
     )
     return parser

@@ -91,7 +91,7 @@ model predictions.
 To run this script on the example data provided, execute the following command from inside this repo:
 
 ```console 
-python scripts/pupil_example.py --input-dir ./data/ibl-pupil
+python scripts/pupil_example.py --input-dir ./data/ibl-pupil --data-type lp
 ```
 
 ### IBL paw dataset (multiple asynchronous views)
@@ -101,7 +101,7 @@ the two cameras.
 To run this script on the example data provided, execute the following command from inside this repo:
 
 ```console 
-python scripts/multiview_paw_example.py --input-dir ./data/ibl-paw
+python scripts/multiview_paw_example.py --input-dir ./data/ibl-paw --data-type lp
 ```
 
 ### Authors 

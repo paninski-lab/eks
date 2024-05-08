@@ -12,11 +12,14 @@ The script is run as a python executable. Arguments are parsed using the `argpar
 [Python module](https://docs.python.org/3/library/argparse.html), as seen in each of
 the example scripts.
 
-Arguments fall into two categories:
-## File I/O Arguments
-These arguments dictate the file directories for reading and writing data, and are present in all example scripts.
+Arguments are either general or script-specific.
+## General Arguments
+These arguments are present in all example scripts.
 - `--csv-dir <csv_directory>` String specifying read-in directory containing CSV files used as input data.
 - `--save-dir <save_directory>` String specifying write-to directory (csv-dir by default).
+- `--save-filename <save_filename>` String specifying output file name ({'smoother_type}_{smooth_param}' by default).
+- `--data-type <data_type>` String specifying input data file type. Accepts DeepLabCut (dlc), Lightning Pose (lp), and SLEAP (slp) file types. DLC by default.
+- `--s-frames <s-frame_int> or <list of tuples (e.g. [(1, 300), (1000, None)]` Specifies frames to be considered for smoothing. If the input is an integer, selects that many frames starting from frame 1.
 
 ## Script-specific Arguments
 These arguments are specific to the example script (e.g. `eks/singleview_smoother.py`) being used, which is

@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 from sleap_io.io.slp import read_labels
 
 
@@ -108,7 +109,7 @@ def format_data(input_dir, data_type):
 
     markers_eks = make_output_dataframe(markers_curr)
     # returns both the formatted marker data and the empty dataframe for EKS output
-    return markers_list, markers_eks
+    return markers_list, markers_eks, keypoint_names
 
 
 # Making empty DataFrame for EKS output
@@ -171,9 +172,63 @@ def dataframe_to_csv(df, filename):
         print("Error:", e)
 
 
-def populate_output_dataframe(keypoint_df, keypoint_ensemble, markers_eks):
+def populate_output_dataframe(keypoint_df, keypoint_ensemble, output_df,
+                              key_suffix=''):  # key_suffix only required for multi-camera setups
     for coord in ['x', 'y', 'zscore']:
         src_cols = ('ensemble-kalman_tracker', f'{keypoint_ensemble}', coord)
-        dst_cols = ('ensemble-kalman_tracker', f'{keypoint_ensemble}', coord)
-        markers_eks.loc[:, dst_cols] = keypoint_df.loc[:, src_cols]
-    return markers_eks
+        dst_cols = ('ensemble-kalman_tracker', f'{keypoint_ensemble}' + key_suffix, coord)
+        output_df.loc[:, dst_cols] = keypoint_df.loc[:, src_cols]
+    return output_df
+
+
+def plot_results(output_df, input_dfs_list,
+                 key, s_final, nll_values, idxs, save_dir, smoother_type):
+
+    # crop NLL values
+    nll_values_subset = nll_values[idxs[0]:idxs[1]]
+
+    fig, axes = plt.subplots(5, 1, figsize=(9, 10))
+
+    for ax, coord in zip(axes, ['x', 'y', 'likelihood', 'zscore']):
+        # Rename axes label for likelihood and zscore coordinates
+        if coord == 'likelihood':
+            ylabel = 'model likelihoods'
+        elif coord == 'zscore':
+            ylabel = 'EKS disagreement'
+        else:
+            ylabel = coord
+
+        # plot individual models
+        ax.set_ylabel(ylabel, fontsize=12)
+        if coord == 'zscore':
+            ax.plot(output_df.loc[slice(*idxs), ('ensemble-kalman_tracker', key, coord)],
+                    color='k', linewidth=2)
+            ax.set_xlabel('Time (frames)', fontsize=12)
+            continue
+        for m, markers_curr in enumerate(input_dfs_list):
+            ax.plot(
+                markers_curr.loc[slice(*idxs), key + f'_{coord}'], color=[0.5, 0.5, 0.5],
+                label='Individual models' if m == 0 else None,
+            )
+        # plot eks
+        if coord == 'likelihood':
+            continue
+        ax.plot(
+            output_df.loc[slice(*idxs), ('ensemble-kalman_tracker', key, coord)],
+            color='k', linewidth=2, label='EKS',
+        )
+        if coord == 'x':
+            ax.legend()
+
+        # Plot nll_values against the time axis
+        axes[-1].plot(range(*idxs), nll_values_subset, color='k', linewidth=2)
+        axes[-1].set_ylabel('EKS NLL', fontsize=12)
+
+    plt.suptitle(f'EKS results for {key}, smoothing = {s_final}', fontsize=14)
+    plt.tight_layout()
+
+    save_file = os.path.join(save_dir, f'{smoother_type}_s={s_final}.pdf')
+    plt.savefig(save_file)
+    plt.close()
+    print(f'see example EKS output at {save_file}')
+

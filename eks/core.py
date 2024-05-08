@@ -262,7 +262,7 @@ def optimize_smoothing_param(cov_matrix, y, m0, s0, C, A, R, ensemble_vars):
 
 
 def optimize_smoothing_params(cov_matrix, y, m0, s0, C, A, R, ensemble_vars,
-                              s_frames=[(None, 2000)],):
+                              s_frames=[(1, 2000)],):
     guess = compute_initial_guesses(ensemble_vars)
     # Update xatol during optimization
     def callback(xk):
@@ -289,6 +289,10 @@ def optimize_smoothing_params(cov_matrix, y, m0, s0, C, A, R, ensemble_vars,
     )
     print(f'Optimal at s={result.x[0]}')
     return result.x[0]
+
+#def optimize_pupil_smooth_params(cov_matrix, y, m0, s0, C, A, R, ensemble_vars,
+ #                             s_frames=[(1, 2000)],):
+
 
 
 # Function to slice y to include only specified frames for optimization
@@ -343,7 +347,8 @@ def compute_initial_guesses(ensemble_vars):
 
 
 # Combines filtering_pass, smoothing, and computing nll
-def filter_smooth_nll(cov_matrix, smooth_param, y, m0, S0, C, A, R, ensemble_vars):
+def filter_smooth_nll(cov_matrix, smooth_param, y, m0, S0, C, A, R, ensemble_vars,
+                      smooth_param_2=None):
 
     # Adjust Q based on smooth_param and cov_matrix
     Q = smooth_param * cov_matrix

@@ -93,12 +93,13 @@ def ensemble_kalman_smoother_single_view(
     '''
 
 
-    # Call functions from ensemble_kalman to optimize smooth_param before filtering and smoothing
+    # Optimize smooth_param before filtering and smoothing
     if smooth_param is None:
         smooth_param_final = \
             optimize_smoothing_params(cov_matrix, y_obs, m0, S0, C, A, R, ensemble_vars, s_frames)
     else:
         smooth_param_final = smooth_param
+
     ms, Vs, nll, nll_values = \
         filter_smooth_nll(cov_matrix, smooth_param_final, y_obs, m0, S0, C, A, R, ensemble_vars)
     print(f"NLL is {nll} for {keypoint_ensemble}, smooth_param={smooth_param_final}")
@@ -132,19 +133,3 @@ def ensemble_kalman_smoother_single_view(
     ]).T
     df = pd.DataFrame(pred_arr, columns=pdindex)
     return {keypoint_ensemble + '_df': df}, smooth_param_final, nll_values
-
-
-'''
-Plotting NLL traces (paste in before final cleanup)
-    # Plot nll values against time
-    plt.plot(range(len(nll_values)), nll_values)
-    plt.xlabel('Time Step')
-    plt.ylabel('Negative Log Likelihood (nll)')
-    plt.title(f'Negative Log Likelihood vs Time for IBL Pupil s={smooth_param}')
-    plt.grid(True)
-
-    # Save the plot as a PDF file
-    plt.savefig('nll_plot.pdf')
-
-    plt.show()
-'''
