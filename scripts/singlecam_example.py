@@ -1,7 +1,7 @@
 """Example script for single-camera datasets."""
 import os
 
-from general_scripting import handle_io, handle_parse_args
+from eks.general_scripting import handle_io, handle_parse_args
 from eks.utils import format_data, populate_output_dataframe, plot_results
 from eks.singleview_smoother import ensemble_kalman_smoother_single_view
 

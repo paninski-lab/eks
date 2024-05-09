@@ -1,8 +1,8 @@
 """Example script for ibl-pupil dataset."""
 import os
 
-from general_scripting import handle_io, handle_parse_args
-from eks.utils import format_data, populate_output_dataframe, plot_results
+from eks.general_scripting import handle_io, handle_parse_args
+from eks.utils import format_data, plot_results
 from eks.pupil_smoother import ensemble_kalman_smoother_pupil
 
 # Collect User-Provided Args
