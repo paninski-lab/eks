@@ -1,7 +1,7 @@
 """Example script for single-camera datasets."""
 import os
 
-from eks.general_scripting import handle_io, handle_parse_args
+from eks.command_line_args import handle_io, handle_parse_args
 from eks.utils import format_data, populate_output_dataframe, plot_results
 from eks.singleview_smoother import ensemble_kalman_smoother_single_view
 
@@ -22,11 +22,15 @@ input_dfs_list, output_df, _ = format_data(args.input_dir, data_type)
 
 # loop over keypoints; apply eks to each individually
 for i, keypoint in enumerate(bodypart_list):
+
+    # Check if smooth_param given by user
+    s = s[i] if s is not None else None
+
     # run eks
     keypoint_df_dict, s_final, nll_values = ensemble_kalman_smoother_single_view(
         input_dfs_list,
         keypoint,
-        s[i],
+        s,
         s_frames
     )
     keypoint_df = keypoint_df_dict[keypoint + '_df']

@@ -1,8 +1,7 @@
 import numpy as np
 import pandas as pd
 from eks.utils import make_dlc_pandas_index
-from eks.core import ensemble, eks_zscore, \
-    filter_smooth_nll
+from eks.core import ensemble, eks_zscore, pupil_optimize_and_smooth
 import warnings
 
 
@@ -77,20 +76,12 @@ def add_mean_to_array(pred_arr, keys, mean_x, mean_y):
     return processed_arr_dict
 
 
-def construct_state_transition_matrix(diameter_s, com_s):
-    A = np.asarray([
-        [diameter_s, 0, 0],
-        [0, com_s, 0],
-        [0, 0, com_s]
-    ])
-    return A
-
 def ensemble_kalman_smoother_pupil(
     markers_list,
     keypoint_names,
     tracker_name,
-    diameter_s,
-    com_s,
+    smooth_params,
+    s_frames,
     likelihood_default=np.nan,
     zscore_threshold=2,
 ):
@@ -103,7 +94,8 @@ def ensemble_kalman_smoother_pupil(
     keypoint_names: list
     tracker_name : str
         tracker name for constructing final dataframe
-    state_transition_matrix : np.ndarray
+    smooth_params : [float, float]
+        contains smoothing parameters for diameter and center of mass
     likelihood_default
         value to store in likelihood column; should be np.nan or int in [0, 1]
     zscore_threshold:
@@ -155,16 +147,6 @@ def ensemble_kalman_smoother_pupil(
         [0.0, 0.0, np.var(y_t_obs)]
     ])
 
-    # state-transition matrix
-    A = construct_state_transition_matrix(diameter_s, com_s)
-
-    # state covariance matrix
-    cov_matrix = np.asarray([
-        [np.var(pupil_diameters) * (1 - (A[0, 0] ** 2)), 0, 0],
-        [0, np.var(x_t_obs) * (1 - A[1, 1] ** 2), 0],
-        [0, 0, np.var(y_t_obs) * (1 - (A[2, 2] ** 2))]
-    ])
-
     # Measurement function
     C = np.asarray(
         [[0, 1, 0], [-.5, 0, 1], [0, 1, 0], [.5, 0, 1], [.5, 1, 0], [0, 0, 1], [-.5, 1, 0],
@@ -192,10 +174,10 @@ def ensemble_kalman_smoother_pupil(
     # --------------------------------------
     # perform filtering
     # --------------------------------------
-
-    ms, Vs, nll, nll_values = \
-        filter_smooth_nll(cov_matrix, diameter_s, y_obs, m0, S0, C, A, R, ensemble_vars,
-                          smooth_param_2=com_s)
+    smooth_params, ms, Vs, nll, nll_values = pupil_optimize_and_smooth(
+        y_obs, m0, S0, C, R, ensemble_vars,
+        np.var(pupil_diameters), np.var(x_t_obs), np.var(y_t_obs), s_frames, smooth_params)
+    diameter_s, com_s = smooth_params[0], smooth_params[1]
     print(f"NLL is {nll} for diameter_s={diameter_s}, com_s={com_s}")
     # Smoothed posterior over y
     y_m_smooth = np.dot(C, ms.T).T
@@ -247,4 +229,4 @@ def ensemble_kalman_smoother_pupil(
     pd_index2 = pd.MultiIndex.from_arrays(arrays, names=('scorer', 'latent'))
     latents_df = pd.DataFrame(pred_arr2.T, columns=pd_index2)
 
-    return {'markers_df': markers_df, 'latents_df': latents_df}, nll_values
+    return {'markers_df': markers_df, 'latents_df': latents_df}, smooth_params, nll_values

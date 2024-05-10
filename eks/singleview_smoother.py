@@ -1,8 +1,8 @@
 import numpy as np
 import pandas as pd
 from eks.utils import make_dlc_pandas_index
-from eks.core import ensemble, eks_zscore, optimize_smoothing_params, \
-    filter_smooth_nll
+from eks.core import ensemble, eks_zscore, singlecam_multicam_optimize_and_smooth, \
+    singlecam_multicam_smooth_final
 
 
 # -----------------------
@@ -39,6 +39,10 @@ def ensemble_kalman_smoother_single_view(
     dict
         keypoint_df: dataframe containing smoothed markers for one keypoint; same format as input
         dataframes
+    smooth_param_final
+        the optimized smooth param (or the user-input)
+    nll_values
+        the negative log likelihoods (EKS likelihoods) for plotting
     """
 
     # --------------------------------------------------------------
@@ -94,14 +98,10 @@ def ensemble_kalman_smoother_single_view(
 
 
     # Optimize smooth_param before filtering and smoothing
-    if smooth_param is None:
-        smooth_param_final = \
-            optimize_smoothing_params(cov_matrix, y_obs, m0, S0, C, A, R, ensemble_vars, s_frames)
-    else:
-        smooth_param_final = smooth_param
+    smooth_param_final, ms, Vs, nll, nll_values = \
+        singlecam_multicam_optimize_and_smooth(
+            cov_matrix, y_obs, m0, S0, C, A, R, ensemble_vars, s_frames, smooth_param)
 
-    ms, Vs, nll, nll_values = \
-        filter_smooth_nll(cov_matrix, smooth_param_final, y_obs, m0, S0, C, A, R, ensemble_vars)
     print(f"NLL is {nll} for {keypoint_ensemble}, smooth_param={smooth_param_final}")
 
     # Smoothed posterior over y

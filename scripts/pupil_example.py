@@ -1,7 +1,7 @@
 """Example script for ibl-pupil dataset."""
 import os
 
-from eks.general_scripting import handle_io, handle_parse_args
+from eks.command_line_args import handle_io, handle_parse_args
 from eks.utils import format_data, plot_results
 from eks.pupil_smoother import ensemble_kalman_smoother_pupil
 
@@ -20,12 +20,12 @@ s_frames = args.s_frames # frames to be used for automatic optimization (only if
 input_dfs_list, output_df, keypoint_names = format_data(input_dir, data_type)
 
 # run eks
-df_dicts, nll_values = ensemble_kalman_smoother_pupil(
+df_dicts, smooth_params, nll_values = ensemble_kalman_smoother_pupil(
     markers_list=input_dfs_list,
     keypoint_names=keypoint_names,
     tracker_name='ensemble-kalman_tracker',
-    diameter_s=diameter_s,
-    com_s=com_s
+    smooth_params=[diameter_s, com_s],
+    s_frames=s_frames
     )
 
 save_file = os.path.join(save_dir, 'kalman_smoothed_pupil_traces.csv')
@@ -46,7 +46,7 @@ plot_results(output_df=df_dicts['markers_df'],
              input_dfs_list=input_dfs_list,
              key=f'{keypoint_names[-1]}',
              idxs=(0, 500),
-             s_final=(diameter_s, com_s),
+             s_final=(smooth_params[0], smooth_params[1]),
              nll_values=nll_values,
              save_dir=save_dir,
              smoother_type=smoother_type

@@ -245,56 +245,6 @@ def eks_zscore(eks_predictions, ensemble_means, ensemble_vars, min_ensemble_std=
     return z_score
 
 
-'''
-# Kept for reference -- Returns high-precision but low speed result
-
-def optimize_smoothing_param(cov_matrix, y, m0, s0, C, A, R, ensemble_vars):
-    guess = compute_initial_guess(y, ensemble_vars)
-    result = minimize(
-        return_nll_only,
-        x0=guess,  # initial smooth param guess
-        args=(cov_matrix, y, m0, s0, C, A, R, ensemble_vars),
-        method='Nelder-Mead'
-    )
-    print(f'Optimal at s={result.x[0]}')
-    return result.x[0]
-'''
-
-
-def optimize_smoothing_params(cov_matrix, y, m0, s0, C, A, R, ensemble_vars,
-                              s_frames=[(1, 2000)],):
-    guess = compute_initial_guesses(ensemble_vars)
-    # Update xatol during optimization
-    def callback(xk):
-        # Update xatol based on the current solution xk
-        xatol = np.log(np.abs(xk)) * 0.01
-
-        # Update the options dictionary with the new xatol value
-        options['xatol'] = xatol
-
-    # Initialize options with initial xatol
-    options = {'xatol': np.log(guess)}
-
-    # Unpack s_frames
-    y = subset_by_frames(y, s_frames)
-
-    result = minimize(
-        return_nll_only,
-        x0=guess,  # initial smooth param guess
-        args=(cov_matrix, y, m0, s0, C, A, R, ensemble_vars),
-        method='Nelder-Mead',
-        options=options,
-        callback=callback,  # Pass the callback function
-        bounds=[(0, None)]
-    )
-    print(f'Optimal at s={result.x[0]}')
-    return result.x[0]
-
-#def optimize_pupil_smooth_params(cov_matrix, y, m0, s0, C, A, R, ensemble_vars,
- #                             s_frames=[(1, 2000)],):
-
-
-
 # Function to slice y to include only specified frames for optimization
 def subset_by_frames(y, s_frames):
     # Create an empty list to store arrays
@@ -346,32 +296,6 @@ def compute_initial_guesses(ensemble_vars):
     return std_dev_guess
 
 
-# Combines filtering_pass, smoothing, and computing nll
-def filter_smooth_nll(cov_matrix, smooth_param, y, m0, S0, C, A, R, ensemble_vars,
-                      smooth_param_2=None):
-
-    # Adjust Q based on smooth_param and cov_matrix
-    Q = smooth_param * cov_matrix
-    # Run filtering and smoothing with the current smooth_param
-    mf, Vf, S, innovs, innov_cov = forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
-    ms, Vs, CV = backward_pass(y, mf, Vf, S, A, Q, C)
-    # Compute the negative log-likelihood based on innovations and their covariance
-    nll, nll_values = compute_nll(innovs, innov_cov)
-    return ms, Vs, nll, nll_values
-
-
-# filter_smooth_nll version for iterative calls from optimize_smoothing_param
-def return_nll_only(cov_matrix, smooth_param, y, m0, S0, C, A, R, ensemble_vars):
-    # Adjust Q based on smooth_param and cov_matrix
-    Q = smooth_param * cov_matrix
-    smooth_param = smooth_param[0]
-    # Run filtering and smoothing with the current smooth_param
-    mf, Vf, S, innovs, innov_cov = forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
-    # Compute the negative log-likelihood based on innovations and their covariance
-    nll, nll_values = compute_nll(innovs, innov_cov)
-    return nll
-
-
 def compute_nll(innovations, innovation_covs, epsilon=1e-6):
     T = innovations.shape[0]
     n_keypoints = innovations.shape[1]
@@ -394,7 +318,7 @@ def compute_nll(innovations, innovation_covs, epsilon=1e-6):
             nll += nll_increment
     return nll, nll_values
 
-
+'''
 # Alternative implementation of NLL
 
 def compute_nll_2(y, mf, S, C, epsilon=1e-6, lower_bound=0, upper_bound=0):
@@ -420,3 +344,148 @@ def compute_nll_2(y, mf, S, C, epsilon=1e-6, lower_bound=0, upper_bound=0):
         nll_values.append(nll_increment)
         nll += nll_increment
     return nll, nll_values
+'''
+
+# ---------------------
+# Main Smoothing Functions
+# ---------------------
+
+
+def singlecam_multicam_optimize_and_smooth(
+        cov_matrix, y, m0, s0, C, A, R, ensemble_vars,
+        s_frames=[(1, 2000)],
+        smooth_param=None):
+
+    # Optimize smooth_param
+    if smooth_param is None:
+        guess = compute_initial_guesses(ensemble_vars)
+        # Update xatol during optimization
+        def callback(xk):
+            # Update xatol based on the current solution xk
+            xatol = np.log(np.abs(xk)) * 0.01
+
+            # Update the options dictionary with the new xatol value
+            options['xatol'] = xatol
+
+        # Initialize options with initial xatol
+        options = {'xatol': np.log(guess)}
+
+        # Unpack s_frames
+        y_shortened = subset_by_frames(y, s_frames)
+
+        # Minimize negative log likelihood
+        smooth_param = minimize(
+            singlecam_multicam_smooth_min,
+            x0=guess,  # initial smooth param guess
+            args=(cov_matrix, y_shortened, m0, s0, C, A, R, ensemble_vars),
+            method='Nelder-Mead',
+            options=options,
+            callback=callback,  # Pass the callback function
+            bounds=[(0, None)]
+        )
+        smooth_param = round(smooth_param.x[0], 5)
+        print(f'Optimal at s={smooth_param}')
+
+    # Final smooth with optimized s
+    ms, Vs, nll, nll_values = singlecam_multicam_smooth_final(
+        cov_matrix, smooth_param, y, m0, s0, C, A, R, ensemble_vars)
+
+    return smooth_param, ms, Vs, nll, nll_values
+
+
+def pupil_optimize_and_smooth(
+        y, m0, S0, C, R, ensemble_vars, diameters_var, x_var, y_var,
+        s_frames=[(1, 2000)],
+        smooth_params=[None, None]):
+    # Optimize smooth_param
+    if smooth_params[0] is None or smooth_params[1] is None:
+
+        # Unpack s_frames
+        y_shortened = subset_by_frames(y, s_frames)
+
+        # Minimize negative log likelihood
+        smooth_params = minimize(
+            pupil_smooth_min,  # function to minimize
+            x0=[1, 1],
+            args=(y_shortened, m0, S0, C, R, ensemble_vars, diameters_var, x_var, y_var),
+            method='Nelder-Mead',
+            tol=0.005,
+            bounds=[(0, 1), (0, 1)]  # bounds for each parameter in smooth_params
+        )
+        smooth_params = [round(smooth_params.x[0], 5), round(smooth_params.x[1], 5)]
+        print(f'Optimal at diameter_s={smooth_params[0]}, com_s={smooth_params[1]}')
+
+    # Final smooth with optimized s
+    ms, Vs, nll, nll_values = pupil_smooth_final(
+        y, smooth_params, m0, S0, C, R, ensemble_vars, diameters_var, x_var, y_var)
+
+    return smooth_params, ms, Vs, nll, nll_values
+
+
+def singlecam_multicam_smooth_final(cov_matrix, smooth_param, y, m0, S0, C, A, R, ensemble_vars):
+    # Adjust Q based on smooth_param and cov_matrix
+    Q = smooth_param * cov_matrix
+    # Run filtering and smoothing with the current smooth_param
+    mf, Vf, S, innovs, innov_cov = forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
+    ms, Vs, CV = backward_pass(y, mf, Vf, S, A, Q, C)
+    # Compute the negative log-likelihood based on innovations and their covariance
+    nll, nll_values = compute_nll(innovs, innov_cov)
+    return ms, Vs, nll, nll_values
+
+
+def singlecam_multicam_smooth_min(cov_matrix, smooth_param, y, m0, S0, C, A, R, ensemble_vars):
+    # Adjust Q based on smooth_param and cov_matrix
+    Q = smooth_param * cov_matrix
+    # Run filtering with the current smooth_param
+    mf, Vf, S, innovs, innov_cov = forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
+    # Compute the negative log-likelihood based on innovations and their covariance
+    nll, nll_values = compute_nll(innovs, innov_cov)
+    return nll
+
+
+def pupil_smooth_final(y, smooth_params, m0, S0, C, R, ensemble_vars, diameters_var, x_var, y_var):
+    # Construct A
+    diameter_s = smooth_params[0]
+    com_s = smooth_params[1]
+    A = np.asarray([
+        [diameter_s, 0, 0],
+        [0, com_s, 0],
+        [0, 0, com_s]
+    ])
+    # cov_matrix
+    Q = np.asarray([
+        [diameters_var * (1 - (A[0, 0] ** 2)), 0, 0],
+        [0, x_var * (1 - A[1, 1] ** 2), 0],
+        [0, 0, y_var * (1 - (A[2, 2] ** 2))]
+    ])
+    # Run filtering and smoothing with the current smooth_param
+    mf, Vf, S, innovs, innov_cov = forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
+    ms, Vs, CV = backward_pass(y, mf, Vf, S, A, Q, C)
+    # Compute the negative log-likelihood based on innovations and their covariance
+    nll, nll_values = compute_nll(innovs, innov_cov)
+    return ms, Vs, nll, nll_values
+
+
+def pupil_smooth_min(smooth_params, y, m0, S0, C, R, ensemble_vars, diameters_var, x_var, y_var):
+    # Construct A
+    diameter_s, com_s = smooth_params[0], smooth_params[1]
+    A = np.array([
+        [diameter_s, 0, 0],
+        [0, com_s, 0],
+        [0, 0, com_s]
+    ])
+
+    # Construct cov_matrix Q
+    Q = np.array([
+        [diameters_var * (1 - (A[0, 0] ** 2)), 0, 0],
+        [0, x_var * (1 - A[1, 1] ** 2), 0],
+        [0, 0, y_var * (1 - (A[2, 2] ** 2))]
+    ])
+
+    # Run filtering with the current smooth_param
+    mf, Vf, S, innovs, innov_cov = forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
+
+    # Compute the negative log-likelihood
+    nll, nll_values = compute_nll(innovs, innov_cov)
+
+    return nll

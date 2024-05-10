@@ -153,7 +153,6 @@ def add_diameter_s(parser):
     parser.add_argument(
         '--diameter-s',
         help='smoothing parameter for diameter (closer to 1 = more smoothing)',
-        default=.9999,
         type=float
     )
     return parser
@@ -163,7 +162,6 @@ def add_com_s(parser):
     parser.add_argument(
         '--com-s',
         help='smoothing parameter for center of mass (closer to 1 = more smoothing)',
-        default=.999,
         type=float
     )
     return parser
