@@ -1,7 +1,8 @@
 import numpy as np
 import pandas as pd
 from eks.utils import make_dlc_pandas_index
-from eks.core import ensemble, eks_zscore, pupil_optimize_and_smooth
+from eks.core import ensemble, eks_zscore
+from eks.autosmooth import pupil_optimize_and_smooth
 import warnings
 
 

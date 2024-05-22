@@ -2,6 +2,9 @@ import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import jax.numpy as jnp
+
+from jax import device_put, vmap, jit
 from sleap_io.io.slp import read_labels
 
 
@@ -70,7 +73,7 @@ def convert_slp_dlc(base_dir, slp_file):
     # Create DataFrame from the list of frame data
     df = pd.DataFrame(data)
     df.to_csv(f'{slp_file}.csv', index=False)
-    print(f"DataFrame successfully converted to CSV: input.csv")
+    print(f"File read. See read-in data at {slp_file}.csv")
     return df
 
 
@@ -81,7 +84,7 @@ def convert_slp_dlc(base_dir, slp_file):
 
 def format_data(input_dir, data_type):
     input_files = os.listdir(input_dir)
-    markers_list = []
+    input_dfs_list = []
     # Extracting markers from data
     # Applies correct format conversion and stores each file's markers in a list
     for input_file in input_files:
@@ -90,6 +93,7 @@ def format_data(input_dir, data_type):
             if not input_file.endswith('.slp'):
                 continue
             markers_curr = convert_slp_dlc(input_dir, input_file)
+            keypoint_names = [c[1] for c in markers_curr.columns[::3]]
             markers_curr_fmt = markers_curr
         elif data_type == 'lp' or 'dlc':
             if not input_file.endswith('csv'):
@@ -102,14 +106,52 @@ def format_data(input_dir, data_type):
             else:
                 markers_curr_fmt = markers_curr
 
-        markers_list.append(markers_curr_fmt)
+        markers_curr_fmt.to_csv('fmt_input.csv', index=False)
+        input_dfs_list.append(markers_curr_fmt)
 
-    if len(markers_list) == 0:
+    if len(input_dfs_list) == 0:
         raise FileNotFoundError(f'No marker input files found in {input_dir}')
 
-    markers_eks = make_output_dataframe(markers_curr)
+    output_df = make_output_dataframe(markers_curr)
     # returns both the formatted marker data and the empty dataframe for EKS output
-    return markers_list, markers_eks, keypoint_names
+    return input_dfs_list, output_df, keypoint_names
+
+
+def format_data_jax(input_dfs_list, keypoint_names):
+    # Dictionary to store JAX arrays for each DataFrame and each keypoint
+    data_by_keypoint = {kp: [] for kp in keypoint_names}
+
+    # Process each DataFrame in the list for each keypoint
+    for keypoint in keypoint_names:
+        # Gather all DataFrame columns for the current keypoint into a single list
+        all_keypoint_data = []
+        for df in input_dfs_list:
+            # Columns for the specific keypoint
+            columns = [col for col in df.columns if keypoint in col]
+            # Convert these columns to a numpy array and store in list
+            keypoint_data = df[columns].values
+            all_keypoint_data.append(keypoint_data)
+
+        # Combine data from all DataFrames into a single JAX array with an added batch dimension
+        # Stack arrays vertically assuming each DataFrame has the same number of rows (align by frames)
+        combined_keypoint_data = np.vstack(all_keypoint_data)
+        # Convert the numpy array to a JAX array and put on device
+        data_by_keypoint[keypoint] = device_put(jnp.array(combined_keypoint_data))
+
+    # Return the dictionary containing JAX arrays for each keypoint across all DataFrames
+    return data_by_keypoint
+
+
+# Vectorize the Kalman smoother function across all keypoints using vmap
+def batch_process_ensemble_kalman(func, data_by_keypoint, keypoint_names, s_frames):
+    # Convert data to JAX arrays
+    data_by_keypoint = jnp.array(data_by_keypoint)
+
+    # Apply vmap to vectorize 'func' across batches of data
+    # Since keypoint_names are just labels, pass them as None to in_axes to avoid vectorization
+    vmapped_ensemble_kalman = vmap(func, in_axes=(0, None, None))
+    results = vmapped_ensemble_kalman(data_by_keypoint, keypoint_names, s_frames)
+    return results
 
 
 # Making empty DataFrame for EKS output
@@ -167,10 +209,34 @@ def dataframe_to_csv(df, filename):
     """
     try:
         df.to_csv(filename, index=False)
-        print(f"DataFrame successfully converted to CSV: {filename}")
     except Exception as e:
         print("Error:", e)
 
+
+def jax_populate_output_dataframe(results):
+    # Assuming results is a tuple containing the data dictionaries and other metadata
+    data_dict, smooth_params, nll_values = results
+    print("Shapes of data arrays:")
+    print("x:", data_dict['x'].shape)
+    print("y:", data_dict['y'].shape)
+    print("likelihood:", data_dict['likelihood'].shape)
+    print("smooth_params:", smooth_params.shape)
+    print("nll_values:", nll_values[0].shape)  # Assuming nll_values is an array of arrays
+
+    try:
+        # Assuming all arrays are flattened if they are multidimensional
+        df = pd.DataFrame({
+            'x': data_dict['x'].flatten(),
+            'y': data_dict['y'].flatten(),
+            'likelihood': data_dict['likelihood'].flatten(),
+            'smooth_param': np.repeat(smooth_params, data_dict['x'].shape[0]),
+            'nll': np.repeat(nll_values[0], data_dict['x'].shape[0])
+        })
+    except Exception as e:
+        print("Error in DataFrame creation:", e)
+        raise
+
+    return df
 
 def populate_output_dataframe(keypoint_df, keypoint_ensemble, output_df,
                               key_suffix=''):  # key_suffix only required for multi-camera setups
@@ -183,7 +249,6 @@ def populate_output_dataframe(keypoint_df, keypoint_ensemble, output_df,
 
 def plot_results(output_df, input_dfs_list,
                  key, s_final, nll_values, idxs, save_dir, smoother_type):
-
     # crop NLL values
     nll_values_subset = nll_values[idxs[0]:idxs[1]]
 

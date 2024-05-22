@@ -51,12 +51,18 @@ def handle_parse_args(script_type):
     parser.add_argument(
         '--s-frames',
         help='frames to be considered for smoothing '
-             'parameter optimization, first 2k frames by default. Moot if --s flag is specified. '
+             'parameter optimization, first 2k frames by default. Moot if --s is specified. '
              'Format: "[(start_int, end_int), (start_int, end_int), ... ]" or int. '
              'Inputting a single int uses all frames from 1 to the int. '
              '(None, end_int) starts from first frame; (start_int, None) proceeds to last frame.',
         default=[(1,2000)],
         type=parse_s_frames,
+    )
+    parser.add_argument(
+        '--vectorize',
+        help='Uses vectorization to speed up smooth parameter tuning. Moot if --s is specified',
+        default=False,
+        type=str,
     )
     if script_type == 'singlecam':
         add_bodyparts(parser)

@@ -4,7 +4,8 @@ from scipy.interpolate import interp1d
 from sklearn.decomposition import PCA
 from eks.utils import make_dlc_pandas_index
 from eks.core import ensemble, forward_pass, \
-    backward_pass, eks_zscore, singlecam_multicam_optimize_and_smooth, singlecam_multicam_smooth_final
+    backward_pass, eks_zscore
+from eks.autosmooth import singlecam_multicam_optimize_and_smooth, singlecam_multicam_smooth_final
 
 
 # -----------------------

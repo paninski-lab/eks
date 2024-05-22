@@ -1,90 +1,108 @@
-from collections import defaultdict
 import numpy as np
-from scipy.optimize import minimize
-
 
 def ensemble(markers_list, keys, mode='median'):
-    """Computes ensemble median (or mean) and variance of list of DLC marker dataframes
+    """Computes ensemble median (or mean) and variance of list of DLC marker dataframes.
+
     Args:
         markers_list: list
-            List of DLC marker dataframes`
+            List of DLC marker dataframes.
         keys: list
-            List of keys in each marker dataframe
+            List of keys in each marker dataframe.
         mode: string
             Averaging mode which includes 'median', 'mean', or 'confidence_weighted_mean'.
 
     Returns:
         ensemble_preds: np.ndarray
-            shape (samples, n_keypoints)
+            Shape (samples, n_keypoints).
         ensemble_vars: np.ndarray
-            shape (samples, n_keypoints)
-        ensemble_stacks: np.ndarray
-            shape (n_models, samples, n_keypoints)
+            Shape (samples, n_keypoints).
         keypoints_avg_dict: dict
-            keys: marker keypoints, values: shape (samples)
-        keypoints_var_dict: dict
-            keys: marker keypoints, values: shape (samples)
-        keypoints_stack_dict: dict(dict)
-            keys: model_ids, keys: marker keypoints, values: shape (samples)
+            Keys: marker keypoints, values: shape (samples).
     """
-    ensemble_stacks = []
-    ensemble_vars = []
+    if mode not in {'median', 'mean', 'confidence_weighted_mean'}:
+        raise ValueError(f"{mode} averaging not supported")
+
+    if mode == 'median':
+        average_func = np.nanmedian
+    elif mode == 'mean':
+        average_func = np.nanmean
+
     ensemble_preds = []
+    ensemble_vars = []
     keypoints_avg_dict = {}
-    keypoints_var_dict = {}
-    keypoints_stack_dict = defaultdict(dict)
-    if mode != 'confidence_weighted_mean':
-        if mode == 'median':
-            average_func = np.nanmedian
-        elif mode == 'mean':
-            average_func = np.nanmean
-        else:
-            raise ValueError(f"{mode} averaging not supported")
     for key in keys:
+        stack = np.array([df[key] for df in markers_list]).T
+
         if mode != 'confidence_weighted_mean':
-            stack = np.zeros((len(markers_list), markers_list[0].shape[0]))
-            for k in range(len(markers_list)):
-                # print(markers_list[k][key].shape) Debugging list size from frame rate
-                stack[k] = markers_list[k][key]
-            stack = stack.T
-            avg = average_func(stack, 1)
-            var = np.nanvar(stack, 1)
-            ensemble_preds.append(avg)
-            ensemble_vars.append(var)
-            ensemble_stacks.append(stack)
-            keypoints_avg_dict[key] = avg
-            keypoints_var_dict[key] = var
-            for i, keypoints in enumerate(stack.T):
-                keypoints_stack_dict[i][key] = stack.T[i]
+            avg = average_func(stack, axis=1)
+            var = np.nanvar(stack, axis=1)
         else:
             likelihood_key = key[:-1] + 'likelihood'
             if likelihood_key not in markers_list[0]:
                 raise ValueError(f"{likelihood_key} needs to be in your marker_df to use {mode}")
-            stack = np.zeros((len(markers_list), markers_list[0].shape[0]))
-            likelihood_stack = np.zeros((len(markers_list), markers_list[0].shape[0]))
-            for k in range(len(markers_list)):
-                stack[k] = markers_list[k][key]
-                likelihood_stack[k] = markers_list[k][likelihood_key]
-            stack = stack.T
-            likelihood_stack = likelihood_stack.T
-            conf_per_keypoint = np.sum(likelihood_stack, 1)
-            mean_conf_per_keypoint = np.sum(likelihood_stack, 1) / likelihood_stack.shape[1]
-            avg = np.sum(stack * likelihood_stack, 1) / conf_per_keypoint
-            var = np.nanvar(stack, 1)
-            var = var / mean_conf_per_keypoint  # low-confidence --> inflated obs variances
-            ensemble_preds.append(avg)
-            ensemble_vars.append(var)
-            ensemble_stacks.append(stack)
-            keypoints_avg_dict[key] = avg
-            keypoints_var_dict[key] = var
-            for i, keypoints in enumerate(stack.T):
-                keypoints_stack_dict[i][key] = stack.T[i]
+            likelihood_stack = np.array([df[likelihood_key] for df in markers_list]).T
+            conf_per_keypoint = np.sum(likelihood_stack, axis=1)
+            mean_conf_per_keypoint = conf_per_keypoint / likelihood_stack.shape[1]
+            avg = np.sum(stack * likelihood_stack, axis=1) / conf_per_keypoint
+            var = np.nanvar(stack, axis=1) / mean_conf_per_keypoint
+
+        ensemble_preds.append(avg)
+        ensemble_vars.append(var)
+        keypoints_avg_dict[key] = avg
 
     ensemble_preds = np.asarray(ensemble_preds).T
     ensemble_vars = np.asarray(ensemble_vars).T
-    ensemble_stacks = np.asarray(ensemble_stacks).T
-    return ensemble_preds, ensemble_vars, ensemble_stacks, \
-        keypoints_avg_dict, keypoints_var_dict, keypoints_stack_dict
+    return ensemble_preds, ensemble_vars, keypoints_avg_dict
+
+
+def vectorized_ensemble(markers_3d_array, keys, mode='median'):
+    """Computes ensemble median (or mean) and variance of a 3D array of DLC marker data."""
+    n_models, frames, _ = markers_3d_array.shape
+    n_keypoints = len(keys) // 2
+    # Initialize output structures
+    ensemble_preds = np.zeros((frames, n_keypoints, 2))
+    ensemble_vars = np.zeros((frames, n_keypoints, 2))
+    keypoints_avg_dict = {}
+
+    # Choose the appropriate numpy function based on the mode
+    if mode == 'median':
+        avg_func = np.nanmedian
+    elif mode == 'mean':
+        avg_func = np.nanmean
+    elif mode == 'confidence_weighted_mean':
+        avg_func = None
+    else:
+        raise ValueError(f"{mode} averaging not supported")
+
+    # Process each pair of keys (x, y) to compute statistics
+    for i in range(n_keypoints):
+        data_x = markers_3d_array[:, :, 3 * i]
+        data_y = markers_3d_array[:, :, 3 * i + 1]
+        data_likelihood = markers_3d_array[:, :, 3 * i + 2]
+
+        if mode == 'confidence_weighted_mean':
+            conf_per_keypoint = np.sum(data_likelihood, axis=0)
+            mean_conf_per_keypoint = conf_per_keypoint / data_likelihood.shape[0]
+            avg_x = np.sum(data_x * data_likelihood, axis=0) / conf_per_keypoint
+            avg_y = np.sum(data_y * data_likelihood, axis=0) / conf_per_keypoint
+            var_x = np.nanvar(data_x, axis=0) / mean_conf_per_keypoint
+            var_y = np.nanvar(data_y, axis=0) / mean_conf_per_keypoint
+        else:
+            avg_x = avg_func(data_x, axis=0)
+            avg_y = avg_func(data_y, axis=0)
+            var_x = np.nanvar(data_x, axis=0)
+            var_y = np.nanvar(data_y, axis=0)
+
+        ensemble_preds[:, i, 0] = avg_x
+        ensemble_preds[:, i, 1] = avg_y
+        ensemble_vars[:, i, 0] = var_x
+        ensemble_vars[:, i, 1] = var_y
+
+        keypoints_avg_dict[keys[2 * i]] = avg_x
+        keypoints_avg_dict[keys[2 * i + 1]] = avg_y
+
+    return ensemble_preds, ensemble_vars, keypoints_avg_dict
+
 
 
 def forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars):
@@ -123,9 +141,8 @@ def forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars):
     mf = np.zeros(shape=(T, m0.shape[0]))
     Vf = np.zeros(shape=(T, m0.shape[0], m0.shape[0]))
     S = np.zeros(shape=(T, m0.shape[0], m0.shape[0]))
-    innovations = np.zeros((T, y.shape[1]))  # Assuming y is m x T
+    innovations = np.zeros((T, y.shape[1]))
     innovation_cov = np.zeros((T, C.shape[0], C.shape[0]))
-
     # time-varying observation variance
     for i in range(ensemble_vars.shape[1]):
         R[i, i] = ensemble_vars[0][i]
@@ -155,8 +172,75 @@ def forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars):
             Vf[t, :] = S[t - 1] - K_array
         else:
             Vf[t, :] = S[t - 1]
-
     return mf, Vf, S, innovations, innovation_cov
+
+
+def vectorized_forward_pass(y, m0_array, S0_array, C_array, R_array, A_array, Q_array,
+                            ensemble_vars):
+    n_keypoints, T, n_coords = y.shape[0], y.shape[1], y.shape[2]
+    # Initialize arrays for each keypoint
+    mf_array = np.zeros((n_keypoints, T, n_coords))
+    Vf_array = np.zeros((n_keypoints, T, n_coords, n_coords))
+    S_array = np.zeros((n_keypoints, T, n_coords, n_coords))
+    innovations_array = np.zeros((n_keypoints, T, n_coords))  # Assuming y is (n_keypoints, T, 2)
+    innovation_cov_array = np.zeros((n_keypoints, T, C_array.shape[1], C_array.shape[1]))
+
+    for i in range(n_keypoints - 1):
+        y_obs = y[i]
+        m0 = m0_array[i]
+        S0 = S0_array[i]
+        C = C_array[i]
+        R = R_array[i]
+        A = A_array[i]
+        if i < len(Q_array):
+            Q = Q_array[i]
+        ensemble_var = ensemble_vars[:, i, :]
+
+        # Initialize mf, Vf, and S for the current keypoint
+        mf = np.zeros((T, m0.shape[0]))
+        Vf = np.zeros((T, m0.shape[0], m0.shape[0]))
+        S = np.zeros((T, m0.shape[0], m0.shape[0]))
+        innovations = np.zeros((T, y_obs.shape[1]))  # Assuming y_obs is (T, 2)
+        innovation_cov = np.zeros((T, C.shape[0], C.shape[0]))
+
+        # Time-varying observation variance
+        for k in range(ensemble_var.shape[1]):
+            R[k, k] = ensemble_var[0][k]
+
+        K_array, _ = kalman_dot(y_obs[0, :] - np.dot(C, m0), S0, C, R)
+        mf[0] = m0 + K_array
+        Vf[0, :] = S0 - K_array
+        S[0] = S0
+        innovations[0] = y_obs[0] - np.dot(C, mf[0])
+        innovation_cov[0] = np.dot(C, np.dot(S0, C.T)) + R
+
+        # Kalman filter update for subsequent time steps
+        for t in range(1, T):
+            # Propagate the state
+            mf[t, :] = np.dot(A, mf[t - 1, :])
+            S[t - 1] = np.dot(A, np.dot(Vf[t - 1, :], A.T)) + Q[k]
+
+            if np.sum(~np.isnan(y_obs[t, :])) >= 2:  # Check if any value in y[t] is not NaN
+                # Update R for time-varying observation variance
+                for k in range(ensemble_var.shape[1]):
+                    R[k, k] = ensemble_var[t][k]
+
+                # Update state estimate and covariance matrix
+                innovations[t] = y_obs[t, :] - np.dot(C, np.dot(A, mf[t - 1, :]))
+                K_array, _ = kalman_dot(innovations[t], S[t - 1], C, R)
+                mf[t, :] += K_array
+                K_array, innovation_cov[t] = kalman_dot(np.dot(C, S[t - 1]), S[t - 1], C, R)
+                Vf[t, :] = S[t - 1] - K_array
+            else:
+                Vf[t, :] = S[t - 1]
+
+        # Store the results for the current keypoint
+        mf_array[i] = mf
+        Vf_array[i] = Vf
+        S_array[i] = S
+        innovations_array[i] = innovations
+        innovation_cov_array[i] = innovation_cov
+    return mf_array, Vf_array, S_array, innovations_array, innovation_cov_array
 
 
 def kalman_dot(innovation, V, C, R):
@@ -166,7 +250,7 @@ def kalman_dot(innovation, V, C, R):
     return K_array, innovation_cov
 
 
-def backward_pass(y, mf, Vf, S, A, Q, C):
+def backward_pass(y, mf, Vf, S, A):
     """Implements Kalman-smoothing backwards
     Args:
         y: np.ndarray
@@ -200,7 +284,6 @@ def backward_pass(y, mf, Vf, S, A, Q, C):
     # Last-time smoothed posterior is equal to last-time filtered posterior
     ms[-1, :] = mf[-1, :]
     Vs[-1, :, :] = Vf[-1, :, :]
-
     # Smoothing steps
     for i in range(T - 2, -1, -1):
         if not np.all(np.isnan(y[i])):  # Check if all values in y[i] are not NaN
@@ -213,7 +296,58 @@ def backward_pass(y, mf, Vf, S, A, Q, C):
             Vs[i] = Vf[i] + np.dot(J, np.dot(Vs[i + 1] - S[i], J.T))
             ms[i] = mf[i] + np.dot(J, ms[i + 1] - np.dot(A, mf[i]))
             CV[i] = np.dot(Vs[i + 1], J.T)
+    return ms, Vs, CV
 
+
+def vectorized_backward_pass(y, mf, Vf, S, A):
+    """Implements Kalman-smoothing backwards for multiple keypoints.
+    Args:
+        y: np.ndarray
+            shape (samples, n_keypoints)
+        mf: np.ndarray
+            shape (samples, n_latents)
+        Vf: np.ndarray
+            shape (samples, n_latents, n_latents)
+        S: np.ndarray
+            shape (samples, n_latents, n_latents)
+        A: np.ndarray
+            shape (n_latents, n_latents)
+
+    Returns:
+        ms: np.ndarray
+            shape (n_keypoints, samples, n_latents)
+        Vs: np.ndarray
+            shape (n_keypoints, samples, n_latents, n_latents)
+        CV: np.ndarray
+            shape (n_keypoints, samples - 1, n_latents, n_latents)
+    """
+    n_keypoints, T, n_coords = y.shape[0], y.shape[1], y.shape[2]
+    ms = np.zeros((n_keypoints, T, mf.shape[2]))
+    Vs = np.zeros((n_keypoints, T, mf.shape[2], mf.shape[2]))
+    CV = np.zeros((n_keypoints, T - 1, mf.shape[2], mf.shape[2]))
+
+    for k in range(n_keypoints):
+        y_k = y[k]
+        mf_k = mf[k]
+        Vf_k = Vf[k]
+        A_k = A[k]
+        S_k = S[k]
+
+        # Last-time smoothed posterior is equal to last-time filtered posterior
+        ms[k, -1, :] = mf_k[-1, :]
+        Vs[k, -1, :, :] = Vf_k[-1, :, :]
+        # Smoothing steps
+        for i in range(T - 2, -1, -1):
+            if not np.all(np.isnan(y_k[i])):  # Check if all values in y_obs[i] are not NaN
+                try:
+                    J = np.linalg.solve(S_k[i], np.dot(A_k, Vf_k[i])).T
+                except np.linalg.LinAlgError:
+                    # Skip backward pass for this timestep if matrix is singular
+                    continue
+
+                Vs[k, i, :, :] = Vf_k[i, :, :] + np.dot(J, np.dot(Vs[k, i + 1, :, :] - S_k[i, :, :], J.T))
+                ms[k, i] = mf_k[i] + np.dot(J, ms[k, i + 1] - np.dot(A_k, mf_k[i]))
+                CV[k, i] = np.dot(Vs[k, i + 1], J.T)
     return ms, Vs, CV
 
 
@@ -244,248 +378,32 @@ def eks_zscore(eks_predictions, ensemble_means, ensemble_vars, min_ensemble_std=
     z_score = num / thresh_ensemble_std
     return z_score
 
-
-# Function to slice y to include only specified frames for optimization
-def subset_by_frames(y, s_frames):
-    # Create an empty list to store arrays
-    result = []
-
-    for frame in s_frames:
-        # Unpack the frame, setting defaults for empty start or end
-        start, end = frame
-        # Default start to 0 if not specified (and adjust for zero indexing)
-        start = start - 1 if start is not None else 0
-        # Default end to the length of y if not specified
-        end = end if end is not None else len(y)
-
-        # Validate the indices
-        if start < 0 or end > len(y) or start >= end:
-            raise ValueError(f"Index range ({start + 1}, {end}) "
-                             f"is out of bounds for the list of length {len(y)}.")
-
-        # Use numpy slicing to preserve the data structure
-        result.append(y[start:end])
-
-    # Concatenate all slices into a single numpy array
-    return np.concatenate(result)
-
-
-# Function to compute ensemble mean, temporal differences, and standard deviation
-def compute_initial_guesses(ensemble_vars):
-
-    # Consider only the first 2000 entries in ensemble_vars
-    ensemble_vars = ensemble_vars[:2000]
-
-    # Compute ensemble mean
-    ensemble_mean = np.nanmean(ensemble_vars, axis=0)
-    if ensemble_mean is None:
-        raise ValueError("No data found. Unable to compute ensemble mean.")
-
-    # Initialize list to store temporal differences
-    temporal_diffs_list = []
-
-    # Iterate over each time step
-    for i in range(1, len(ensemble_mean)):
-        # Compute temporal difference for current time step
-        temporal_diff = ensemble_mean - ensemble_vars[i]
-        temporal_diffs_list.append(temporal_diff)
-
-    # Compute standard deviation of temporal differences
-    std_dev_guess = np.std(temporal_diffs_list)
-    print(f'Initial guess: {std_dev_guess}')
-    return std_dev_guess
-
-
-def compute_nll(innovations, innovation_covs, epsilon=1e-6):
-    T = innovations.shape[0]
-    n_keypoints = innovations.shape[1]
-    nll = 0
-    nll_values = []
-    k = np.log(2 * np.pi) * n_keypoints  # The Gaussian normalization constant part
-    for t in range(T):
-        if not np.any(np.isnan(innovations[t])):  # Check if any value in innovations[t] is not NaN
-            # Regularize the innovation covariance matrix by adding epsilon to the diagonal
-            reg_innovation_cov = innovation_covs[t] + epsilon * np.eye(n_keypoints)
-
-            # Compute the log determinant of the regularized covariance matrix
-            log_det_S = np.log(np.abs(np.linalg.det(reg_innovation_cov)) + epsilon)
-            solved_term = np.linalg.solve(reg_innovation_cov, innovations[t])
-            quadratic_term = np.dot(innovations[t], solved_term)
-
-            # Compute the NLL increment for time step t
-            nll_increment = 0.5 * np.abs((log_det_S + quadratic_term + k))
-            nll_values.append(nll_increment)
-            nll += nll_increment
-    return nll, nll_values
-
-'''
-# Alternative implementation of NLL
-
-def compute_nll_2(y, mf, S, C, epsilon=1e-6, lower_bound=0, upper_bound=0):
-    T, n_keypoints = y.shape
-    nll = 0
-    nll_values = []
-    k = np.log(2 * np.pi) * n_keypoints
-
-    for t in range(T):
-        # Compute the innovation for time t
-        innovation = y[t, :] - np.dot(C, mf[t, :])
-
-        # Compute the log determinant and the quadratic term
-        A = np.dot(C, S[t])
-
-        # Add epsilon to the diagonal elements of A and S[t]
-        A += np.eye(A.shape[0]) + epsilon
-        S[t] += np.eye(S[t].shape[0]) + epsilon
-
-        log_det_S = np.log(np.linalg.det(A))
-        quadratic_term = np.dot(innovation.T, np.linalg.solve(S[t], innovation))
-        nll_increment = 0.5 * (log_det_S + quadratic_term + k)
-        nll_values.append(nll_increment)
-        nll += nll_increment
-    return nll, nll_values
-'''
-
-# ---------------------
-# Main Smoothing Functions
-# ---------------------
-
-
-def singlecam_multicam_optimize_and_smooth(
-        cov_matrix, y, m0, s0, C, A, R, ensemble_vars,
-        s_frames=[(1, 2000)],
-        smooth_param=None):
-
-    # Optimize smooth_param
-    if smooth_param is None:
-        guess = compute_initial_guesses(ensemble_vars)
-        # Update xatol during optimization
-        def callback(xk):
-            # Update xatol based on the current solution xk
-            xatol = np.log(np.abs(xk)) * 0.01
-
-            # Update the options dictionary with the new xatol value
-            options['xatol'] = xatol
-
-        # Initialize options with initial xatol
-        options = {'xatol': np.log(guess)}
-
-        # Unpack s_frames
-        y_shortened = subset_by_frames(y, s_frames)
-
-        # Minimize negative log likelihood
-        smooth_param = minimize(
-            singlecam_multicam_smooth_min,
-            x0=guess,  # initial smooth param guess
-            args=(cov_matrix, y_shortened, m0, s0, C, A, R, ensemble_vars),
-            method='Nelder-Mead',
-            options=options,
-            callback=callback,  # Pass the callback function
-            bounds=[(0, None)]
-        )
-        smooth_param = round(smooth_param.x[0], 5)
-        print(f'Optimal at s={smooth_param}')
-
-    # Final smooth with optimized s
-    ms, Vs, nll, nll_values = singlecam_multicam_smooth_final(
-        cov_matrix, smooth_param, y, m0, s0, C, A, R, ensemble_vars)
-
-    return smooth_param, ms, Vs, nll, nll_values
-
-
-def pupil_optimize_and_smooth(
-        y, m0, S0, C, R, ensemble_vars, diameters_var, x_var, y_var,
-        s_frames=[(1, 2000)],
-        smooth_params=[None, None]):
-    # Optimize smooth_param
-    if smooth_params[0] is None or smooth_params[1] is None:
-
-        # Unpack s_frames
-        y_shortened = subset_by_frames(y, s_frames)
-
-        # Minimize negative log likelihood
-        smooth_params = minimize(
-            pupil_smooth_min,  # function to minimize
-            x0=[1, 1],
-            args=(y_shortened, m0, S0, C, R, ensemble_vars, diameters_var, x_var, y_var),
-            method='Nelder-Mead',
-            tol=0.005,
-            bounds=[(0, 1), (0, 1)]  # bounds for each parameter in smooth_params
-        )
-        smooth_params = [round(smooth_params.x[0], 5), round(smooth_params.x[1], 5)]
-        print(f'Optimal at diameter_s={smooth_params[0]}, com_s={smooth_params[1]}')
-
-    # Final smooth with optimized s
-    ms, Vs, nll, nll_values = pupil_smooth_final(
-        y, smooth_params, m0, S0, C, R, ensemble_vars, diameters_var, x_var, y_var)
-
-    return smooth_params, ms, Vs, nll, nll_values
-
-
-def singlecam_multicam_smooth_final(cov_matrix, smooth_param, y, m0, S0, C, A, R, ensemble_vars):
-    # Adjust Q based on smooth_param and cov_matrix
-    Q = smooth_param * cov_matrix
-    # Run filtering and smoothing with the current smooth_param
-    mf, Vf, S, innovs, innov_cov = forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
-    ms, Vs, CV = backward_pass(y, mf, Vf, S, A, Q, C)
-    # Compute the negative log-likelihood based on innovations and their covariance
-    nll, nll_values = compute_nll(innovs, innov_cov)
-    return ms, Vs, nll, nll_values
-
-
-def singlecam_multicam_smooth_min(cov_matrix, smooth_param, y, m0, S0, C, A, R, ensemble_vars):
-    # Adjust Q based on smooth_param and cov_matrix
-    Q = smooth_param * cov_matrix
-    # Run filtering with the current smooth_param
-    mf, Vf, S, innovs, innov_cov = forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
-    # Compute the negative log-likelihood based on innovations and their covariance
-    nll, nll_values = compute_nll(innovs, innov_cov)
-    return nll
-
-
-def pupil_smooth_final(y, smooth_params, m0, S0, C, R, ensemble_vars, diameters_var, x_var, y_var):
-    # Construct A
-    diameter_s = smooth_params[0]
-    com_s = smooth_params[1]
-    A = np.asarray([
-        [diameter_s, 0, 0],
-        [0, com_s, 0],
-        [0, 0, com_s]
-    ])
-    # cov_matrix
-    Q = np.asarray([
-        [diameters_var * (1 - (A[0, 0] ** 2)), 0, 0],
-        [0, x_var * (1 - A[1, 1] ** 2), 0],
-        [0, 0, y_var * (1 - (A[2, 2] ** 2))]
-    ])
-    # Run filtering and smoothing with the current smooth_param
-    mf, Vf, S, innovs, innov_cov = forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
-    ms, Vs, CV = backward_pass(y, mf, Vf, S, A, Q, C)
-    # Compute the negative log-likelihood based on innovations and their covariance
-    nll, nll_values = compute_nll(innovs, innov_cov)
-    return ms, Vs, nll, nll_values
-
-
-def pupil_smooth_min(smooth_params, y, m0, S0, C, R, ensemble_vars, diameters_var, x_var, y_var):
-    # Construct A
-    diameter_s, com_s = smooth_params[0], smooth_params[1]
-    A = np.array([
-        [diameter_s, 0, 0],
-        [0, com_s, 0],
-        [0, 0, com_s]
-    ])
-
-    # Construct cov_matrix Q
-    Q = np.array([
-        [diameters_var * (1 - (A[0, 0] ** 2)), 0, 0],
-        [0, x_var * (1 - A[1, 1] ** 2), 0],
-        [0, 0, y_var * (1 - (A[2, 2] ** 2))]
-    ])
-
-    # Run filtering with the current smooth_param
-    mf, Vf, S, innovs, innov_cov = forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
-
-    # Compute the negative log-likelihood
-    nll, nll_values = compute_nll(innovs, innov_cov)
-
-    return nll
+def vectorized_eks_zscore(eks_predictions_array, ensemble_means, ensemble_vars, min_ensemble_std=2):
+    """Computes zscore between eks prediction and the ensemble for a single keypoint.
+    Args:
+        eks_predictions: list
+            EKS prediction for each coordinate (x and y) for as single keypoint - (samples, 2)
+        ensemble_means: list
+            Ensemble mean for each coordinate (x and y) for as single keypoint - (samples, 2)
+        ensemble_vars: string
+            Ensemble var for each coordinate (x and y) for as single keypoint - (samples, 2)
+        min_ensemble_std:
+            Minimum std threshold to reduce the effect of low ensemble std (default 2).
+    Returns:
+        z_score
+            z_score for each time point - (samples, 1)
+    """
+    z_scores = []
+    for k in range(ensemble_vars.shape[1]):  # n_keypoints
+        ensemble_std = np.sqrt(
+            # trace of covariance matrix - multi-d variance measure
+            ensemble_vars[:, k, 0] + ensemble_vars[:, k, 1])
+        num = np.sqrt(
+            (eks_predictions_array[k, :, 0]
+             - ensemble_means[:, k, 0]) ** 2
+            + (eks_predictions_array[k, :, 1] - ensemble_means[:, k, 1]) ** 2)
+        thresh_ensemble_std = ensemble_std.copy()
+        thresh_ensemble_std[thresh_ensemble_std < min_ensemble_std] = min_ensemble_std
+        z_scores.append(num / thresh_ensemble_std)
+    print("Evaluated Z Scores.")
+    return z_scores
