@@ -9,7 +9,6 @@ from eks.utils import convert_lp_dlc
 from eks.multiview_pca_smoother import ensemble_kalman_smoother_paw_asynchronous
 
 
-
 # Collect User-Provided Args
 smoother_type = 'paw'
 args = handle_parse_args(smoother_type)
@@ -19,7 +18,7 @@ save_dir = handle_io(input_dir, args.save_dir)  # defaults to outputs\
 save_filename = args.save_filename
 s = args.s
 quantile_keep_pca = args.quantile_keep_pca
-s_frames = args.s_frames # frames to be used for automatic optimization (only if no --s flag)
+s_frames = args.s_frames  # frames to be used for automatic optimization (only if no --s flag)
 
 # load files and put them in correct format
 markers_list_left = []
@@ -29,7 +28,8 @@ timestamps_right = None
 filenames = os.listdir(input_dir)
 for filename in filenames:
     if 'timestamps' not in filename:
-        markers_curr = pd.read_csv(os.path.join(input_dir, filename), header=[0, 1, 2], index_col=0)
+        markers_curr = pd.read_csv(
+            os.path.join(input_dir, filename), header=[0, 1, 2], index_col=0)
         keypoint_names = [c[1] for c in markers_curr.columns[::3]]
         model_name = markers_curr.columns[0][0]
         markers_curr_fmt = convert_lp_dlc(markers_curr, keypoint_names, model_name=model_name)
@@ -95,7 +95,7 @@ else:
 
 fig, axes = plt.subplots(4, 1, figsize=(9, 6))
 
-for ax, coord in zip(axes, ['x', 'y', 'likelihood', 'zscore']):
+for ax, coord in zip(axes, ['x', 'ys', 'likelihood', 'zscore']):
     ax.set_ylabel(coord, fontsize=12)
     if coord == 'zscore':
         zscores = df_dicts[f'{view}_df'].loc[slice(*idxs),

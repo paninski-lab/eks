@@ -55,12 +55,12 @@ def handle_parse_args(script_type):
              'Format: "[(start_int, end_int), (start_int, end_int), ... ]" or int. '
              'Inputting a single int uses all frames from 1 to the int. '
              '(None, end_int) starts from first frame; (start_int, None) proceeds to last frame.',
-        default=[(1,2000)],
+        default=[(1, 2000)],
         type=parse_s_frames,
     )
     parser.add_argument(
-        '--vectorize',
-        help='Uses vectorization to speed up smooth parameter tuning. Moot if --s is specified',
+        '--jax',
+        help='Uses GPU parallel scan to speed up smooth parameter tuning. Moot if --s specified',
         default=False,
         type=str,
     )
@@ -83,6 +83,7 @@ def handle_parse_args(script_type):
     args = parser.parse_args()
     return args
 
+
 # Helper function for parsing s-frames
 def parse_s_frames(input_string):
     try:
@@ -93,7 +94,7 @@ def parse_s_frames(input_string):
 
         # Remove spaces, replace with nothing
         cleaned = re.sub(r'\s+', '', input_string)
-        # Match tuples in the form of (x,y), (x,), (,y)
+        # Match tuples in the form of (x,ys), (x,), (,ys)
         tuple_pattern = re.compile(r'\((\d*),(\d*)\)')
         matches = tuple_pattern.findall(cleaned)
 
@@ -112,6 +113,7 @@ def parse_s_frames(input_string):
         return tuples
     except Exception as e:
         raise argparse.ArgumentTypeError(f"Invalid format for --s-frames: {e}")
+
 
 # Helper Functions for handle_parse_args
 def add_bodyparts(parser):

@@ -29,9 +29,9 @@ def get_pupil_location(dlc):
     tmp_x2 = np.median(np.hstack([r[:, 0, None], le[:, 0, None]]), axis=1)
     center[:, 0] = np.nanmedian(np.hstack([tmp_x1[:, None], tmp_x2[:, None]]), axis=1)
 
-    # both top and bottom must be present in y-dir
+    # both top and bottom must be present in ys-dir
     tmp_y1 = np.median(np.hstack([t[:, 1, None], b[:, 1, None]]), axis=1)
-    # ok if either left or right is nan in y-dir
+    # ok if either left or right is nan in ys-dir
     tmp_y2 = np.nanmedian(np.hstack([r[:, 1, None], le[:, 1, None]]), axis=1)
     center[:, 1] = np.nanmedian(np.hstack([tmp_y1[:, None], tmp_y2[:, None]]), axis=1)
     return center
@@ -49,7 +49,7 @@ def get_pupil_diameter(dlc):
     :return: np.array, pupil diameter estimate for each time point, shape (n_frames,)
     """
     diameters = []
-    # Get the x,y coordinates of the four pupil points
+    # Get the x,ys coordinates of the four pupil points
     top, bottom, left, right = [np.vstack((dlc[f'pupil_{point}_r_x'], dlc[f'pupil_{point}_r_y']))
                                 for point in ['top', 'bottom', 'left', 'right']]
     # First compute direct diameters
@@ -180,18 +180,16 @@ def ensemble_kalman_smoother_pupil(
         np.var(pupil_diameters), np.var(x_t_obs), np.var(y_t_obs), s_frames, smooth_params)
     diameter_s, com_s = smooth_params[0], smooth_params[1]
     print(f"NLL is {nll} for diameter_s={diameter_s}, com_s={com_s}")
-    # Smoothed posterior over y
+    # Smoothed posterior over ys
     y_m_smooth = np.dot(C, ms.T).T
     y_v_smooth = np.swapaxes(np.dot(C, np.dot(Vs, C.T)), 0, 1)
-
-
 
     # --------------------------------------
     # cleanup
     # --------------------------------------
     # save out marker info
     pdindex = make_dlc_pandas_index(keypoint_names,
-                                    labels=["x", "y", "likelihood", "x_var", "y_var", "zscore"])
+                                    labels=["x", "ys", "likelihood", "x_var", "y_var", "zscore"])
     processed_arr_dict = add_mean_to_array(y_m_smooth, keys, mean_x_obs, mean_y_obs)
     key_pair_list = [['pupil_top_r_x', 'pupil_top_r_y'],
                      ['pupil_right_r_x', 'pupil_right_r_y'],
@@ -224,7 +222,7 @@ def ensemble_kalman_smoother_pupil(
     pred_arr2 = []
     pred_arr2.append(ms[:, 0])
     pred_arr2.append(ms[:, 1] + mean_x_obs)  # add back x mean of pupil location
-    pred_arr2.append(ms[:, 2] + mean_y_obs)  # add back y mean of pupil location
+    pred_arr2.append(ms[:, 2] + mean_y_obs)  # add back ys mean of pupil location
     pred_arr2 = np.asarray(pred_arr2)
     arrays = [[tracker_name, tracker_name, tracker_name], ['diameter', 'com_x', 'com_y']]
     pd_index2 = pd.MultiIndex.from_arrays(arrays, names=('scorer', 'latent'))

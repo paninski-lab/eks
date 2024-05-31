@@ -15,10 +15,10 @@ def subset_by_frames(y, s_frames):
         start, end = frame
         # Default start to 0 if not specified (and adjust for zero indexing)
         start = start - 1 if start is not None else 0
-        # Default end to the length of y if not specified
+        # Default end to the length of ys if not specified
         end = end if end is not None else len(y)
 
-        # Validate the indices
+        # Validate the keys
         if start < 0 or end > len(y) or start >= end:
             raise ValueError(f"Index range ({start + 1}, {end}) "
                              f"is out of bounds for the list of length {len(y)}.")
@@ -77,6 +77,7 @@ def compute_nll(innovations, innovation_covs, epsilon=1e-6):
             nll += nll_increment
     return nll, nll_values
 
+
 def vectorized_compute_nll(innovations, innovation_covs, epsilon=1e-6):
     n_keypoints, T, n_coords = innovations.shape[0], innovations.shape[1], innovations.shape[2]
     nll = np.zeros(n_keypoints)
@@ -85,7 +86,8 @@ def vectorized_compute_nll(innovations, innovation_covs, epsilon=1e-6):
     for k in range(n_keypoints):
         nll_values = []
         for t in range(T):
-            if not np.any(np.isnan(innovations[k, t])):  # Check if any value in innovations[k, t] is not NaN
+            # Check if any value in innovations[k, t] is not NaN
+            if not np.any(np.isnan(innovations[k, t])):
                 # Regularize the innovation covariance matrix by adding epsilon to the diagonal
                 reg_innovation_cov = innovation_covs[k, t] + epsilon * np.eye(n_coords)
 
@@ -111,6 +113,7 @@ def singlecam_multicam_optimize_and_smooth(
     # Optimize smooth_param
     if smooth_param is None:
         guess = compute_initial_guesses(ensemble_vars)
+
         # Update xatol during optimization
         def callback(xk):
             # Update xatol based on the current solution xk
@@ -144,20 +147,22 @@ def singlecam_multicam_optimize_and_smooth(
 
     return smooth_param, ms, Vs, nll, nll_values
 
+
 def vectorized_singlecam_multicam_optimize_and_smooth(
-        cov_matrix_array, y_array, m0_array, s0_array, C_array, A_array, R_array, ensemble_vars,
+        cov_mats, ys, m0s, s0s, Cs, As, Rs, ensemble_vars,
         s_frames=[(1, 2000)],
         smooth_param=None):
-    n_keypoints = y_array.shape[0]
+    n_keypoints = ys.shape[0]
     s_finals = []
     # Optimize smooth_param
     if smooth_param is None:
         guesses = []
-        y_array_shortened = np.zeros(y_array.shape)
+        y_array_shortened = np.zeros(ys.shape)
         for k in range(n_keypoints):
             guesses.append(compute_initial_guesses(ensemble_vars[:, k, :]))
             # Unpack s_frames
-            y_array_shortened[k] = subset_by_frames(y_array[k], s_frames)
+            y_array_shortened[k] = subset_by_frames(ys[k], s_frames)
+
         # Update xatol during optimization
         def callback(xk):
             # Update xatol based on the current solution xk
@@ -173,8 +178,8 @@ def vectorized_singlecam_multicam_optimize_and_smooth(
         s_finals = minimize(
             vectorized_singlecam_multicam_smooth_min,
             x0=guesses,  # initial smooth param guess
-            args=(cov_matrix_array, y_array_shortened, m0_array,
-                  s0_array, C_array, A_array, R_array, ensemble_vars),
+            args=(cov_mats, y_array_shortened, m0s,
+                  s0s, Cs, As, Rs, ensemble_vars),
             method='Nelder-Mead',
             options=options,
             callback=callback,  # Pass the callback function
@@ -187,8 +192,8 @@ def vectorized_singlecam_multicam_optimize_and_smooth(
 
     # Final smooth with optimized s
     ms, Vs, nll, nll_values = vectorized_singlecam_multicam_smooth_final(
-        cov_matrix_array, s_finals,
-        y_array, m0_array, s0_array, C_array, A_array, R_array, ensemble_vars)
+        cov_mats, s_finals,
+        ys, m0s, s0s, Cs, As, Rs, ensemble_vars)
 
     return s_finals, ms, Vs, nll, nll_values
 
@@ -232,21 +237,19 @@ def singlecam_multicam_smooth_final(cov_matrix, smooth_param, y, m0, S0, C, A, R
     nll, nll_values = compute_nll(innovs, innov_cov)
     return ms, Vs, nll, nll_values
 
-def vectorized_singlecam_multicam_smooth_final(cov_matrix_array, s_finals, y, m0, S0, C, A, R, ensemble_vars):
+
+def vectorized_singlecam_multicam_smooth_final(
+        cov_mats, s_finals, y, m0, S0, C, A, R, ensemble_vars):
     Q = []
     for s in s_finals:
-        Q.append(s * cov_matrix_array)
+        Q.append(s * cov_mats)
     mf, Vf, S, innovs, innov_cov = vectorized_forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
     ms, Vs, CV = vectorized_backward_pass(y, mf, Vf, S, A)
     nll, nll_values = vectorized_compute_nll(innovs, innov_cov)
     return ms, Vs, nll, nll_values
 
-count = 0
 
 def singlecam_multicam_smooth_min(cov_matrix, smooth_param, y, m0, S0, C, A, R, ensemble_vars):
-    global count
-    count += 1
-    print(count)
     # Adjust Q based on smooth_param and cov_matrix
     Q = smooth_param * cov_matrix
     # Run filtering with the current smooth_param
@@ -255,16 +258,16 @@ def singlecam_multicam_smooth_min(cov_matrix, smooth_param, y, m0, S0, C, A, R, 
     nll, nll_values = compute_nll(innovs, innov_cov)
     return nll
 
-def vectorized_singlecam_multicam_smooth_min(s_finals, cov_matrix_array, y, m0, S0, C, A, R, ensemble_vars):
-    global count
-    count += 1
-    print(count)
+
+def vectorized_singlecam_multicam_smooth_min(
+        s_finals, cov_mats, y, m0, S0, C, A, R, ensemble_vars):
     Q = []
     for s in s_finals:
-        Q.append(s * cov_matrix_array)
+        Q.append(s * cov_mats)
     mf, Vf, S, innovs, innov_cov = vectorized_forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
     nll, _ = vectorized_compute_nll(innovs, innov_cov)
     return sum(nll)
+
 
 def pupil_smooth_final(y, smooth_params, m0, S0, C, R, ensemble_vars, diameters_var, x_var, y_var):
     # Construct state transition matrix
@@ -290,7 +293,7 @@ def pupil_smooth_final(y, smooth_params, m0, S0, C, R, ensemble_vars, diameters_
 
 
 def pupil_smooth_min(smooth_params, y, m0, S0, C, R, ensemble_vars, diameters_var, x_var, y_var):
-    # Construct A
+    # Construct As
     diameter_s, com_s = smooth_params[0], smooth_params[1]
     A = np.array([
         [diameter_s, 0, 0],

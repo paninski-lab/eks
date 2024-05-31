@@ -14,7 +14,7 @@ save_dir = handle_io(input_dir, args.save_dir)  # defaults to outputs\
 save_filename = args.save_filename
 diameter_s = args.diameter_s  # defaults to automatic optimization
 com_s = args.com_s  # defaults to automatic optimization
-s_frames = args.s_frames # frames to be used for automatic optimization (only if no --s flag)
+s_frames = args.s_frames  # frames to be used for automatic optimization (only if no --s flag)
 
 # Load and format input files and prepare an empty DataFrame for output.
 input_dfs_list, output_df, keypoint_names = format_data(input_dir, data_type)
@@ -26,7 +26,7 @@ df_dicts, smooth_params, nll_values = ensemble_kalman_smoother_pupil(
     tracker_name='ensemble-kalman_tracker',
     smooth_params=[diameter_s, com_s],
     s_frames=s_frames
-    )
+)
 
 save_file = os.path.join(save_dir, 'kalman_smoothed_pupil_traces.csv')
 print(f'saving smoothed predictions to {save_file}')

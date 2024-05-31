@@ -4,7 +4,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import jax.numpy as jnp
 
-from jax import device_put, vmap, jit
+from jax import device_put, vmap
 from sleap_io.io.slp import read_labels
 
 
@@ -30,48 +30,41 @@ def convert_lp_dlc(df_lp, keypoint_names, model_name=None):
 
 
 def convert_slp_dlc(base_dir, slp_file):
-    print(f'Reading {base_dir}/{slp_file}')
     # Read data from .slp file
     filepath = os.path.join(base_dir, slp_file)
     labels = read_labels(filepath)
 
-    # Determine the maximum number of instances
+    # Determine the maximum number of instances and keypoints
     max_instances = len(labels[0].instances)
+    keypoint_names = [node.name for node in labels[0].instances[0].points.keys()]
+    num_keypoints = len(keypoint_names)
 
-    data = []  # List to store data for DataFrame
+    # Initialize a NumPy array to store the data
+    num_frames = len(labels.labeled_frames)
+    data = np.zeros((num_frames, max_instances, num_keypoints, 3))  # 3 for x, y, likelihood
+
+    # Fill the NumPy array with data
     for i, labeled_frame in enumerate(labels.labeled_frames):
-        frame_data = {}  # Dictionary to store data for current frame
         for j, instance in enumerate(labeled_frame.instances):
-            # Check if the instance number exceeds the maximum expected
             if j >= max_instances:
                 break
-
-            for keypoint_node in instance.points.keys():
-                # Extract the name from keypoint_node
-                keypoint_name = keypoint_node.name
-                # Extract x, y, and likelihood from the PredictedPoint object
+            for k, keypoint_node in enumerate(instance.points.keys()):
                 point = instance.points[keypoint_node]
+                data[i, j, k, 0] = point.x if not np.isnan(point.x) else 0
+                data[i, j, k, 1] = point.y if not np.isnan(point.y) else 0
+                data[i, j, k, 2] = point.score + 1e-6
 
-                # Ensure x and y are floats, handle blank entries by converting to 0
-                x = point.x  # if not np.isnan(point.x) else 0
-                y = point.y  # if not np.isnan(point.y) else 0
-                likelihood = point.score + 1e-6
+    # Reshape data to 2D array for DataFrame creation
+    reshaped_data = data.reshape(num_frames, -1)
+    columns = []
+    for j in range(max_instances):
+        for keypoint_name in keypoint_names:
+            columns.append(f"{j + 1}_{keypoint_name}_x")
+            columns.append(f"{j + 1}_{keypoint_name}_y")
+            columns.append(f"{j + 1}_{keypoint_name}_likelihood")
 
-                # Construct the column name based on instance number and keypoint name
-                column_name_x = f"{j + 1}_{keypoint_name}_x"
-                column_name_y = f"{j + 1}_{keypoint_name}_y"
-                column_name_likelihood = f"{j + 1}_{keypoint_name}_likelihood"
-
-                # Add data to frame_data dictionary
-                frame_data[column_name_x] = x
-                frame_data[column_name_y] = y
-                frame_data[column_name_likelihood] = likelihood
-
-        # Append frame_data to the data list
-        data.append(frame_data)
-
-    # Create DataFrame from the list of frame data
-    df = pd.DataFrame(data)
+    # Create DataFrame from the reshaped data
+    df = pd.DataFrame(reshaped_data, columns=columns)
     df.to_csv(f'{slp_file}.csv', index=False)
     print(f"File read. See read-in data at {slp_file}.csv")
     return df
@@ -98,11 +91,13 @@ def format_data(input_dir, data_type):
         elif data_type == 'lp' or 'dlc':
             if not input_file.endswith('csv'):
                 continue
-            markers_curr = pd.read_csv(os.path.join(input_dir, input_file), header=[0, 1, 2], index_col=0)
+            markers_curr = pd.read_csv(
+                os.path.join(input_dir, input_file), header=[0, 1, 2], index_col=0)
             keypoint_names = [c[1] for c in markers_curr.columns[::3]]
             model_name = markers_curr.columns[0][0]
             if data_type == 'lp':
-                markers_curr_fmt = convert_lp_dlc(markers_curr, keypoint_names, model_name=model_name)
+                markers_curr_fmt = convert_lp_dlc(
+                    markers_curr, keypoint_names, model_name=model_name)
             else:
                 markers_curr_fmt = markers_curr
 
@@ -132,8 +127,7 @@ def format_data_jax(input_dfs_list, keypoint_names):
             keypoint_data = df[columns].values
             all_keypoint_data.append(keypoint_data)
 
-        # Combine data from all DataFrames into a single JAX array with an added batch dimension
-        # Stack arrays vertically assuming each DataFrame has the same number of rows (align by frames)
+        # Stack arrays vertically
         combined_keypoint_data = np.vstack(all_keypoint_data)
         # Convert the numpy array to a JAX array and put on device
         data_by_keypoint[keypoint] = device_put(jnp.array(combined_keypoint_data))
@@ -196,6 +190,7 @@ def make_output_dataframe(markers_curr):
 
     return markers_eks
 
+
 def dataframe_to_csv(df, filename):
     """
     Converts a DataFrame to a CSV file.
@@ -218,7 +213,7 @@ def jax_populate_output_dataframe(results):
     data_dict, smooth_params, nll_values = results
     print("Shapes of data arrays:")
     print("x:", data_dict['x'].shape)
-    print("y:", data_dict['y'].shape)
+    print("ys:", data_dict['y'].shape)
     print("likelihood:", data_dict['likelihood'].shape)
     print("smooth_params:", smooth_params.shape)
     print("nll_values:", nll_values[0].shape)  # Assuming nll_values is an array of arrays
@@ -227,7 +222,7 @@ def jax_populate_output_dataframe(results):
         # Assuming all arrays are flattened if they are multidimensional
         df = pd.DataFrame({
             'x': data_dict['x'].flatten(),
-            'y': data_dict['y'].flatten(),
+            'ys': data_dict['y'].flatten(),
             'likelihood': data_dict['likelihood'].flatten(),
             'smooth_param': np.repeat(smooth_params, data_dict['x'].shape[0]),
             'nll': np.repeat(nll_values[0], data_dict['x'].shape[0])
@@ -237,6 +232,7 @@ def jax_populate_output_dataframe(results):
         raise
 
     return df
+
 
 def populate_output_dataframe(keypoint_df, keypoint_ensemble, output_df,
                               key_suffix=''):  # key_suffix only required for multi-camera setups
@@ -296,4 +292,3 @@ def plot_results(output_df, input_dfs_list,
     plt.savefig(save_file)
     plt.close()
     print(f'see example EKS output at {save_file}')
-

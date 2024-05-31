@@ -6,7 +6,6 @@ from eks.utils import format_data, populate_output_dataframe, plot_results
 from eks.multiview_pca_smoother import ensemble_kalman_smoother_multi_cam
 
 
-
 # Collect User-Provided Args
 smoother_type = 'multicam'
 args = handle_parse_args(smoother_type)
@@ -16,7 +15,7 @@ save_dir = handle_io(input_dir, args.save_dir)  # defaults to outputs\
 save_filename = args.save_filename
 bodypart_list = args.bodypart_list
 s = args.s  # defaults to automatic optimization
-s_frames = args.s_frames # frames to be used for automatic optimization (only if no --s flag)
+s_frames = args.s_frames  # frames to be used for automatic optimization (only if no --s flag)
 camera_names = args.camera_names
 quantile_keep_pca = args.quantile_keep_pca
 
