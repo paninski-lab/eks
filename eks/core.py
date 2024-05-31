@@ -234,9 +234,7 @@ def vectorized_forward_pass(y, m0s, S0s, Cs, Rs, As, Qs,
         Vfs[i] = Vf
         Ss[i] = S
         innovations_array[i] = innovations
-        print(innovations_array)
         innovation_covs_array[i] = innovation_cov
-        print(innovation_covs_array)
     return mfs, Vfs, Ss, innovations_array, innovation_covs_array
 
 
