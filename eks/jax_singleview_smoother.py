@@ -230,9 +230,7 @@ def jax_singlecam_multicam_smooth_final(cov_mats, s_finals, y, m0, S0, C, A, R, 
     ms, Vs, CV = jax_backward_pass(y, mf, Vf, S, A)
     print("Calling jax_compute_nll...")
     innovs = np.array(innovs)
-    print(innovs)
     innov_covs = np.array(innov_covs)
-    print(innov_covs)
     nll, nll_values = vectorized_compute_nll(innovs, innov_covs)
     return ms, Vs, nll, nll_values
 
