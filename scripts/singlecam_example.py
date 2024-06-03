@@ -1,5 +1,6 @@
 """Example script for single-camera datasets."""
 import os
+import time
 import numpy as np
 
 from eks.command_line_args import handle_io, handle_parse_args
@@ -19,7 +20,6 @@ s = args.s  # defaults to automatic optimization
 s_frames = args.s_frames  # frames to be used for automatic optimization (only if no --s flag)
 jax = args.jax  # whether jax is used for speedups
 
-# print(f"START_DATA_READ {time.time()}")
 # Load and format input files and prepare an empty DataFrame for output.
 input_dfs, output_df, _ = format_data(args.input_dir, data_type)
 print('Input data has been read in.')
@@ -27,7 +27,6 @@ print('Input data has been read in.')
 # Convert list of DataFrames to a 3D NumPy array
 data_arrays = [df.to_numpy() for df in input_dfs]
 markers_3d_array = np.stack(data_arrays, axis=0)
-# print(f"END_DATA_READ {time.time()}")
 
 # Map keypoint names to keys in input_dfs and crop markers_3d_array
 keypoint_is = {}

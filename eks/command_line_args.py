@@ -21,7 +21,7 @@ def handle_io(input_dir, save_dir):
         os.makedirs(save_dir, exist_ok=True)
     return save_dir
 
-
+# Handles extraction of arguments from command-line flags
 def handle_parse_args(script_type):
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -115,7 +115,11 @@ def parse_s_frames(input_string):
         raise argparse.ArgumentTypeError(f"Invalid format for --s-frames: {e}")
 
 
+# --------------------------------------
 # Helper Functions for handle_parse_args
+# --------------------------------------
+
+
 def add_bodyparts(parser):
     parser.add_argument(
         '--bodypart-list',

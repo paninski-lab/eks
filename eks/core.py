@@ -57,7 +57,8 @@ def ensemble(markers_list, keys, mode='median'):
 
 
 def vectorized_ensemble(markers_3d_array, mode='median'):
-    """Computes ensemble median (or mean) and variance of a 3D array of DLC marker data."""
+    """Computes ensemble median (or mean) and variance of a 3D array of DLC marker data.
+    Identical functionality to ensemble(), but uses a vectorized input across all keypoints. """
     n_frames = markers_3d_array.shape[1]
     n_keypoints = markers_3d_array.shape[2] // 3
 
@@ -175,6 +176,10 @@ def forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars):
 
 def vectorized_forward_pass(y, m0s, S0s, Cs, Rs, As, Qs,
                             ensemble_vars):
+    """
+    Implements Kalman filter for multiple keypoints.
+    Identical functionality to forward_pass(), but uses a vectorized input across all keypoints.
+    """
     n_keypoints, T, n_coords = y.shape[0], y.shape[1], y.shape[2]
     # Initialize arrays for each keypoint
     mfs = np.zeros((n_keypoints, T, n_coords))
@@ -239,6 +244,7 @@ def vectorized_forward_pass(y, m0s, S0s, Cs, Rs, As, Qs,
 
 
 def kalman_dot(innovation, V, C, R):
+    """ Kalman dot product computation """
     innovation_cov = R + np.dot(C, np.dot(V, C.T))
     innovation_cov_inv = np.linalg.solve(innovation_cov, innovation)
     Ks = np.dot(V, np.dot(C.T, innovation_cov_inv))
@@ -295,26 +301,9 @@ def backward_pass(y, mf, Vf, S, A):
 
 
 def vectorized_backward_pass(ys, mfs, Vfs, Ss, As):
-    """Implements Kalman-smoothing backwards for multiple keypoints.
-    Args:
-        ys: np.ndarray
-            shape (samples, n_keypoints)
-        mfs: np.ndarray
-            shape (samples, n_latents)
-        Vfs: np.ndarray
-            shape (samples, n_latents, n_latents)
-        Ss: np.ndarray
-            shape (samples, n_latents, n_latents)
-        As: np.ndarray
-            shape (n_latents, n_latents)
-
-    Returns:
-        ms: np.ndarray
-            shape (n_keypoints, samples, n_latents)
-        Vs: np.ndarray
-            shape (n_keypoints, samples, n_latents, n_latents)
-        CV: np.ndarray
-            shape (n_keypoints, samples - 1, n_latents, n_latents)
+    """
+    Implements Kalman-smoothing backwards for multiple keypoints.
+    Identical functionality to backward_pass(), but uses a vectorized input across all keypoints.
     """
 
     n_keypoints, T = ys.shape[0], ys.shape[1]

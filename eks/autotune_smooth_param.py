@@ -6,7 +6,8 @@ from eks.core import forward_pass, backward_pass, vectorized_forward_pass, vecto
 ''' Contains all auto smoothing parameter selection functions and variants '''
 
 
-def subset_by_frames(y, s_frames):
+def crop_frames(y, s_frames):
+    """ Crops frames as specified by s_frames to be used for auto-tuning s."""
     # Create an empty list to store arrays
     result = []
 
@@ -31,7 +32,7 @@ def subset_by_frames(y, s_frames):
 
 
 def compute_initial_guesses(ensemble_vars):
-
+    """Computes an initial guess for optimized s, which is the stdev of temporal differences."""
     # Consider only the first 2000 entries in ensemble_vars
     ensemble_vars = ensemble_vars[:2000]
 
@@ -56,6 +57,10 @@ def compute_initial_guesses(ensemble_vars):
 
 
 def compute_nll(innovations, innovation_covs, epsilon=1e-6):
+    """
+    Computes the negative log likelihood, which is a likelihood measurement for the
+    EKS prediction. This metric is used (minimized) to optimize s.
+    """
     T = innovations.shape[0]
     n_coords = innovations.shape[1]
     nll = 0
@@ -79,6 +84,10 @@ def compute_nll(innovations, innovation_covs, epsilon=1e-6):
 
 
 def vectorized_compute_nll(innovations, innovation_covs, epsilon=1e-6):
+    """
+    Computes the negative log likelihood.
+    Identical functionality to compute_nll(), but uses a vectorized input across all keypoints.
+    """
     n_keypoints, T, n_coords = innovations.shape[0], innovations.shape[1], innovations.shape[2]
     nll = np.zeros(n_keypoints)
     nll_values_array = [np.array([]) for _ in range(n_keypoints)]
@@ -110,6 +119,10 @@ def singlecam_multicam_optimize_and_smooth(
         cov_matrix, y, m0, s0, C, A, R, ensemble_vars,
         s_frames=[(1, 2000)],
         smooth_param=None):
+    """
+    Linker function that optimizes s using Nelder-Mead minimization, then smooths using s.
+    Compatible with the singlecam and multicam examples.
+    """
     # Optimize smooth_param
     if smooth_param is None:
         guess = compute_initial_guesses(ensemble_vars)
@@ -126,19 +139,18 @@ def singlecam_multicam_optimize_and_smooth(
         options = {'xatol': np.log(guess)}
 
         # Unpack s_frames
-        y_shortened = subset_by_frames(y, s_frames)
+        cropped_y = crop_frames(y, s_frames)
 
         # Minimize negative log likelihood
         smooth_param = minimize(
             singlecam_multicam_smooth_min,
             x0=guess,  # initial smooth param guess
-            args=(cov_matrix, y_shortened, m0, s0, C, A, R, ensemble_vars),
+            args=(cov_matrix, cropped_y, m0, s0, C, A, R, ensemble_vars),
             method='Nelder-Mead',
             options=options,
             callback=callback,  # Pass the callback function
             bounds=[(0, None)]
         )
-        smooth_param = round(smooth_param.x[0], 5)
         print(f'Optimal at s={smooth_param}')
 
     # Final smooth with optimized s
@@ -152,6 +164,11 @@ def vectorized_singlecam_multicam_optimize_and_smooth(
         cov_mats, ys, m0s, s0s, Cs, As, Rs, ensemble_vars,
         s_frames=[(1, 2000)],
         smooth_param=None):
+    """
+    Identical functionality to singlecam_multicam_optimize_and_smooth(),
+    but uses a vectorized input across all keypoints.
+    Compatible with the singlecam and multicam examples.
+    """
     n_keypoints = ys.shape[0]
     s_finals = []
     # Optimize smooth_param
@@ -161,7 +178,7 @@ def vectorized_singlecam_multicam_optimize_and_smooth(
         for k in range(n_keypoints):
             guesses.append(compute_initial_guesses(ensemble_vars[:, k, :]))
             # Unpack s_frames
-            y_array_shortened[k] = subset_by_frames(ys[k], s_frames)
+            y_array_shortened[k] = crop_frames(ys[k], s_frames)
 
         # Update xatol during optimization
         def callback(xk):
@@ -173,20 +190,20 @@ def vectorized_singlecam_multicam_optimize_and_smooth(
 
         # Initialize options with initial xatol
         options = {'xatol': np.log(guesses[k])}
-
-        # Minimize negative log likelihood
-        s_finals = minimize(
-            vectorized_singlecam_multicam_smooth_min,
-            x0=guesses,  # initial smooth param guess
-            args=(cov_mats, y_array_shortened, m0s,
-                  s0s, Cs, As, Rs, ensemble_vars),
-            method='Nelder-Mead',
-            options=options,
-            callback=callback,  # Pass the callback function
-            bounds=[(0, None)]
-        )
-        s_finals = s_finals.x
-        print(f'Optimal at s={s_finals}')
+        # Minimize negative log likelihood serially for each keypoint
+        for k in range(n_keypoints):
+            s_final = minimize(
+                singlecam_multicam_smooth_min,
+                x0=guesses[k],  # initial smooth param guess
+                args=(cov_mats[k], y_array_shortened[k], m0s[k],
+                      s0s[k], Cs[k], As[k], Rs[k], ensemble_vars[:, k]),
+                method='Nelder-Mead',
+                options=options,
+                callback=callback,  # Pass the callback function
+                bounds=[(0, None)]
+            )
+            s_finals.append(s_final.x[0])
+            print(f'Optimal at s={s_finals}')
     else:
         s_finals = [smooth_param]
 
@@ -202,11 +219,12 @@ def pupil_optimize_and_smooth(
         y, m0, S0, C, R, ensemble_vars, diameters_var, x_var, y_var,
         s_frames=[(1, 2000)],
         smooth_params=[None, None]):
+    """Optimize-and-smooth function for the pupil example script."""
     # Optimize smooth_param
     if smooth_params[0] is None or smooth_params[1] is None:
 
         # Unpack s_frames
-        y_shortened = subset_by_frames(y, s_frames)
+        y_shortened = crop_frames(y, s_frames)
 
         # Minimize negative log likelihood
         smooth_params = minimize(
@@ -228,6 +246,10 @@ def pupil_optimize_and_smooth(
 
 
 def singlecam_multicam_smooth_final(cov_matrix, smooth_param, y, m0, S0, C, A, R, ensemble_vars):
+    """
+    Smooths once using the given smooth_param, used after optimizing smooth_param.
+    Compatible with the singlecam and multicam example scripts.
+    """
     # Adjust Q based on smooth_param and cov_matrix
     Q = smooth_param * cov_matrix
     # Run filtering and smoothing with the current smooth_param
@@ -240,6 +262,11 @@ def singlecam_multicam_smooth_final(cov_matrix, smooth_param, y, m0, S0, C, A, R
 
 def vectorized_singlecam_multicam_smooth_final(
         cov_mats, s_finals, y, m0, S0, C, A, R, ensemble_vars):
+    """
+    Identical functionality to singlecam_multicam_smooth_final(),
+    but uses a vectorized input across all keypoints.
+    Compatible with the singlecam and multicam examples.
+    """
     Q = []
     for s in s_finals:
         Q.append(s * cov_mats)
@@ -250,6 +277,10 @@ def vectorized_singlecam_multicam_smooth_final(
 
 
 def singlecam_multicam_smooth_min(cov_matrix, smooth_param, y, m0, S0, C, A, R, ensemble_vars):
+    """
+    Smooths once using the given smooth_param. Returns only the nll, which is the parameter to
+    be minimized using the scipy.minimize() function
+    """
     # Adjust Q based on smooth_param and cov_matrix
     Q = smooth_param * cov_matrix
     # Run filtering with the current smooth_param
@@ -257,16 +288,6 @@ def singlecam_multicam_smooth_min(cov_matrix, smooth_param, y, m0, S0, C, A, R, 
     # Compute the negative log-likelihood based on innovations and their covariance
     nll, nll_values = compute_nll(innovs, innov_cov)
     return nll
-
-
-def vectorized_singlecam_multicam_smooth_min(
-        s_finals, cov_mats, y, m0, S0, C, A, R, ensemble_vars):
-    Q = []
-    for s in s_finals:
-        Q.append(s * cov_mats)
-    mf, Vf, S, innovs, innov_cov = vectorized_forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
-    nll, _ = vectorized_compute_nll(innovs, innov_cov)
-    return sum(nll)
 
 
 def pupil_smooth_final(y, smooth_params, m0, S0, C, R, ensemble_vars, diameters_var, x_var, y_var):

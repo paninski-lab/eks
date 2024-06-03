@@ -3,7 +3,7 @@ import pandas as pd
 import jax
 import jax.config
 import jax.numpy as jnp
-from eks.autosmooth import vectorized_compute_nll
+from eks.autotune_smooth_param import vectorized_compute_nll
 from eks.utils import make_dlc_pandas_index
 from eks.core import eks_zscore
 
@@ -263,6 +263,7 @@ def jax_forward_pass(y, m0s, S0s, Cs, Rs, As, Qs, ensemble_vars):
         S = S.at[0].set(S0)
         innovations = innovations.at[0].set(y[i, 0] - jnp.dot(C, mf[0]))
         innovation_cov = innovation_cov.at[0].set(jnp.dot(C, jnp.dot(S0, C.T)) + R)
+
         # First update ------------
         # Propagate the state
         mf = mf.at[1].set(jnp.dot(A, mf[0]))

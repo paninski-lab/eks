@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from eks.utils import make_dlc_pandas_index
 from eks.core import eks_zscore, vectorized_ensemble
-from eks.autosmooth import vectorized_singlecam_multicam_optimize_and_smooth
+from eks.autotune_smooth_param import vectorized_singlecam_multicam_optimize_and_smooth
 
 
 # -----------------------
@@ -78,7 +78,7 @@ def vectorized_ensemble_kalman_smoother_single_view(
         Rs[i] = R
         y_obs_array[i] = scaled_ensemble_preds[:, i, :]
 
-    # Optimize smooth_param
+    # Optimize smooth_param for each keypoint separately
     s_finals, ms_array, Vs_array, nll_array, nll_values = \
         vectorized_singlecam_multicam_optimize_and_smooth(
             cov_mats, y_obs_array, m0s, S0s, Cs, As, Rs,
@@ -92,7 +92,7 @@ def vectorized_ensemble_kalman_smoother_single_view(
     df_dicts = []
 
     for k in range(n_keypoints):
-        print(f"NLL is {nll_array[k]} for {bodypart_list[k]}, smooth_param={smooth_param}")
+        print(f"NLL is {nll_array[k]} for {bodypart_list[k]}, smooth_param={s_finals[k]}")
         y_m_smooths[k] = np.dot(Cs[k], ms_array[k].T).T
         y_v_smooths[k] = np.swapaxes(np.dot(Cs[k], np.dot(Vs_array[k], Cs[k].T)), 0, 1)
 
