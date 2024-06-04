@@ -174,11 +174,11 @@ def vectorized_singlecam_multicam_optimize_and_smooth(
     # Optimize smooth_param
     if smooth_param is None:
         guesses = []
-        y_array_shortened = np.zeros(ys.shape)
+        cropped_ys = np.zeros(ys.shape)
         for k in range(n_keypoints):
             guesses.append(compute_initial_guesses(ensemble_vars[:, k, :]))
             # Unpack s_frames
-            y_array_shortened[k] = crop_frames(ys[k], s_frames)
+            cropped_ys[k] = crop_frames(ys[k], s_frames)
 
         # Update xatol during optimization
         def callback(xk):
@@ -191,11 +191,12 @@ def vectorized_singlecam_multicam_optimize_and_smooth(
         # Initialize options with initial xatol
         options = {'xatol': np.log(guesses[k])}
         # Minimize negative log likelihood serially for each keypoint
+        print(cov_mats[0])
         for k in range(n_keypoints):
             s_final = minimize(
                 singlecam_multicam_smooth_min,
                 x0=guesses[k],  # initial smooth param guess
-                args=(cov_mats[k], y_array_shortened[k], m0s[k],
+                args=(cov_mats[k], cropped_ys[k], m0s[k],
                       s0s[k], Cs[k], As[k], Rs[k], ensemble_vars[:, k]),
                 method='Nelder-Mead',
                 options=options,
@@ -203,7 +204,7 @@ def vectorized_singlecam_multicam_optimize_and_smooth(
                 bounds=[(0, None)]
             )
             s_finals.append(s_final.x[0])
-            print(f'Optimal at s={s_finals}')
+        print(f'Optimal at s={s_finals}')
     else:
         s_finals = [smooth_param]
 
@@ -245,7 +246,7 @@ def pupil_optimize_and_smooth(
     return smooth_params, ms, Vs, nll, nll_values
 
 
-def singlecam_multicam_smooth_final(cov_matrix, smooth_param, y, m0, S0, C, A, R, ensemble_vars):
+def singlecam_multicam_smooth_final(smooth_param, cov_matrix, y, m0, S0, C, A, R, ensemble_vars):
     """
     Smooths once using the given smooth_param, used after optimizing smooth_param.
     Compatible with the singlecam and multicam example scripts.

@@ -3,9 +3,11 @@ import pandas as pd
 import jax
 import jax.config
 import jax.numpy as jnp
-from eks.autotune_smooth_param import vectorized_compute_nll
+from eks.autotune_smooth_param import vectorized_compute_nll, singlecam_multicam_smooth_min, \
+    compute_initial_guesses, crop_frames
 from eks.utils import make_dlc_pandas_index
 from eks.core import eks_zscore
+from scipy.optimize import minimize
 
 
 def jax_ensemble_kalman_smoother_single_view(
@@ -23,11 +25,13 @@ def jax_ensemble_kalman_smoother_single_view(
     # Calculate mean and adjusted observations
     mean_obs_dict, adjusted_obs_dict, scaled_ensemble_preds = jax_adjust_obs(
         keypoints_avg_dict, n_keypoints, ensemble_preds.copy())
-    m0s, S0s, As, cov_mats, Cs, Rs, y_obs_array = initialize_kalman_filter(
+    m0s, S0s, As, cov_mats, Cs, Rs, ys = initialize_kalman_filter(
         scaled_ensemble_preds, adjusted_obs_dict, n_keypoints)
 
-    ms, Vs, nlls, nll_values = jax_singlecam_multicam_smooth_final(
-        cov_mats, [smooth_param], y_obs_array, m0s, S0s, Cs, As, Rs, ensemble_vars)
+    s_finals, ms, Vs, nlls, nll_values = jax_singlecam_multicam_optimize_and_smooth(
+        cov_mats, ys, m0s, S0s, Cs, As, Rs, ensemble_vars,
+        s_frames, smooth_param
+    )
 
     y_m_smooths = np.zeros((n_keypoints, T, n_coords))
     y_v_smooths = np.zeros((n_keypoints, T, n_coords, n_coords))
@@ -66,7 +70,7 @@ def jax_ensemble_kalman_smoother_single_view(
         df = pd.DataFrame(pred_arr, columns=pdindex)
         dfs.append(df)
         df_dicts.append({bodypart_list[k] + '_df': df})
-    return df_dicts, smooth_param, nll_values
+    return df_dicts, s_finals, nll_values
 
 
 def jax_ensemble(markers_3d_array, mode='median'):
@@ -213,8 +217,63 @@ def initialize_kalman_filter(scaled_ensemble_preds, adjusted_obs_dict, n_keypoin
     return m0s, S0s, As, cov_mats, Cs, Rs, y_obs_array
 
 
-def jax_singlecam_multicam_smooth_final(cov_mats, s_finals, y, m0, S0, C, A, R, ensemble_vars):
+def jax_singlecam_multicam_optimize_and_smooth(
+        cov_mats, ys, m0s, S0s, Cs, As, Rs, ensemble_vars,
+        s_frames, smooth_param):
 
+    n_keypoints = ys.shape[0]
+    s_finals = []
+    # Optimize smooth_param
+    if smooth_param is None:
+        guesses = []
+        cropped_ys = np.zeros(ys.shape)
+        for k in range(n_keypoints):
+            guesses.append(compute_initial_guesses(ensemble_vars[:, k, :]))
+            # Unpack s_frames
+            cropped_ys[k] = crop_frames(ys[k], s_frames)
+
+        # Update xatol during optimization
+        def callback(xk):
+            # Update xatol based on the current solution xk
+            xatol = np.log(np.abs(xk)) * 0.01
+
+            # Update the options dictionary with the new xatol value
+            options['xatol'] = xatol
+
+        # Initialize options with initial xatol
+        options = {'xatol': np.log(guesses[k])}
+        # Minimize negative log likelihood serially for each keypoint
+        for k in range(n_keypoints):
+            s_final = minimize(
+                singlecam_multicam_smooth_min,
+                x0=guesses[k],  # initial smooth param guess
+                args=(np.array(cov_mats[k]),
+                      np.array(cropped_ys[k]),
+                      np.array(m0s[k]),
+                      np.array(S0s[k]),
+                      np.array(Cs[k]),
+                      np.array(As[k]),
+                      np.array(Rs[k]),
+                      np.array(ensemble_vars[:, k])),
+                method='Nelder-Mead',
+                options=options,
+                callback=callback,  # Pass the callback function
+                bounds=[(0, None)]
+            )
+            s_finals.append(s_final.x[0])
+        print(f'Optimal at s={s_finals}')
+    else:
+        s_finals = [smooth_param]
+
+    # Final smooth with optimized s
+    ms, Vs, nll, nll_values = jax_singlecam_multicam_smooth_final(
+        cov_mats, s_finals,
+        ys, m0s, S0s, Cs, As, Rs, ensemble_vars)
+
+    return s_finals, ms, Vs, nll, nll_values
+
+
+def jax_singlecam_multicam_smooth_final(cov_mats, s_finals, y, m0, S0, C, A, R, ensemble_vars):
     # Ensure s_finals is a JAX array and has the correct shape
     s_finals = jnp.array(s_finals)
     cov_mats = jnp.array(cov_mats)
@@ -238,7 +297,6 @@ def jax_singlecam_multicam_smooth_final(cov_mats, s_finals, y, m0, S0, C, A, R, 
 def jax_forward_pass(y, m0s, S0s, Cs, Rs, As, Qs, ensemble_vars):
     n_keypoints, T, n_coords = y.shape
     ensemble_vars = jnp.array(ensemble_vars)
-
     def forward_step(i, y, m0s, S0s, Cs, Rs, As, Qs):
         # Index and initialize
         m0 = m0s[i]
