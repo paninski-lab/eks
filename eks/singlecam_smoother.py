@@ -4,18 +4,21 @@ import jax
 import jax.numpy as jnp
 from eks.utils import make_dlc_pandas_index, crop_frames
 from eks.core import eks_zscore, jax_ensemble, jax_forward_pass, jax_backward_pass, \
-    compute_covariance_matrix, compute_nll_jax, compute_initial_guesses
+    compute_covariance_matrix, jax_compute_nll, compute_initial_guesses
 from scipy.optimize import minimize
 
 
-def ensemble_kalman_smoother_single_view(
+def ensemble_kalman_smoother_singlecam(
         markers_3d_array, bodypart_list, smooth_param, s_frames, ensembling_mode='median',
         zscore_threshold=2):
+
+    # Detect GPU
     try:
         _ = jax.device_put(jax.numpy.ones(1), device=jax.devices('gpu')[0])
         print("Using GPU")
     except:
         print("Using CPU")
+
     T = markers_3d_array.shape[1]
     n_keypoints = markers_3d_array.shape[2] // 3
     n_coords = 2
@@ -175,9 +178,8 @@ def singlecam_optimize_smooth(
 
         # Minimize negative log likelihood serially for each keypoint
         for block in blocks:
-            print(f'Finding s for keypoints: {block}')
             s_final = minimize(
-                singlecam_min_func,
+                singlecam_smooth_min,
                 x0=guesses[k],  # initial smooth param guess
                 args=(block,
                       cov_mats,
@@ -191,8 +193,9 @@ def singlecam_optimize_smooth(
                 bounds=[(0, None)],
             )
             for b in block:
+                s = s_final.x[0]
+                print(f's={s} for keypoint {b}')
                 s_finals.append(s_final.x[0])
-        print(f'Optimized s params are {s_finals}')
     else:
         s_finals = [smooth_param]
 
@@ -204,7 +207,7 @@ def singlecam_optimize_smooth(
     return s_finals, ms, Vs, nll, nll_values
 
 
-def singlecam_min_func(
+def singlecam_smooth_min(
         smooth_param, block, cov_mats, ys, m0s, S0s, Cs, As, Rs):
     """
     Smooths once using the given smooth_param. Returns only the nll, which is the parameter to
@@ -224,7 +227,7 @@ def singlecam_min_func(
         # Run filtering with the current smooth_param
         _, _, _, innovs, innov_cov = jax_forward_pass(y, m0, S0, A, Q, C, R)
         # Compute the negative log-likelihood based on innovations and their covariance
-        nll, nll_values = compute_nll_jax(innovs, innov_cov)
+        nll, nll_values = jax_compute_nll(innovs, innov_cov)
         nll_sum += nll
     return nll_sum
 
@@ -250,7 +253,7 @@ def singlecam_smooth_final(cov_mats, s_finals, ys, m0s, S0s, Cs, As, Rs):
         ms, Vs = jax_backward_pass(mf, Vf, S, As[k])
         ms_array.append(ms)
         Vs_array.append(Vs)
-        nll, nll_values = compute_nll_jax(innovs, innov_covs)
+        nll, nll_values = jax_compute_nll(innovs, innov_covs)
         nlls.append(nll)
         nll_values_array.append(nll_values)
 

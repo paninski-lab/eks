@@ -1,4 +1,7 @@
+import jax
 import numpy as np
+from jax import numpy as jnp
+from matplotlib import pyplot as plt
 
 
 def ensemble(markers_list, keys, mode='median'):
@@ -53,54 +56,6 @@ def ensemble(markers_list, keys, mode='median'):
 
     ensemble_preds = np.asarray(ensemble_preds).T
     ensemble_vars = np.asarray(ensemble_vars).T
-    return ensemble_preds, ensemble_vars, keypoints_avg_dict
-
-
-def vectorized_ensemble(markers_3d_array, mode='median'):
-    """Computes ensemble median (or mean) and variance of a 3D array of DLC marker data.
-    Identical functionality to ensemble(), but uses a vectorized input across all keypoints. """
-    n_frames = markers_3d_array.shape[1]
-    n_keypoints = markers_3d_array.shape[2] // 3
-
-    # Initialize output structures
-    ensemble_preds = np.zeros((n_frames, n_keypoints, 2))
-    ensemble_vars = np.zeros((n_frames, n_keypoints, 2))
-    keypoints_avg_dict = {}
-
-    # Choose the appropriate numpy function based on the mode
-    if mode == 'median':
-        avg_func = np.nanmedian
-    elif mode == 'mean':
-        avg_func = np.nanmean
-    elif mode == 'confidence_weighted_mean':
-        avg_func = None
-    else:
-        raise ValueError(f"{mode} averaging not supported")
-
-    # Process each pair of keys (x, ys) to compute statistics
-    for i in range(n_keypoints):
-        data_x = markers_3d_array[:, :, 3 * i]
-        data_y = markers_3d_array[:, :, 3 * i + 1]
-        data_likelihood = markers_3d_array[:, :, 3 * i + 2]
-
-        if mode == 'confidence_weighted_mean':
-            conf_per_keypoint = np.sum(data_likelihood, axis=0)
-            mean_conf_per_keypoint = conf_per_keypoint / data_likelihood.shape[0]
-            avg_x = np.sum(data_x * data_likelihood, axis=0) / conf_per_keypoint
-            avg_y = np.sum(data_y * data_likelihood, axis=0) / conf_per_keypoint
-            var_x = np.nanvar(data_x, axis=0) / mean_conf_per_keypoint
-            var_y = np.nanvar(data_y, axis=0) / mean_conf_per_keypoint
-        else:
-            avg_x = avg_func(data_x, axis=0)
-            avg_y = avg_func(data_y, axis=0)
-            var_x = np.nanvar(data_x, axis=0)
-            var_y = np.nanvar(data_y, axis=0)
-        ensemble_preds[:, i, 0] = avg_x
-        ensemble_preds[:, i, 1] = avg_y
-        ensemble_vars[:, i, 0] = var_x
-        ensemble_vars[:, i, 1] = var_y
-        keypoints_avg_dict[3 * i] = avg_x
-        keypoints_avg_dict[3 * i + 1] = avg_y
     return ensemble_preds, ensemble_vars, keypoints_avg_dict
 
 
@@ -174,83 +129,6 @@ def forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars):
     return mf, Vf, S, innovations, innovation_cov
 
 
-def vectorized_forward_pass(y, m0s, S0s, Cs, Rs, As, Qs,
-                            ensemble_vars):
-    """
-    Implements Kalman filter for multiple keypoints.
-    Identical functionality to forward_pass(), but uses a vectorized input across all keypoints.
-    """
-    n_keypoints, T, n_coords = y.shape[0], y.shape[1], y.shape[2]
-    # Initialize arrays for each keypoint
-    mfs = np.zeros((n_keypoints, T, n_coords))
-    Vfs = np.zeros((n_keypoints, T, n_coords, n_coords))
-    Ss = np.zeros((n_keypoints, T, n_coords, n_coords))
-    innovations_array = np.zeros((n_keypoints, T, n_coords))  # Assuming ys is (n_keypoints, T, 2)
-    innovation_covs_array = np.zeros((n_keypoints, T, Cs.shape[1], Cs.shape[1]))
-
-    for i in range(n_keypoints):
-        y_obs = y[i]
-        m0 = m0s[i]
-        S0 = S0s[i]
-        C = Cs[i]
-        R = Rs[i]
-        A = As[i]
-        if i < len(Qs):
-            Q = Qs[i]
-        ensemble_var = ensemble_vars[:, i, :]
-
-        # Initialize mfs, Vfs, and Ss for the current keypoint
-        mf = np.zeros((T, m0.shape[0]))
-        Vf = np.zeros((T, m0.shape[0], m0.shape[0]))
-        S = np.zeros((T, m0.shape[0], m0.shape[0]))
-        innovations = np.zeros((T, y_obs.shape[1]))  # Assuming y_obs is (T, 2)
-        innovation_cov = np.zeros((T, C.shape[0], C.shape[0]))
-
-        # Time-varying observation variance
-        for k in range(n_coords):
-            R[k, k] = ensemble_var[0][k]
-        Ks, _ = kalman_dot(y_obs[0, :] - np.dot(C, m0), S0, C, R)
-        mf[0] = m0 + Ks
-        Vf[0, :] = S0 - Ks
-        S[0] = S0
-        innovations[0] = y_obs[0] - np.dot(C, mf[0])
-        innovation_cov[0] = np.dot(C, np.dot(S0, C.T)) + R
-        # Kalman filter update for subsequent time steps
-        for t in range(1, T):
-            # Propagate the state
-            mf[t] = np.dot(A, mf[t - 1])
-            S[t - 1] = np.dot(A, np.dot(Vf[t - 1], A.T)) + Q[i]
-
-            if np.sum(~np.isnan(y_obs[t, :])) >= 2:  # Check if any value in ys[t] is not NaN
-                # Update R for time-varying observation variance
-                for k in range(n_coords):
-                    R[k, k] = ensemble_var[t][k]
-                # Update state estimate and covariance matrix
-                innovations[t] = y_obs[t, :] - np.dot(C, np.dot(A, mf[t - 1, :]))
-                Ks, _ = kalman_dot(innovations[t], S[t - 1], C, R)
-                mf[t, :] += Ks
-                Ks, innovation_cov[t] = kalman_dot(np.dot(C, S[t - 1]), S[t - 1], C, R)
-                Vf[t, :] = S[t - 1] - Ks
-            else:
-                Vf[t, :] = S[t - 1]
-
-        # Store the results for the current keypoint
-        mfs[i] = mf
-        Vfs[i] = Vf
-        Ss[i] = S
-        innovations_array[i] = innovations
-        innovation_covs_array[i] = innovation_cov
-    return mfs, Vfs, Ss, innovations_array, innovation_covs_array
-
-
-def kalman_dot(innovation, V, C, R):
-    """ Kalman dot product computation """
-    innovation_cov = R + np.dot(C, np.dot(V, C.T))
-    innovation_cov_inv = np.linalg.solve(innovation_cov, innovation)
-    Ks = np.dot(V, np.dot(C.T, innovation_cov_inv))
-    return Ks, innovation_cov
-
-
 def backward_pass(y, mf, Vf, S, A):
     """Implements Kalman-smoothing backwards
     Args:
@@ -300,41 +178,12 @@ def backward_pass(y, mf, Vf, S, A):
     return ms, Vs, CV
 
 
-def vectorized_backward_pass(ys, mfs, Vfs, Ss, As):
-    """
-    Implements Kalman-smoothing backwards for multiple keypoints.
-    Identical functionality to backward_pass(), but uses a vectorized input across all keypoints.
-    """
-
-    n_keypoints, T = ys.shape[0], ys.shape[1]
-    ms = np.zeros((n_keypoints, T, mfs.shape[2]))
-    Vs = np.zeros((n_keypoints, T, mfs.shape[2], mfs.shape[2]))
-    CV = np.zeros((n_keypoints, T - 1, mfs.shape[2], mfs.shape[2]))
-
-    for k in range(n_keypoints):
-        y_k = ys[k]
-        mf_k = mfs[k]
-        Vf_k = Vfs[k]
-        A_k = As[k]
-        S_k = Ss[k]
-
-        # Last-time smoothed posterior is equal to last-time filtered posterior
-        ms[k, -1, :] = mf_k[-1, :]
-        Vs[k, -1, :, :] = Vf_k[-1, :, :]
-        # Smoothing steps
-        for i in range(T - 2, -1, -1):
-            if not np.all(np.isnan(y_k[i])):  # Check if all values in y_obs[i] are not NaN
-                try:
-                    J = np.linalg.solve(S_k[i], np.dot(A_k, Vf_k[i])).T
-                except np.linalg.LinAlgError:
-                    # Skip backward pass for this timestep if matrix is singular
-                    continue
-
-                Vs[k, i, :, :] = Vf_k[i, :, :] + np.dot(J, np.dot(Vs[k, i + 1, :, :]
-                                                                  - S_k[i, :, :], J.T))
-                ms[k, i] = mf_k[i] + np.dot(J, ms[k, i + 1] - np.dot(A_k, mf_k[i]))
-                CV[k, i] = np.dot(Vs[k, i + 1], J.T)
-    return ms, Vs, CV
+def kalman_dot(innovation, V, C, R):
+    """ Kalman dot product computation """
+    innovation_cov = R + np.dot(C, np.dot(V, C.T))
+    innovation_cov_inv = np.linalg.solve(innovation_cov, innovation)
+    Ks = np.dot(V, np.dot(C.T, innovation_cov_inv))
+    return Ks, innovation_cov
 
 
 def eks_zscore(eks_predictions, ensemble_means, ensemble_vars, min_ensemble_std=2):
@@ -363,3 +212,257 @@ def eks_zscore(eks_predictions, ensemble_means, ensemble_vars, min_ensemble_std=
     thresh_ensemble_std[thresh_ensemble_std < min_ensemble_std] = min_ensemble_std
     z_score = num / thresh_ensemble_std
     return z_score
+
+
+def jax_ensemble(markers_3d_array, mode='median'):
+    """
+    Computes ensemble median (or mean) and variance of a 3D array of DLC marker data using JAX.
+    """
+    markers_3d_array = jnp.array(markers_3d_array)  # Convert to JAX array
+    n_frames = markers_3d_array.shape[1]
+    n_keypoints = markers_3d_array.shape[2] // 3
+
+    # Initialize output structures
+    ensemble_preds = np.zeros((n_frames, n_keypoints, 2))
+    ensemble_vars = np.zeros((n_frames, n_keypoints, 2))
+
+    # Choose the appropriate JAX function based on the mode
+    if mode == 'median':
+        avg_func = lambda x: jnp.nanmedian(x, axis=0)
+    elif mode == 'mean':
+        avg_func = lambda x: jnp.nanmean(x, axis=0)
+    elif mode == 'confidence_weighted_mean':
+        avg_func = None
+    else:
+        raise ValueError(f"{mode} averaging not supported")
+
+    def compute_stats(i):
+        data_x = markers_3d_array[:, :, 3 * i]
+        data_y = markers_3d_array[:, :, 3 * i + 1]
+        data_likelihood = markers_3d_array[:, :, 3 * i + 2]
+
+        if mode == 'confidence_weighted_mean':
+            conf_per_keypoint = jnp.sum(data_likelihood, axis=0)
+            mean_conf_per_keypoint = conf_per_keypoint / data_likelihood.shape[0]
+            avg_x = jnp.sum(data_x * data_likelihood, axis=0) / conf_per_keypoint
+            avg_y = jnp.sum(data_y * data_likelihood, axis=0) / conf_per_keypoint
+            var_x = jnp.nanvar(data_x, axis=0) / mean_conf_per_keypoint
+            var_y = jnp.nanvar(data_y, axis=0) / mean_conf_per_keypoint
+        else:
+            avg_x = avg_func(data_x)
+            avg_y = avg_func(data_y)
+            var_x = jnp.nanvar(data_x, axis=0)
+            var_y = jnp.nanvar(data_y, axis=0)
+
+        return avg_x, avg_y, var_x, var_y
+
+    compute_stats_jit = jax.jit(compute_stats)
+    stats = jax.vmap(compute_stats_jit)(jnp.arange(n_keypoints))
+
+    avg_x, avg_y, var_x, var_y = stats
+
+    keypoints_avg_dict = {}
+    for i in range(n_keypoints):
+        ensemble_preds[:, i, 0] = avg_x[i]
+        ensemble_preds[:, i, 1] = avg_y[i]
+        ensemble_vars[:, i, 0] = var_x[i]
+        ensemble_vars[:, i, 1] = var_y[i]
+        keypoints_avg_dict[2 * i] = avg_x[i]
+        keypoints_avg_dict[2 * i + 1] = avg_y[i]
+
+    # Convert outputs to JAX arrays
+    ensemble_preds = jnp.array(ensemble_preds)
+    ensemble_vars = jnp.array(ensemble_vars)
+    keypoints_avg_dict = {k: jnp.array(v) for k, v in keypoints_avg_dict.items()}
+
+    return ensemble_preds, ensemble_vars, keypoints_avg_dict
+
+
+def compute_covariance_matrix(ensemble_preds):
+    """
+    Compute the covariance matrix E for correlated noise dynamics.
+
+    Parameters:
+    ensemble_preds: A 3D array of shape (T, n_keypoints, n_coords)
+                          containing the ensemble predictions.
+
+    Returns:
+    E: A 2K x 2K covariance matrix where K is the number of keypoints.
+    """
+    # Get the number of time steps, keypoints, and coordinates
+    T, n_keypoints, n_coords = ensemble_preds.shape
+
+    # Flatten the ensemble predictions to shape (T, 2K) where K is the number of keypoints
+    flattened_preds = ensemble_preds.reshape(T, -1)
+
+    # Compute the temporal differences
+    temporal_diffs = jnp.diff(flattened_preds, axis=0)
+
+    # Compute the covariance matrix of the temporal differences
+    E = jnp.cov(temporal_diffs, rowvar=False)
+    plt.imshow(E, cmap='coolwarm', interpolation='nearest', vmin=-100, vmax=100)
+    plt.colorbar()  # Show a colorbar on the side
+    plt.title('Heatmap of 16x16 Matrix')
+    plt.xlabel('X-axis')
+    plt.ylabel('Y-axis')
+    # plt.show()
+    # Index covariance matrix into blocks for each keypoint
+    cov_mats = []
+    for i in range(n_keypoints):
+        E_block = extract_submatrix(E, i)
+        cov_mats.append(E_block)
+    cov_mats = jnp.array(cov_mats)
+    return cov_mats
+
+
+def extract_submatrix(Qs, i, submatrix_size=2):
+    # Compute the start indices for the submatrix
+    i_q = 2 * i
+    start_indices = (i_q, i_q)
+
+    # Use jax.lax.dynamic_slice to extract the submatrix
+    submatrix = jax.lax.dynamic_slice(Qs, start_indices, (submatrix_size, submatrix_size))
+
+    return submatrix
+
+
+def compute_nll(innovations, innovation_covs, epsilon=1e-6):
+    """
+    Computes the negative log likelihood, which is a likelihood measurement for the
+    EKS prediction. This metric is used (minimized) to optimize s.
+    """
+    T = innovations.shape[0]
+    n_coords = innovations.shape[1]
+    nll = 0
+    nll_values = []
+    c = np.log(2 * np.pi) * n_coords  # The Gaussian normalization constant part
+    for t in range(T):
+        if not np.any(np.isnan(innovations[t])):  # Check if any value in innovations[t] is not NaN
+            # Regularize the innovation covariance matrix by adding epsilon to the diagonal
+            reg_innovation_cov = innovation_covs[t] + epsilon * np.eye(n_coords)
+
+            # Compute the log determinant of the regularized covariance matrix
+            log_det_S = np.log(np.abs(np.linalg.det(reg_innovation_cov)) + epsilon)
+            solved_term = np.linalg.solve(reg_innovation_cov, innovations[t])
+            quadratic_term = np.dot(innovations[t], solved_term)
+
+            # Compute the NLL increment for time step t
+            nll_increment = 0.5 * np.abs((log_det_S + quadratic_term + c))
+            nll_values.append(nll_increment)
+            nll += nll_increment
+    return nll, nll_values
+
+
+def compute_initial_guesses(ensemble_vars):
+    """Computes an initial guess for optimized s, which is the stdev of temporal differences."""
+    # Consider only the first 2000 entries in ensemble_vars
+    ensemble_vars = ensemble_vars[:2000]
+
+    # Compute ensemble mean
+    ensemble_mean = np.nanmean(ensemble_vars, axis=0)
+    if ensemble_mean is None:
+        raise ValueError("No data found. Unable to compute ensemble mean.")
+
+    # Initialize list to store temporal differences
+    temporal_diffs_list = []
+
+    # Iterate over each time step
+    for i in range(1, len(ensemble_mean)):
+        # Compute temporal difference for current time step
+        temporal_diff = ensemble_mean - ensemble_vars[i]
+        temporal_diffs_list.append(temporal_diff)
+
+    # Compute standard deviation of temporal differences
+    std_dev_guess = round(np.std(temporal_diffs_list), 5)
+    return std_dev_guess
+
+
+# --------------------------------------------------------------------
+# JAX functions (will rename once other scripts all use these funcs)
+# --------------------------------------------------------------------
+
+
+def jax_forward_pass(y, m0, S0, A, Q, C, R):
+    T = y.shape[0]
+    # Initialize carry
+    carry = (y, m0, S0, A, Q, C, R)
+
+    def kalman_filter_step(carry, t):
+        y, m_prev, V_prev, A, Q, C, R = carry
+
+        # Predict
+        m_pred = jnp.dot(A, m_prev)
+        V_pred = jnp.dot(A, jnp.dot(V_prev, A.T)) + Q
+
+        # Update
+        innovation = y[t] - jnp.dot(C, m_pred)
+        innovation_cov = jnp.dot(C, jnp.dot(V_pred, C.T)) + R
+        K = jnp.dot(V_pred, jnp.dot(C.T, jnp.linalg.inv(innovation_cov)))
+        m_t = m_pred + jnp.dot(K, innovation)
+        V_t = V_pred - jnp.dot(K, jnp.dot(C, V_pred))
+        S_t = V_pred
+
+        return (y, m_t, V_t, A, Q, C, R), (m_t, V_t, S_t, innovation, innovation_cov)
+
+    carry, outputs = jax.lax.scan(kalman_filter_step, carry, jnp.arange(T))
+    mfs, Vfs, Ss, innovations, innovation_covs = outputs
+    return mfs, Vfs, Ss, innovations, innovation_covs
+
+
+def jax_backward_pass(mfs, Vfs, Ss, A):
+    T = mfs.shape[0]
+
+    # Initialize carry and outputs
+    carry = (mfs[-1], Vfs[-1], mfs[-1], Vfs[-1], Ss[-1], A)
+
+    def kalman_smoother_step(carry, t):
+        m_next, V_next, mf_t, Vf_t, S_t, A = carry
+
+        # Compute the smoother gain
+        S_t_inv = jnp.linalg.inv(S_t)
+        J = jnp.dot(Vf_t, jnp.dot(A.T, S_t_inv))
+
+        # Update the smoothed state and covariance
+        m_smooth = mf_t + jnp.dot(J, (m_next - jnp.dot(A, mf_t)))
+        V_smooth = Vf_t + jnp.dot(J, jnp.dot(V_next - S_t, J.T))
+
+        return (m_smooth, V_smooth, mfs[t], Vfs[t], Ss[t], A), (m_smooth, V_smooth)
+
+    # Reverse scan over the time steps
+    carry, outputs = jax.lax.scan(
+        kalman_smoother_step,
+        carry,
+        jnp.arange(T),
+        reverse=True
+    )
+    ms, Vs = outputs
+    return ms, Vs
+
+
+def jax_compute_nll(innovations, innovation_covs, epsilon=1e-6):
+    """
+    Computes the negative log likelihood (NLL) for the EKS prediction in a parallelized manner using JAX.
+    """
+
+    def single_timestep_nll(innovation, innovation_cov):
+        n_coords = innovation.shape[0]
+
+        # Regularize the innovation covariance matrix by adding epsilon to the diagonal
+        reg_innovation_cov = innovation_cov + epsilon * jnp.eye(n_coords)
+
+        # Compute the log determinant of the regularized covariance matrix
+        log_det_S = jnp.log(jnp.abs(jnp.linalg.det(reg_innovation_cov)) + epsilon)
+        solved_term = jnp.linalg.solve(reg_innovation_cov, innovation)
+        quadratic_term = jnp.dot(innovation, solved_term)
+
+        # Compute the NLL increment for the current time step
+        c = jnp.log(2 * jnp.pi) * n_coords  # The Gaussian normalization constant part
+        nll_increment = 0.5 * jnp.abs(log_det_S + quadratic_term + c)
+        return nll_increment
+
+    # Apply the single_timestep_nll function across all time steps using vmap
+    nll_values = jax.vmap(single_timestep_nll)(innovations, innovation_covs)
+
+    # Sum all the NLL increments to get the total NLL
+    nll = jnp.sum(nll_values)
+    return nll, nll_values

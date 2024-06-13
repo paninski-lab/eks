@@ -3,8 +3,7 @@ import os
 
 from eks.command_line_args import handle_io, handle_parse_args
 from eks.utils import format_data, populate_output_dataframe, plot_results
-from eks.multiview_pca_smoother import ensemble_kalman_smoother_multi_cam
-
+from eks.multicam_smoother import ensemble_kalman_smoother_multicam
 
 # Collect User-Provided Args
 smoother_type = 'multicam'
@@ -36,7 +35,7 @@ for keypoint_ensemble in bodypart_list:
             marker_list_by_cam[c].append(markers_curr[non_likelihood_keys])
 
     # run eks
-    cameras_df_dict, s_final, nll_values = ensemble_kalman_smoother_multi_cam(
+    cameras_df_dict, s_final, nll_values = ensemble_kalman_smoother_multicam(
         markers_list_cameras=marker_list_by_cam,
         keypoint_ensemble=keypoint_ensemble,
         smooth_param=s,

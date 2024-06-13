@@ -6,7 +6,7 @@ import pandas as pd
 
 from eks.command_line_args import handle_io, handle_parse_args
 from eks.utils import convert_lp_dlc
-from eks.multiview_pca_smoother import ensemble_kalman_smoother_paw_asynchronous
+from eks.ibl_paw_multiview_smoother import ensemble_kalman_smoother_ibl_paw
 
 
 # Collect User-Provided Args
@@ -63,7 +63,7 @@ if len(markers_list_right) != len(markers_list_left) or len(markers_list_left) =
 
 # run eks
 df_dicts, markers_list_left_cam, markers_list_right_cam = \
-    ensemble_kalman_smoother_paw_asynchronous(
+    ensemble_kalman_smoother_ibl_paw(
         markers_list_left_cam=markers_list_left,
         markers_list_right_cam=markers_list_right,
         timestamps_left_cam=timestamps_left,

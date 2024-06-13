@@ -1,8 +1,9 @@
 import numpy as np
 import pandas as pd
-from eks.utils import make_dlc_pandas_index
-from eks.core import ensemble, eks_zscore
-from eks.autotune_smooth_param import pupil_optimize_and_smooth
+from scipy.optimize import minimize
+
+from eks.utils import make_dlc_pandas_index, crop_frames
+from eks.core import ensemble, eks_zscore, forward_pass, backward_pass, compute_nll
 import warnings
 
 
@@ -77,7 +78,7 @@ def add_mean_to_array(pred_arr, keys, mean_x, mean_y):
     return processed_arr_dict
 
 
-def ensemble_kalman_smoother_pupil(
+def ensemble_kalman_smoother_ibl_pupil(
     markers_list,
     keypoint_names,
     tracker_name,
@@ -175,7 +176,7 @@ def ensemble_kalman_smoother_pupil(
     # --------------------------------------
     # perform filtering
     # --------------------------------------
-    smooth_params, ms, Vs, nll, nll_values = pupil_optimize_and_smooth(
+    smooth_params, ms, Vs, nll, nll_values = pupil_optimize_smooth(
         y_obs, m0, S0, C, R, ensemble_vars,
         np.var(pupil_diameters), np.var(x_t_obs), np.var(y_t_obs), s_frames, smooth_params)
     diameter_s, com_s = smooth_params[0], smooth_params[1]
@@ -229,3 +230,81 @@ def ensemble_kalman_smoother_pupil(
     latents_df = pd.DataFrame(pred_arr2.T, columns=pd_index2)
 
     return {'markers_df': markers_df, 'latents_df': latents_df}, smooth_params, nll_values
+
+
+def pupil_optimize_smooth(
+        y, m0, S0, C, R, ensemble_vars, diameters_var, x_var, y_var,
+        s_frames=[(1, 2000)],
+        smooth_params=[None, None]):
+    """Optimize-and-smooth function for the pupil example script."""
+    # Optimize smooth_param
+    if smooth_params[0] is None or smooth_params[1] is None:
+
+        # Unpack s_frames
+        y_shortened = crop_frames(y, s_frames)
+
+        # Minimize negative log likelihood
+        smooth_params = minimize(
+            pupil_smooth_min,  # function to minimize
+            x0=[1, 1],
+            args=(y_shortened, m0, S0, C, R, ensemble_vars, diameters_var, x_var, y_var),
+            method='Nelder-Mead',
+            tol=0.002,
+            bounds=[(0, 1), (0, 1)]  # bounds for each parameter in smooth_params
+        )
+        smooth_params = [round(smooth_params.x[0], 5), round(smooth_params.x[1], 5)]
+        print(f'Optimal at diameter_s={smooth_params[0]}, com_s={smooth_params[1]}')
+
+    # Final smooth with optimized s
+    ms, Vs, nll, nll_values = pupil_smooth_final(
+        y, smooth_params, m0, S0, C, R, ensemble_vars, diameters_var, x_var, y_var)
+
+    return smooth_params, ms, Vs, nll, nll_values
+
+
+def pupil_smooth_final(y, smooth_params, m0, S0, C, R, ensemble_vars, diameters_var, x_var, y_var):
+    # Construct state transition matrix
+    diameter_s = smooth_params[0]
+    com_s = smooth_params[1]
+    A = np.asarray([
+        [diameter_s, 0, 0],
+        [0, com_s, 0],
+        [0, 0, com_s]
+    ])
+    # cov_matrix
+    Q = np.asarray([
+        [diameters_var * (1 - (A[0, 0] ** 2)), 0, 0],
+        [0, x_var * (1 - A[1, 1] ** 2), 0],
+        [0, 0, y_var * (1 - (A[2, 2] ** 2))]
+    ])
+    # Run filtering and smoothing with the current smooth_param
+    mf, Vf, S, innovs, innov_cov = forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
+    ms, Vs, CV = backward_pass(y, mf, Vf, S, A)
+    # Compute the negative log-likelihood based on innovations and their covariance
+    nll, nll_values = compute_nll(innovs, innov_cov)
+    return ms, Vs, nll, nll_values
+
+
+def pupil_smooth_min(smooth_params, y, m0, S0, C, R, ensemble_vars, diameters_var, x_var, y_var):
+    # Construct As
+    diameter_s, com_s = smooth_params[0], smooth_params[1]
+    A = np.array([
+        [diameter_s, 0, 0],
+        [0, com_s, 0],
+        [0, 0, com_s]
+    ])
+
+    # Construct cov_matrix Q
+    Q = np.array([
+        [diameters_var * (1 - (A[0, 0] ** 2)), 0, 0],
+        [0, x_var * (1 - A[1, 1] ** 2), 0],
+        [0, 0, y_var * (1 - (A[2, 2] ** 2))]
+    ])
+
+    # Run filtering with the current smooth_param
+    mf, Vf, S, innovs, innov_cov = forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
+
+    # Compute the negative log-likelihood
+    nll, nll_values = compute_nll(innovs, innov_cov)
+
+    return nll

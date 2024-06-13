@@ -3,7 +3,7 @@ import os
 
 from eks.command_line_args import handle_io, handle_parse_args
 from eks.utils import format_data, plot_results
-from eks.pupil_smoother import ensemble_kalman_smoother_pupil
+from eks.ibl_pupil_smoother import ensemble_kalman_smoother_ibl_pupil
 
 # Collect User-Provided Args
 smoother_type = 'pupil'
@@ -20,7 +20,7 @@ s_frames = args.s_frames  # frames to be used for automatic optimization (only i
 input_dfs_list, output_df, keypoint_names = format_data(input_dir, data_type)
 
 # run eks
-df_dicts, smooth_params, nll_values = ensemble_kalman_smoother_pupil(
+df_dicts, smooth_params, nll_values = ensemble_kalman_smoother_ibl_pupil(
     markers_list=input_dfs_list,
     keypoint_names=keypoint_names,
     tracker_name='ensemble-kalman_tracker',

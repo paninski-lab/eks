@@ -37,6 +37,7 @@ def convert_slp_dlc(base_dir, slp_file):
     # Determine the maximum number of instances and keypoints
     max_instances = len(labels[0].instances)
     keypoint_names = [node.name for node in labels[0].instances[0].points.keys()]
+    print(keypoint_names)
     num_keypoints = len(keypoint_names)
 
     # Initialize a NumPy array to store the data
@@ -68,11 +69,6 @@ def convert_slp_dlc(base_dir, slp_file):
     df.to_csv(f'{slp_file}.csv', index=False)
     print(f"File read. See read-in data at {slp_file}.csv")
     return df
-
-
-# ---------------------------------------------
-# Loading + Formatting CSV<->DataFrame
-# ---------------------------------------------
 
 
 def format_data(input_dir, data_type):
@@ -112,44 +108,8 @@ def format_data(input_dir, data_type):
     return input_dfs_list, output_df, keypoint_names
 
 
-def format_data_jax(input_dfs_list, keypoint_names):
-    # Dictionary to store JAX arrays for each DataFrame and each keypoint
-    data_by_keypoint = {kp: [] for kp in keypoint_names}
-
-    # Process each DataFrame in the list for each keypoint
-    for keypoint in keypoint_names:
-        # Gather all DataFrame columns for the current keypoint into a single list
-        all_keypoint_data = []
-        for df in input_dfs_list:
-            # Columns for the specific keypoint
-            columns = [col for col in df.columns if keypoint in col]
-            # Convert these columns to a numpy array and store in list
-            keypoint_data = df[columns].values
-            all_keypoint_data.append(keypoint_data)
-
-        # Stack arrays vertically
-        combined_keypoint_data = np.vstack(all_keypoint_data)
-        # Convert the numpy array to a JAX array and put on device
-        data_by_keypoint[keypoint] = device_put(jnp.array(combined_keypoint_data))
-
-    # Return the dictionary containing JAX arrays for each keypoint across all DataFrames
-    return data_by_keypoint
-
-
-# Vectorize the Kalman smoother function across all keypoints using vmap
-def batch_process_ensemble_kalman(func, data_by_keypoint, keypoint_names, s_frames):
-    # Convert data to JAX arrays
-    data_by_keypoint = jnp.array(data_by_keypoint)
-
-    # Apply vmap to vectorize 'func' across batches of data
-    # Since keypoint_names are just labels, pass them as None to in_axes to avoid vectorization
-    vmapped_ensemble_kalman = vmap(func, in_axes=(0, None, None))
-    results = vmapped_ensemble_kalman(data_by_keypoint, keypoint_names, s_frames)
-    return results
-
-
-# Making empty DataFrame for EKS output
 def make_output_dataframe(markers_curr):
+    ''' Makes empty DataFrame for EKS output '''
     markers_eks = markers_curr.copy()
 
     # Check if the columns Index is a MultiIndex
@@ -206,32 +166,6 @@ def dataframe_to_csv(df, filename):
         df.to_csv(filename, index=False)
     except Exception as e:
         print("Error:", e)
-
-
-def jax_populate_output_dataframe(results):
-    # Assuming results is a tuple containing the data dictionaries and other metadata
-    data_dict, smooth_params, nll_values = results
-    print("Shapes of data arrays:")
-    print("x:", data_dict['x'].shape)
-    print("ys:", data_dict['y'].shape)
-    print("likelihood:", data_dict['likelihood'].shape)
-    print("smooth_params:", smooth_params.shape)
-    print("nll_values:", nll_values[0].shape)  # Assuming nll_values is an array of arrays
-
-    try:
-        # Assuming all arrays are flattened if they are multidimensional
-        df = pd.DataFrame({
-            'x': data_dict['x'].flatten(),
-            'ys': data_dict['y'].flatten(),
-            'likelihood': data_dict['likelihood'].flatten(),
-            'smooth_param': np.repeat(smooth_params, data_dict['x'].shape[0]),
-            'nll': np.repeat(nll_values[0], data_dict['x'].shape[0])
-        })
-    except Exception as e:
-        print("Error in DataFrame creation:", e)
-        raise
-
-    return df
 
 
 def populate_output_dataframe(keypoint_df, keypoint_ensemble, output_df,
@@ -292,3 +226,28 @@ def plot_results(output_df, input_dfs_list,
     plt.savefig(save_file)
     plt.close()
     print(f'see example EKS output at {save_file}')
+
+
+def crop_frames(y, s_frames):
+    """ Crops frames as specified by s_frames to be used for auto-tuning s."""
+    # Create an empty list to store arrays
+    result = []
+
+    for frame in s_frames:
+        # Unpack the frame, setting defaults for empty start or end
+        start, end = frame
+        # Default start to 0 if not specified (and adjust for zero indexing)
+        start = start - 1 if start is not None else 0
+        # Default end to the length of ys if not specified
+        end = end if end is not None else len(y)
+
+        # Validate the keys
+        if start < 0 or end > len(y) or start >= end:
+            raise ValueError(f"Index range ({start + 1}, {end}) "
+                             f"is out of bounds for the list of length {len(y)}.")
+
+        # Use numpy slicing to preserve the data structure
+        result.append(y[start:end])
+
+    # Concatenate all slices into a single numpy array
+    return np.concatenate(result)
