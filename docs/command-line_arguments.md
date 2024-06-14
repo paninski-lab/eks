@@ -32,16 +32,16 @@ smoother-dependent. The following are the arguments found in the provided exampl
 - `--camera-names <camera_1> <camera_2> ...` List of camera views.
 - `--s <smooth_param>` Float specifying the extent of smoothing to be done. Smoothing increases as param **decreases** (range 0.01-20, 0.01 by default)
 - `--quantile_keep_pca <min_variance%>` Float specifying the percentage of points kept for multi-view PCA. Selectivity increases as param increases (range 0-100, 25 by default)
-### [IBL Pupil](../scripts/pupil_example.py)
+### [IBL Pupil](../scripts/ibl_pupil_example.py)
 - `--diameter-s <smooth_param>` Float specifying the extent of smoothing to be done for diameter. Smoothing increases as param **increases** (range 0-1 exclusive, 0.9999 by default)
 - `--com-s <smooth_param>` Float specifying the extent of smoothing to be done for center of mass. Smoothing increases as param **increases** (range 0-1 exclusive, 0.999 by default)
-### [IBL Paw (multiple asynchronous view)](../scripts/multiview_paw_example.py)
+### [IBL Paw (multiple asynchronous view)](../scripts/ibl_paw_multiview_example.py)
 - `--s <smooth_param>` Float specifying the extent of smoothing to be done. Smoothing increases as param **decreases** (range 0.01-20, 0.01 by default)
 - `--quantile_keep_pca <min_variance%>` Float specifying the percentage of points kept for multi-view PCA. Selectivity increases as param increases (range 0-100, 25 by default)
 
 The following table summarizes the script-specific arguments featured in each of the example scripts.
 
-| Argument\Script       | [Single-Camera](../scripts/singlecam_example.py) | [Multi-Camera](../scripts/multicam_example.py) | [IBL Pupil](../scripts/pupil_example.py) | [IBL Paw](../scripts/multiview_paw_example.py) |
+| Argument\Script       | [Single-Camera](../scripts/singlecam_example.py) | [Multi-Camera](../scripts/multicam_example.py) | [IBL Pupil](../scripts/ibl_pupil_example.py) | [IBL Paw](../scripts/ibl_paw_multiview_example.py) |
 |-----------------------|---------------|--------------|-----------|---------------------|
 | `--bodypart-list`     | ✓             | ✓            |           |                     |
 | `--camera-names`      |               | ✓            |           |                     |

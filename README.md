@@ -68,7 +68,7 @@ our example.
 To run the EKS on the example data, execute the following command from inside this repo:
 
 ```console 
-python scripts/singlecam_example.py --input-dir ./data/ibl-pupil --data-type lp --bodypart-list pupil_top_r  pupil_bottom_r pupil_left_r pupil_right_r
+python scripts/singlecam_example.py --input-dir ./data/ibl-pupil
 ```
  
 ### Multi-camera datasets
@@ -82,7 +82,7 @@ for a two-view video of a mouse with cameras named `top` and `bot`.
 To run the EKS on the example data provided, execute the following command from inside this repo:
 
 ```console 
-python scripts/multicam_example.py --input-dir ./data/mirror-mouse --data-type lp --bodypart-list paw1LH paw2LF paw3RF paw4RH --camera-names top bot
+python scripts/multicam_example.py --input-dir ./data/mirror-mouse --bodypart-list paw1LH paw2LF paw3RF paw4RH --camera-names top bot
 ```
 
 ### IBL pupil dataset
@@ -91,7 +91,7 @@ model predictions.
 To run this script on the example data provided, execute the following command from inside this repo:
 
 ```console 
-python scripts/pupil_example.py --input-dir ./data/ibl-pupil --data-type lp
+python scripts/pupil_example.py --input-dir ./data/ibl-pupil
 ```
 
 ### IBL paw dataset (multiple asynchronous views)
@@ -101,7 +101,7 @@ the two cameras.
 To run this script on the example data provided, execute the following command from inside this repo:
 
 ```console 
-python scripts/multiview_paw_example.py --input-dir ./data/ibl-paw --data-type lp
+python scripts/multiview_paw_example.py --input-dir ./data/ibl-paw
 ```
 
 ### Authors 

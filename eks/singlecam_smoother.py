@@ -11,6 +11,20 @@ from scipy.optimize import minimize
 def ensemble_kalman_smoother_singlecam(
         markers_3d_array, bodypart_list, smooth_param, s_frames, ensembling_mode='median',
         zscore_threshold=2):
+    """
+    Perform Ensemble Kalman Smoothing on 3D marker data from a single camera.
+
+    Parameters:
+    markers_3d_array (np.ndarray): 3D array of marker data.
+    bodypart_list (list): List of body parts.
+    smooth_param (float): Smoothing parameter.
+    s_frames (list): List of frames.
+    ensembling_mode (str): Mode for ensembling ('median' by default).
+    zscore_threshold (float): Z-score threshold.
+
+    Returns:
+    tuple: Dataframes with smoothed predictions, final smoothing parameters, negative log-likelihood values.
+    """
 
     # Detect GPU
     try:
@@ -32,7 +46,7 @@ def ensemble_kalman_smoother_singlecam(
     mean_obs_dict, adjusted_obs_dict, scaled_ensemble_preds = adjust_observations(
         keypoints_avg_dict, n_keypoints, ensemble_preds.copy())
 
-    # Initialize kalman filter values
+    # Initialize Kalman filter values
     m0s, S0s, As, cov_mats, Cs, Rs, ys = initialize_kalman_filter(
         scaled_ensemble_preds, adjusted_obs_dict, n_keypoints)
 
@@ -48,13 +62,14 @@ def ensemble_kalman_smoother_singlecam(
     dfs = []
     df_dicts = []
 
+    # Process each keypoint
     for k in range(n_keypoints):
         y_m_smooths[k] = np.dot(Cs[k], ms[k].T).T
-
         y_v_smooths[k] = np.swapaxes(np.dot(Cs[k], np.dot(Vs[k], Cs[k].T)), 0, 1)
         mean_x_obs = mean_obs_dict[3 * k]
         mean_y_obs = mean_obs_dict[3 * k + 1]
-        # Computing zscore
+
+        # Computing z-score
         eks_preds_array[k] = y_m_smooths[k].copy()
         eks_preds_array[k] = np.asarray([eks_preds_array[k].T[0] + mean_x_obs,
                                          eks_preds_array[k].T[1] + mean_y_obs]).T
@@ -62,6 +77,7 @@ def ensemble_kalman_smoother_singlecam(
                             ensemble_preds[:, k, :],
                             ensemble_vars[:, k, :],
                             min_ensemble_std=zscore_threshold)
+
         # Final Cleanup
         pdindex = make_dlc_pandas_index([bodypart_list[k]],
                                         labels=["x", "y", "likelihood", "x_var", "y_var",
@@ -79,10 +95,23 @@ def ensemble_kalman_smoother_singlecam(
         df = pd.DataFrame(pred_arr, columns=pdindex)
         dfs.append(df)
         df_dicts.append({bodypart_list[k] + '_df': df})
+
     return df_dicts, s_finals, nll_values
 
 
 def adjust_observations(keypoints_avg_dict, n_keypoints, scaled_ensemble_preds):
+    """
+    Adjust observations by computing mean and adjusted observations for each keypoint.
+
+    Parameters:
+    keypoints_avg_dict (dict): Dictionary of keypoints averages.
+    n_keypoints (int): Number of keypoints.
+    scaled_ensemble_preds (np.ndarray): Scaled ensemble predictions.
+
+    Returns:
+    tuple: Mean observations dictionary, adjusted observations dictionary, scaled ensemble predictions.
+    """
+
     # Convert dictionaries to JAX arrays
     keypoints_avg_array = jnp.array([keypoints_avg_dict[k] for k in keypoints_avg_dict.keys()])
     x_keys = jnp.array([3 * i for i in range(n_keypoints)])
@@ -91,10 +120,8 @@ def adjust_observations(keypoints_avg_dict, n_keypoints, scaled_ensemble_preds):
     def compute_adjusted_means(i):
         mean_x_obs = jnp.nanmean(keypoints_avg_array[2 * i])
         mean_y_obs = jnp.nanmean(keypoints_avg_array[2 * i + 1])
-
         adjusted_x_obs = keypoints_avg_array[2 * i] - mean_x_obs
         adjusted_y_obs = keypoints_avg_array[2 * i + 1] - mean_y_obs
-
         return mean_x_obs, mean_y_obs, adjusted_x_obs, adjusted_y_obs
 
     means_and_adjustments = jax.vmap(compute_adjusted_means)(jnp.arange(n_keypoints))
@@ -128,6 +155,18 @@ def adjust_observations(keypoints_avg_dict, n_keypoints, scaled_ensemble_preds):
 
 
 def initialize_kalman_filter(scaled_ensemble_preds, adjusted_obs_dict, n_keypoints):
+    """
+    Initialize the Kalman filter values.
+
+    Parameters:
+    scaled_ensemble_preds (np.ndarray): Scaled ensemble predictions.
+    adjusted_obs_dict (dict): Adjusted observations dictionary.
+    n_keypoints (int): Number of keypoints.
+
+    Returns:
+    tuple: Initial Kalman filter values and covariance matrices.
+    """
+
     # Convert inputs to JAX arrays
     scaled_ensemble_preds = jnp.array(scaled_ensemble_preds)
 
@@ -153,8 +192,8 @@ def initialize_kalman_filter(scaled_ensemble_preds, adjusted_obs_dict, n_keypoin
     # Use vmap to vectorize the initialization over all keypoints
     init_kalman_vmap = jax.vmap(init_kalman, in_axes=(0, 0, 0))
     m0s, S0s, As, Cs, Rs, y_obs_array = init_kalman_vmap(jnp.arange(n_keypoints),
-                                                                   adjusted_x_obs_array,
-                                                                   adjusted_y_obs_array)
+                                                         adjusted_x_obs_array,
+                                                         adjusted_y_obs_array)
     cov_mats = compute_covariance_matrix(scaled_ensemble_preds)
     return m0s, S0s, As, cov_mats, Cs, Rs, y_obs_array
 
@@ -162,6 +201,26 @@ def initialize_kalman_filter(scaled_ensemble_preds, adjusted_obs_dict, n_keypoin
 def singlecam_optimize_smooth(
         cov_mats, ys, m0s, S0s, Cs, As, Rs, ensemble_vars,
         s_frames, smooth_param, blocks=[]):
+    """
+    Optimize smoothing parameter and perform smoothing.
+
+    Parameters:
+    cov_mats (np.ndarray): Covariance matrices.
+    ys (np.ndarray): Observations.
+    m0s (np.ndarray): Initial mean state.
+    S0s (np.ndarray): Initial state covariance.
+    Cs (np.ndarray): Measurement function.
+    As (np.ndarray): State-transition matrix.
+    Rs (np.ndarray): Measurement noise covariance.
+    ensemble_vars (np.ndarray): Ensemble variances.
+    s_frames (list): List of frames.
+    smooth_param (float): Smoothing parameter.
+    blocks (list): List of blocks.
+
+    Returns:
+    tuple: Final smoothing parameters, smoothed means, smoothed covariances, negative log-likelihoods, negative log-likelihood values.
+    """
+
     n_keypoints = ys.shape[0]
     s_finals = []
     if blocks == []:
@@ -211,8 +270,23 @@ def singlecam_smooth_min(
         smooth_param, block, cov_mats, ys, m0s, S0s, Cs, As, Rs):
     """
     Smooths once using the given smooth_param. Returns only the nll, which is the parameter to
-    be minimized using the scipy.minimize() function
+    be minimized using the scipy.minimize() function.
+
+    Parameters:
+    smooth_param (float): Smoothing parameter.
+    block (list): List of blocks.
+    cov_mats (np.ndarray): Covariance matrices.
+    ys (np.ndarray): Observations.
+    m0s (np.ndarray): Initial mean state.
+    S0s (np.ndarray): Initial state covariance.
+    Cs (np.ndarray): Measurement function.
+    As (np.ndarray): State-transition matrix.
+    Rs (np.ndarray): Measurement noise covariance.
+
+    Returns:
+    float: Negative log-likelihood.
     """
+
     # Adjust Q based on smooth_param and cov_matrix
     Qs = smooth_param * cov_mats
     nll_sum = 0
@@ -233,6 +307,22 @@ def singlecam_smooth_min(
 
 
 def singlecam_smooth_final(cov_mats, s_finals, ys, m0s, S0s, Cs, As, Rs):
+    """
+    Perform final smoothing with the optimized smoothing parameters.
+
+    Parameters:
+    cov_mats (np.ndarray): Covariance matrices.
+    s_finals (np.ndarray): Final smoothing parameters.
+    ys (np.ndarray): Observations.
+    m0s (np.ndarray): Initial mean state.
+    S0s (np.ndarray): Initial state covariance.
+    Cs (np.ndarray): Measurement function.
+    As (np.ndarray): State-transition matrix.
+    Rs (np.ndarray): Measurement noise covariance.
+
+    Returns:
+    tuple: Smoothed means, smoothed covariances, negative log-likelihoods, negative log-likelihood values.
+    """
 
     # Initialize
     s_finals = jnp.array(s_finals)

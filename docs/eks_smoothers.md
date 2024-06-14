@@ -15,7 +15,7 @@ It returns a new DataFrame containing the smoothed markers while retaining the i
 
 All smoothers have a main function beginning with `ensemble_kalman_...` (the Multi-view smoother
 has two of these, one for multi-camera and one for IBL-paw). For instance,
-[singleview_smoother.py](../eks/singleview_smoother.py) has the function:
+[singleview_smoother.py](../eks/singlecam_smoother.py) has the function:
 ```python
 def ensemble_kalman_smoother_single_view(
         markers_list, keypoint_ensemble, smooth_param, ensembling_mode='median', zscore_threshold=2, verbose=False):
@@ -34,7 +34,7 @@ taken as a list of keypoints instead in the multi-view and pupil smoother.
 - `smooth_param` : float
   - See [command-line_arguments.md](command-line_arguments.md) for information on the smoothing parameter.
 The pupil smoother takes in parameter `state_transition_matrix` instead, which is built from the two smoothing
-parameters `diameter-s` and `com-s` in the [pupil example script](../scripts/pupil_example.py).
+parameters `diameter-s` and `com-s` in the [pupil example script](../scripts/ibl_pupil_example.py).
 - `ensembling_mode` : str, optional
   - The function used for ensembling. Options are 'mean', 'median', or 'confidence_weighted_mean',
 median by default. The parameter does not exist for [pupil_smoother](../eks/pupil_smoother) and instead defaults to median.
