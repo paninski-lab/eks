@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import jax
 import jax.numpy as jnp
+import optax
 from eks.utils import make_dlc_pandas_index, crop_frames
 from eks.core import eks_zscore, jax_ensemble, jax_forward_pass, jax_backward_pass, \
     compute_covariance_matrix, jax_compute_nll, compute_initial_guesses
@@ -9,7 +10,8 @@ from scipy.optimize import minimize
 
 
 def ensemble_kalman_smoother_singlecam(
-        markers_3d_array, bodypart_list, smooth_param, s_frames, ensembling_mode='median',
+        markers_3d_array, bodypart_list, smooth_param, s_frames, blocks, use_optax,
+        ensembling_mode='median',
         zscore_threshold=2):
     """
     Perform Ensemble Kalman Smoothing on 3D marker data from a single camera.
@@ -53,7 +55,7 @@ def ensemble_kalman_smoother_singlecam(
     # Main smoothing function
     s_finals, ms, Vs, nlls, nll_values = singlecam_optimize_smooth(
         cov_mats, ys, m0s, S0s, Cs, As, Rs, ensemble_vars,
-        s_frames, smooth_param
+        s_frames, smooth_param, blocks, use_optax=use_optax
     )
 
     y_m_smooths = np.zeros((n_keypoints, T, n_coords))
@@ -200,7 +202,7 @@ def initialize_kalman_filter(scaled_ensemble_preds, adjusted_obs_dict, n_keypoin
 
 def singlecam_optimize_smooth(
         cov_mats, ys, m0s, S0s, Cs, As, Rs, ensemble_vars,
-        s_frames, smooth_param, blocks=[]):
+        s_frames, smooth_param, blocks=[], maxiter=150, use_optax=False):
     """
     Optimize smoothing parameter and perform smoothing.
 
@@ -226,6 +228,12 @@ def singlecam_optimize_smooth(
     if blocks == []:
         for n in range(n_keypoints):
             blocks.append([n])
+    print(f'Correlated keypoint blocks: {blocks}')
+
+    def nll_loss(s, block, cov_mats, cropped_ys, m0s, S0s, Cs, As, Rs):
+        s = jnp.exp(s)  # To ensure positivity
+        return singlecam_smooth_min(s, block, cov_mats, cropped_ys, m0s, S0s, Cs, As, Rs)
+
     # Optimize smooth_param
     if smooth_param is None:
         guesses = []
@@ -234,27 +242,65 @@ def singlecam_optimize_smooth(
             guesses.append(compute_initial_guesses(ensemble_vars[:, k, :]))
             # Unpack s_frames
             cropped_ys.append(crop_frames(ys[k], s_frames))
+        if not use_optax:
+            print("Nelder-Mead active")
+            # Minimize negative log likelihood serially for each keypoint
+            for block in blocks:
+                s_final = minimize(
+                    singlecam_smooth_min,
+                    x0=guesses[k],  # initial smooth param guess
+                    args=(block,
+                          cov_mats,
+                          cropped_ys,
+                          m0s,
+                          S0s,
+                          Cs,
+                          As,
+                          Rs),
+                    method='Nelder-Mead',
+                    tol=0.1,
+                    bounds=[(0, None)],
+                )
+                for b in block:
+                    s = s_final.x[0]
+                    print(f's={s} for keypoint {b}')
+                    s_finals.append(s_final.x[0])
+        else:
+            print("Optax active")
+            # Optimize negative log likelihood using Optax for each block
+            for block in blocks:
+                guess = guesses[block[0]]
+                s_init = jnp.log(guess)  # Initialize in log-space
+                optimizer = optax.adam(learning_rate=0.1)
+                opt_state = optimizer.init(s_init)
 
-        # Minimize negative log likelihood serially for each keypoint
-        for block in blocks:
-            s_final = minimize(
-                singlecam_smooth_min,
-                x0=guesses[k],  # initial smooth param guess
-                args=(block,
-                      cov_mats,
-                      cropped_ys,
-                      m0s,
-                      S0s,
-                      Cs,
-                      As,
-                      Rs),
-                method='Nelder-Mead',
-                bounds=[(0, None)],
-            )
-            for b in block:
-                s = s_final.x[0]
-                print(f's={s} for keypoint {b}')
-                s_finals.append(s_final.x[0])
+                @jax.jit
+                def step(s, opt_state):
+                    loss, grads = jax.value_and_grad(nll_loss)(s, block, cov_mats, cropped_ys, m0s,
+                                                               S0s, Cs, As, Rs)
+                    updates, opt_state = optimizer.update(grads, opt_state)
+                    s = optax.apply_updates(s, updates)
+                    return s, opt_state, loss
+
+                prev_s = s_init
+                for iteration in range(
+                        100):  # Reasonable number of iterations to allow convergence
+                    s_init, opt_state, loss = step(s_init, opt_state)
+                    print(f'Iteration {iteration}, Current loss: {loss}')
+
+                    tol = 0.01 * jnp.abs(
+                        prev_s)  # Dynamic tolerance set to 1% of the previous smoothing parameter
+                    if jnp.linalg.norm(s_init - prev_s) < tol:
+                        print(
+                            f'Converged at iteration {iteration} with smoothing parameter {jnp.exp(s_init)}')
+                        break
+
+                    prev_s = s_init
+
+                s_final = jnp.exp(s_init)  # Convert back from log-space
+                for b in block:
+                    print(f's={s_final} for keypoint {b}')
+                    s_finals.append(s_final)
     else:
         s_finals = [smooth_param]
 
@@ -286,7 +332,6 @@ def singlecam_smooth_min(
     Returns:
     float: Negative log-likelihood.
     """
-
     # Adjust Q based on smooth_param and cov_matrix
     Qs = smooth_param * cov_mats
     nll_sum = 0

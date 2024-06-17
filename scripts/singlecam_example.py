@@ -16,6 +16,11 @@ save_filename = args.save_filename
 bodypart_list = args.bodypart_list
 s = args.s  # defaults to automatic optimization
 s_frames = args.s_frames  # frames to be used for automatic optimization (only if no --s flag)
+blocks = args.blocks
+use_optax = False
+if args.optax == "True":
+    use_optax = True
+    print("Using Optax")
 
 # Load and format input files and prepare an empty DataFrame for output.
 input_dfs, output_df, keypoint_names = format_data(args.input_dir, data_type)
@@ -45,17 +50,19 @@ df_dicts, s_finals, nll_values_array = ensemble_kalman_smoother_singlecam(
     bodypart_list,
     s,
     s_frames,
+    blocks,
+    use_optax
 )
 
+keypoint_i = -1  # keypoint to be plotted
 # Save eks results in new DataFrames and .csv output files
 for k in range(len(bodypart_list)):
     df = df_dicts[k][bodypart_list[k] + '_df']
     output_df = populate_output_dataframe(df, bodypart_list[k], output_df)
-    save_filename = save_filename or f'{smoother_type}_{s_finals[-1]}.csv'
+    save_filename = save_filename or f'{smoother_type}_{s_finals[keypoint_i]}.csv'
     output_df.to_csv(os.path.join(save_dir, save_filename))
 print("DataFrames successfully converted to CSV")
 # Plot results
-keypoint_i = 0  # keypoint to be plotted
 plot_results(output_df=output_df,
              input_dfs_list=input_dfs,
              key=f'{bodypart_list[keypoint_i]}',

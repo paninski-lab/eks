@@ -58,6 +58,21 @@ def handle_parse_args(script_type):
         default=[(None, None)],
         type=parse_s_frames,
     )
+    parser.add_argument(
+        '--blocks',
+        help='keypoints to be blocked for correlated noise. Generates on smoothing param per '
+             'block, as opposed to per keypoint. Specified by the form "x1, x2, x3; y1, y2"'
+             ' referring to keypoint indices (starting at 0)',
+        default=[],
+        type=parse_blocks,
+    )
+    parser.add_argument(
+        '--optax',
+        help='uses gradient based stochastic minimization if set to True, otherwise uses '
+             'Nelder-Mead',
+        default="False",
+        type=str,
+    )
     if script_type == 'singlecam':
         add_bodyparts(parser)
         add_s(parser)
@@ -107,6 +122,18 @@ def parse_s_frames(input_string):
         return tuples
     except Exception as e:
         raise argparse.ArgumentTypeError(f"Invalid format for --s-frames: {e}")
+
+
+# Helper function for parsing blocks
+def parse_blocks(blocks_str):
+    try:
+        # Split the input string by ';' to separate each block
+        blocks = blocks_str.split(';')
+        # Split each block by ',' to get individual integers and convert to lists of integers
+        parsed_blocks = [list(map(int, block.split(','))) for block in blocks]
+        return parsed_blocks
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(f"Invalid format for --blocks: {blocks_str}. Error: {e}")
 
 
 # --------------------------------------

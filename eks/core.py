@@ -300,16 +300,19 @@ def compute_covariance_matrix(ensemble_preds):
 
     # Compute the covariance matrix of the temporal differences
     E = jnp.cov(temporal_diffs, rowvar=False)
+    '''
     plt.imshow(E, cmap='coolwarm', interpolation='nearest', vmin=-100, vmax=100)
     plt.colorbar()  # Show a colorbar on the side
     plt.title('Heatmap of 16x16 Matrix')
     plt.xlabel('X-axis')
     plt.ylabel('Y-axis')
-    # plt.show()
+    plt.show()
+    '''
     # Index covariance matrix into blocks for each keypoint
     cov_mats = []
     for i in range(n_keypoints):
-        E_block = extract_submatrix(E, i)
+        # E_block = extract_submatrix(E, i)
+        E_block = [[1, 0],[0, 1]]
         cov_mats.append(E_block)
     cov_mats = jnp.array(cov_mats)
     return cov_mats
