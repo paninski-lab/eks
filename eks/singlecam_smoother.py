@@ -10,7 +10,7 @@ from scipy.optimize import minimize
 
 
 def ensemble_kalman_smoother_singlecam(
-        markers_3d_array, bodypart_list, smooth_param, s_frames, blocks, use_optax,
+        markers_3d_array, bodypart_list, smooth_param, s_frames, blocks=[], use_optax=False,
         ensembling_mode='median',
         zscore_threshold=2):
     """
