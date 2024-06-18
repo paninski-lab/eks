@@ -20,12 +20,23 @@ def convert_lp_dlc(df_lp, keypoint_names, model_name=None):
     df_dlc = {}
     for feat in keypoint_names:
         for feat2 in ['x', 'y', 'likelihood']:
-            if model_name is None:
-                df_dlc[f'{feat}_{feat2}'] = df_lp.loc[:, (feat, feat2)]
-            else:
-                df_dlc[f'{feat}_{feat2}'] = df_lp.loc[:, (model_name, feat, feat2)]
-    df_dlc = pd.DataFrame(df_dlc, index=df_lp.index)
+            try:
+                if model_name is None:
+                    col_tuple = (feat, feat2)
+                else:
+                    col_tuple = (model_name, feat, feat2)
 
+                # Skip columns with any unnamed level
+                if any(level.startswith('Unnamed') for level in col_tuple if
+                       isinstance(level, str)):
+                    continue
+
+                df_dlc[f'{feat}_{feat2}'] = df_lp.loc[:, col_tuple]
+            except KeyError:
+                # If the specified column does not exist, skip it
+                continue
+
+    df_dlc = pd.DataFrame(df_dlc, index=df_lp.index)
     return df_dlc
 
 
@@ -172,6 +183,7 @@ def populate_output_dataframe(keypoint_df, keypoint_ensemble, output_df,
                               key_suffix=''):  # key_suffix only required for multi-camera setups
     for coord in ['x', 'y', 'zscore']:
         src_cols = ('ensemble-kalman_tracker', f'{keypoint_ensemble}', coord)
+        print(src_cols)
         dst_cols = ('ensemble-kalman_tracker', f'{keypoint_ensemble}' + key_suffix, coord)
         output_df.loc[:, dst_cols] = keypoint_df.loc[:, src_cols]
     return output_df

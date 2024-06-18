@@ -286,13 +286,13 @@ def singlecam_optimize_smooth(
                 for iteration in range(
                         100):  # Reasonable number of iterations to allow convergence
                     s_init, opt_state, loss = step(s_init, opt_state)
-                    print(f'Iteration {iteration}, Current loss: {loss}')
+                    #print(f'Iteration {iteration}, Current loss: {loss}')
 
                     tol = 0.01 * jnp.abs(
                         prev_s)  # Dynamic tolerance set to 1% of the previous smoothing parameter
                     if jnp.linalg.norm(s_init - prev_s) < tol:
-                        print(
-                            f'Converged at iteration {iteration} with smoothing parameter {jnp.exp(s_init)}')
+                        #print(
+                        #    f'Converged at iteration {iteration} with smoothing parameter {jnp.exp(s_init)}')
                         break
 
                     prev_s = s_init
