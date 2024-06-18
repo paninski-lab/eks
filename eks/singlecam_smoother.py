@@ -202,7 +202,7 @@ def initialize_kalman_filter(scaled_ensemble_preds, adjusted_obs_dict, n_keypoin
 
 def singlecam_optimize_smooth(
         cov_mats, ys, m0s, S0s, Cs, As, Rs, ensemble_vars,
-        s_frames, smooth_param, blocks=[], maxiter=150, use_optax=False):
+        s_frames, smooth_param, blocks=[], maxiter=1000, use_optax=False):
     """
     Optimize smoothing parameter and perform smoothing.
 
@@ -263,7 +263,7 @@ def singlecam_optimize_smooth(
                 )
                 for b in block:
                     s = s_final.x[0]
-                    print(f's={s} for keypoint {b}')
+                    print(f's={s} for keypoint {b}, nll={s_final.fun}')
                     s_finals.append(s_final.x[0])
         else:
             print("Optax active")
@@ -271,7 +271,7 @@ def singlecam_optimize_smooth(
             for block in blocks:
                 guess = guesses[block[0]]
                 s_init = jnp.log(guess)  # Initialize in log-space
-                optimizer = optax.adam(learning_rate=0.1)
+                optimizer = optax.adam(learning_rate=0.25)
                 opt_state = optimizer.init(s_init)
 
                 @jax.jit
@@ -282,20 +282,21 @@ def singlecam_optimize_smooth(
                     s = optax.apply_updates(s, updates)
                     return s, opt_state, loss
 
-                prev_s = s_init
+                prev_loss = jnp.inf
                 for iteration in range(
-                        100):  # Reasonable number of iterations to allow convergence
+                        maxiter):  # Reasonable number of iterations to allow convergence
                     s_init, opt_state, loss = step(s_init, opt_state)
-                    #print(f'Iteration {iteration}, Current loss: {loss}')
+                    # print(f'Iteration {iteration}, Current loss: {loss}, Current s: {s_init}')
 
-                    tol = 0.01 * jnp.abs(
-                        prev_s)  # Dynamic tolerance set to 1% of the previous smoothing parameter
-                    if jnp.linalg.norm(s_init - prev_s) < tol:
-                        #print(
-                        #    f'Converged at iteration {iteration} with smoothing parameter {jnp.exp(s_init)}')
+                    tol = 0.001 * jnp.abs(
+                        jnp.log(prev_loss))  # Dynamic tolerance set to 1% of the previous smoothing parameter
+                    # print(f'tol: {tol}')
+                    if jnp.linalg.norm(loss - prev_loss) < tol:
+                        print(
+                            f'Converged at iteration {iteration} with smoothing parameter {jnp.exp(s_init)}. NLL={loss}')
                         break
 
-                    prev_s = s_init
+                    prev_loss = loss
 
                 s_final = jnp.exp(s_init)  # Convert back from log-space
                 for b in block:
