@@ -108,7 +108,7 @@ def format_data(input_dir, data_type):
             else:
                 markers_curr_fmt = markers_curr
 
-        markers_curr_fmt.to_csv('fmt_input.csv', index=False)
+        # markers_curr_fmt.to_csv('fmt_input.csv', index=False)
         input_dfs_list.append(markers_curr_fmt)
 
     if len(input_dfs_list) == 0:
@@ -156,8 +156,8 @@ def make_output_dataframe(markers_curr):
             markers_eks[col].values[:] = np.nan
 
     # Write DataFrame to CSV
-    output_csv = 'output_dataframe.csv'
-    dataframe_to_csv(markers_eks, output_csv)
+    # output_csv = 'output_dataframe.csv'
+    # dataframe_to_csv(markers_eks, output_csv)
 
     return markers_eks
 
