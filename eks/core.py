@@ -2,6 +2,8 @@ import jax
 import numpy as np
 from jax import numpy as jnp
 from matplotlib import pyplot as plt
+from jax import jit, vmap
+from functools import partial
 
 
 def ensemble(markers_list, keys, mode='median'):
@@ -217,6 +219,12 @@ def eks_zscore(eks_predictions, ensemble_means, ensemble_vars, min_ensemble_std=
 def jax_ensemble(markers_3d_array, mode='median'):
     """
     Computes ensemble median (or mean) and variance of a 3D array of DLC marker data using JAX.
+
+    Returns:
+        ensemble_preds: np.ndarray
+            shape (n_timepoints, n_keypoints, n_coordinates). ensembled predictions for each keypoint for each target
+        ensemble_vars: np.ndarray
+            shape (n_timepoints, n_keypoints, n_coordinates). ensembled variances for each keypoint for each target
     """
     markers_3d_array = jnp.array(markers_3d_array)  # Convert to JAX array
     n_frames = markers_3d_array.shape[1]
@@ -296,10 +304,10 @@ def compute_covariance_matrix(ensemble_preds):
     flattened_preds = ensemble_preds.reshape(T, -1)
 
     # Compute the temporal differences
-    temporal_diffs = jnp.diff(flattened_preds, axis=0)
+    temporal_diffs = np.diff(flattened_preds, axis=0)
 
     # Compute the covariance matrix of the temporal differences
-    E = jnp.cov(temporal_diffs, rowvar=False)
+    E = np.cov(temporal_diffs, rowvar=False)
     '''
     plt.imshow(E, cmap='coolwarm', interpolation='nearest', vmin=-100, vmax=100)
     plt.colorbar()  # Show a colorbar on the side
@@ -385,86 +393,95 @@ def compute_initial_guesses(ensemble_vars):
 # --------------------------------------------------------------------
 
 
+def kalman_filter_step(carry, curr_y):
+    m_prev, V_prev, A, Q, C, R, nll_net = carry
+
+    # Predict
+    m_pred = jnp.dot(A, m_prev)
+    V_pred = jnp.dot(A, jnp.dot(V_prev, A.T)) + Q
+
+    # Update
+    innovation = curr_y - jnp.dot(C, m_pred)
+    innovation_cov = jnp.dot(C, jnp.dot(V_pred, C.T)) + R
+    K = jnp.dot(V_pred, jnp.dot(C.T, jnp.linalg.inv(innovation_cov)))
+    m_t = m_pred + jnp.dot(K, innovation)
+    V_t = V_pred - jnp.dot(K, jnp.dot(C, V_pred))
+    S_t = V_pred
+
+    nll_current = single_timestep_nll(innovation, innovation_cov)
+    nll_net = nll_net + nll_current
+
+    return (m_t, V_t, A, Q, C, R, nll_net), (m_t, V_t, S_t, nll_current)
+
+@partial(jit)
 def jax_forward_pass(y, m0, S0, A, Q, C, R):
-    T = y.shape[0]
     # Initialize carry
-    carry = (y, m0, S0, A, Q, C, R)
+    carry = (m0, S0, A, Q, C, R, 0)
 
-    def kalman_filter_step(carry, t):
-        y, m_prev, V_prev, A, Q, C, R = carry
-
-        # Predict
-        m_pred = jnp.dot(A, m_prev)
-        V_pred = jnp.dot(A, jnp.dot(V_prev, A.T)) + Q
-
-        # Update
-        innovation = y[t] - jnp.dot(C, m_pred)
-        innovation_cov = jnp.dot(C, jnp.dot(V_pred, C.T)) + R
-        K = jnp.dot(V_pred, jnp.dot(C.T, jnp.linalg.inv(innovation_cov)))
-        m_t = m_pred + jnp.dot(K, innovation)
-        V_t = V_pred - jnp.dot(K, jnp.dot(C, V_pred))
-        S_t = V_pred
-
-        return (y, m_t, V_t, A, Q, C, R), (m_t, V_t, S_t, innovation, innovation_cov)
-
-    carry, outputs = jax.lax.scan(kalman_filter_step, carry, jnp.arange(T))
-    mfs, Vfs, Ss, innovations, innovation_covs = outputs
-    return mfs, Vfs, Ss, innovations, innovation_covs
+    carry, outputs = jax.lax.scan(kalman_filter_step, carry, y)
+    mfs, Vfs, Ss, _ = outputs
+    nll_net = carry[-1]
+    return mfs, Vfs, Ss, nll_net
 
 
+def kalman_smoother_step(carry, X):
+    m_next, V_next, mf_t, Vf_t, S_t, A = carry
+
+    # Compute the smoother gain
+    S_t_inv = jnp.linalg.inv(S_t)
+    J = jnp.dot(Vf_t, jnp.dot(A.T, S_t_inv))
+
+    # Update the smoothed state and covariance
+    m_smooth = mf_t + jnp.dot(J, (m_next - jnp.dot(A, mf_t)))
+    V_smooth = Vf_t + jnp.dot(J, jnp.dot(V_next - S_t, J.T))
+
+    mfs_t, Vfs_t, Ss_t = X[0], X[1], X[2]
+    return (m_smooth, V_smooth, mfs_t, Vfs_t, Ss_t, A), (m_smooth, V_smooth)
+
+@partial(jit)
 def jax_backward_pass(mfs, Vfs, Ss, A):
     T = mfs.shape[0]
-
-    # Initialize carry and outputs
     carry = (mfs[-1], Vfs[-1], mfs[-1], Vfs[-1], Ss[-1], A)
-
-    def kalman_smoother_step(carry, t):
-        m_next, V_next, mf_t, Vf_t, S_t, A = carry
-
-        # Compute the smoother gain
-        S_t_inv = jnp.linalg.inv(S_t)
-        J = jnp.dot(Vf_t, jnp.dot(A.T, S_t_inv))
-
-        # Update the smoothed state and covariance
-        m_smooth = mf_t + jnp.dot(J, (m_next - jnp.dot(A, mf_t)))
-        V_smooth = Vf_t + jnp.dot(J, jnp.dot(V_next - S_t, J.T))
-
-        return (m_smooth, V_smooth, mfs[t], Vfs[t], Ss[t], A), (m_smooth, V_smooth)
 
     # Reverse scan over the time steps
     carry, outputs = jax.lax.scan(
         kalman_smoother_step,
         carry,
-        jnp.arange(T),
+        [mfs, Vfs, Ss],
         reverse=True
     )
     ms, Vs = outputs
     return ms, Vs
 
 
-def jax_compute_nll(innovations, innovation_covs, epsilon=1e-6):
+def single_timestep_nll(innovation, innovation_cov):
+    epsilon=1e-6
+    n_coords = innovation.shape[0]
+
+    # Regularize the innovation covariance matrix by adding epsilon to the diagonal
+    reg_innovation_cov = innovation_cov + epsilon * jnp.eye(n_coords)
+
+    # Compute the log determinant of the regularized covariance matrix
+    log_det_S = jnp.log(jnp.abs(jnp.linalg.det(reg_innovation_cov)) + epsilon)
+    solved_term = jnp.linalg.solve(reg_innovation_cov, innovation)
+    quadratic_term = jnp.dot(innovation, solved_term)
+
+    # Compute the NLL increment for the current time step
+    c = jnp.log(2 * jnp.pi) * n_coords  # The Gaussian normalization constant part
+    nll_increment = 0.5 * jnp.abs(log_det_S + quadratic_term + c)
+    return nll_increment
+
+single_timestep_nll_vmap = vmap(single_timestep_nll, in_axes=(0, 0))
+
+@partial(jit)
+def jax_compute_nll(innovations, innovation_covs):
     """
     Computes the negative log likelihood (NLL) for the EKS prediction in a parallelized manner using JAX.
     """
 
-    def single_timestep_nll(innovation, innovation_cov):
-        n_coords = innovation.shape[0]
-
-        # Regularize the innovation covariance matrix by adding epsilon to the diagonal
-        reg_innovation_cov = innovation_cov + epsilon * jnp.eye(n_coords)
-
-        # Compute the log determinant of the regularized covariance matrix
-        log_det_S = jnp.log(jnp.abs(jnp.linalg.det(reg_innovation_cov)) + epsilon)
-        solved_term = jnp.linalg.solve(reg_innovation_cov, innovation)
-        quadratic_term = jnp.dot(innovation, solved_term)
-
-        # Compute the NLL increment for the current time step
-        c = jnp.log(2 * jnp.pi) * n_coords  # The Gaussian normalization constant part
-        nll_increment = 0.5 * jnp.abs(log_det_S + quadratic_term + c)
-        return nll_increment
-
+    
     # Apply the single_timestep_nll function across all time steps using vmap
-    nll_values = jax.vmap(single_timestep_nll)(innovations, innovation_covs)
+    nll_values = single_timestep_nll_vmap(innovations, innovation_covs)
 
     # Sum all the NLL increments to get the total NLL
     nll = jnp.sum(nll_values)
