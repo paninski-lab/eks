@@ -292,8 +292,6 @@ def singlecam_optimize_smooth(
 
                 # @partial.jit
                 def step(s, opt_state):
-                    # loss, grads = jax.value_and_grad(nll_loss)(s, cov_mats, cropped_ys, m0s,
-                    #                                            S0s, Cs, As, Rs)
                     start_time = time.time()
                     loss, grads = jax.value_and_grad(nll_loss)(s, cov_mats_sub, y_subset, m0s_crop,
                                                                S0s_crop, Cs_crop, As_crop, Rs_crop)
@@ -325,12 +323,13 @@ def singlecam_optimize_smooth(
     else:
         s_finals = [smooth_param]
 
+    s_finals = np.array(s_finals)
     # Final smooth with optimized s
-    ms, Vs, nll = singlecam_smooth_final(
+    ms, Vs = singlecam_smooth_final(
         cov_mats, s_finals,
         ys, m0s, S0s, Cs, As, Rs)
 
-    return s_finals, ms, Vs, nll
+    return s_finals, ms, Vs,
 
 
 def singlecam_smooth_min(
@@ -376,7 +375,7 @@ def singlecam_smooth_min(
 
 def inner_smooth_min_routine(y, m0, S0, A, Q, C, R):
     # Run filtering with the current smooth_param
-    _, _, _, nll = jax_forward_pass(y, m0, S0, A, Q, C, R)
+    _, _, nll = jax_forward_pass(y, m0, S0, A, Q, C, R)
     return nll
     
 inner_smooth_min_routine_vmap = vmap(inner_smooth_min_routine, in_axes=(0, 0, 0, 0, 0, 0, 0))
@@ -406,46 +405,39 @@ def singlecam_smooth_min_2(
     Qs = smooth_param * cov_mats
     return inner_smooth_min_routine_vmap(ys, m0s, S0s, As, Qs, Cs, Rs)
 
-def singlecam_smooth_final(cov_mats, s_finals, ys, m0s, S0s, Cs, As, Rs):
+def singlecam_smooth_final(process_cov, s, ys, m0s, S0s, Cs, As, Rs):
     """
     Perform final smoothing with the optimized smoothing parameters.
 
     Parameters:
-    cov_mats (np.ndarray): Covariance matrices.
-    s_finals (np.ndarray): Final smoothing parameters.
-    ys (np.ndarray): Observations.
-    m0s (np.ndarray): Initial mean state.
-    S0s (np.ndarray): Initial state covariance.
-    Cs (np.ndarray): Measurement function.
-    As (np.ndarray): State-transition matrix.
-    Rs (np.ndarray): Measurement noise covariance.
+        process_cov (np.ndarray): Shape (num_keypoints, num_state_coordinates, num_state_coordinates). Process noise covariance matrix
+        s (np.ndarray): Shape (num_keypoints,). We scale the process noise covariance by this value at each keypoint. 
+        ys (np.ndarray): Shape (num_keypoints, num_frames, num_observation_coordinates). Observations for all keypoints.
+        m0s (np.ndarray): Shape (num_keypoints, num_state_coordinates). Initial ensembled mean state for each keypoint.
+        S0s (np.ndarray): Shape (num_keypoints, num_state_coordinates, num_state_coordinates). Initial ensembled state covariance for each keypoint. 
+        Cs (np.ndarray): Shape (num_keypoints, num_observation_coordinates, num_state_coordinates). Observation measurement coefficient matrix.
+        As (np.ndarray): Shape (num_keypoints, num_state_coordinates, num_state_coordinates). Process matrix for each keypoint.
+        Rs (np.ndarray): Shape (num_keypoints, num_observation_coordinates, num_observation_coordinates). Measurement noise covariance.
 
     Returns:
-    tuple: Smoothed means, smoothed covariances, total nonnegative log likelihood for this keypoint
+        smoothed means (np.ndarray): Shape (num_keypoints, num_timepoints, num_coordinates). Kalman smoother state estimates outputs for all frames/all keypoints.
+        smoothed covariances (np.ndarray): Shape (num_keypoints, num_state_coordinates, num_state_coordinates)
     """
 
     # Initialize
-    s_finals = jnp.array(s_finals)
-    if s_finals.ndim == 0:
-        s_finals = s_finals[jnp.newaxis]
-    cov_mats = jnp.array(cov_mats)
     n_keypoints = ys.shape[0]
     ms_array = []
     Vs_array = []
-    nlls = []
-    nll_values_array = []
-    Qs = jax.vmap(lambda s: s * cov_mats)(s_finals)[0]
+    Qs = s[:, None, None] * process_cov
 
     # Run forward and backward pass for each keypoint
     for k in range(n_keypoints):
-        mf, Vf, S, nll = jax_forward_pass(
-            ys[k], m0s[k], S0s[k], As[k], Qs[k], Cs[k], Rs[k])
-        print(f"{mf.shape}, {Vf.shape}, {S.shape}")
-        ms, Vs = jax_backward_pass(mf, Vf, S, As[k])
-        ms_array.append(ms)
-        Vs_array.append(Vs)
-        # nll, nll_values = jax_compute_nll(innovs, innov_covs)
-        # nlls.append(nll)
-        # nll_values_array.append(nll_values)
+        mf, Vf, nll = jax_forward_pass(ys[k], m0s[k], S0s[k], As[k], Qs[k], Cs[k], Rs[k])
+        ms, Vs = jax_backward_pass(mf, Vf, As[k], Qs[k])
+        ms_array.append(np.array(ms))
+        Vs_array.append(np.array(Vs))
 
-    return ms_array, Vs_array, nll# nlls, nll_values_array
+    smoothed_means = np.stack(ms_array, axis = 0)
+    smoothed_covariances = np.stack(Vs_array, axis = 0)
+
+    return smoothed_means, smoothed_covariances
