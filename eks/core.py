@@ -414,12 +414,14 @@ def jax_forward_pass(y, m0, S0, A, Q, C, R):
 
 def jax_backward_pass(mfs, Vfs, Ss, A):
     T = mfs.shape[0]
-
-    # Initialize carry and outputs
-    carry = (mfs[-1], Vfs[-1], mfs[-1], Vfs[-1], Ss[-1], A)
+    # Initialize carry with the last values and A
+    carry = (mfs[-1], Vfs[-1])
 
     def kalman_smoother_step(carry, t):
-        m_next, V_next, mf_t, Vf_t, S_t, A = carry
+        m_next, V_next = carry
+        mf_t = mfs[t]
+        Vf_t = Vfs[t]
+        S_t = Ss[t]
 
         # Compute the smoother gain
         S_t_inv = jnp.linalg.inv(S_t)
@@ -429,16 +431,20 @@ def jax_backward_pass(mfs, Vfs, Ss, A):
         m_smooth = mf_t + jnp.dot(J, (m_next - jnp.dot(A, mf_t)))
         V_smooth = Vf_t + jnp.dot(J, jnp.dot(V_next - S_t, J.T))
 
-        return (m_smooth, V_smooth, mfs[t], Vfs[t], Ss[t], A), (m_smooth, V_smooth)
+        return (m_smooth, V_smooth), (m_smooth, V_smooth)
 
     # Reverse scan over the time steps
-    carry, outputs = jax.lax.scan(
+    _, outputs = jax.lax.scan(
         kalman_smoother_step,
         carry,
-        jnp.arange(T),
-        reverse=True
+        jnp.arange(T - 2, -1, -1)  # Reverse order to ensure proper time sequence
     )
+
     ms, Vs = outputs
+
+    # Include the initial state in the outputs
+    ms = jnp.concatenate([ms[::-1], mfs[-1][None]], axis=0)
+    Vs = jnp.concatenate([Vs[::-1], Vfs[-1][None]], axis=0)
     return ms, Vs
 
 

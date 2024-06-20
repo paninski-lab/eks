@@ -55,7 +55,7 @@ def handle_parse_args(script_type):
              'Format: "[(start_int, end_int), (start_int, end_int), ... ]" or int. '
              'Inputting a single int uses all frames from 1 to the int. '
              '(None, end_int) starts from first frame; (start_int, None) proceeds to last frame.',
-        default=[(None, None)],
+        default=[(None, 10000)],
         type=parse_s_frames,
     )
     parser.add_argument(

@@ -289,7 +289,7 @@ def singlecam_optimize_smooth(
                     # print(f'Iteration {iteration}, Current loss: {loss}, Current s: {s_init}')
 
                     tol = 0.001 * jnp.abs(
-                        jnp.log(prev_loss))  # Dynamic tolerance set to 1% of the previous smoothing parameter
+                        jnp.log(prev_loss))  # Dynamic tolerance set to 0.1% of the previous loss
                     # print(f'tol: {tol}')
                     if jnp.linalg.norm(loss - prev_loss) < tol:
                         print(
@@ -381,7 +381,6 @@ def singlecam_smooth_final(cov_mats, s_finals, ys, m0s, S0s, Cs, As, Rs):
     nlls = []
     nll_values_array = []
     Qs = jax.vmap(lambda s: s * cov_mats)(s_finals)[0]
-
     # Run forward and backward pass for each keypoint
     for k in range(n_keypoints):
         mf, Vf, S, innovs, innov_covs = jax_forward_pass(
