@@ -17,10 +17,7 @@ bodypart_list = args.bodypart_list
 s = args.s  # defaults to automatic optimization
 s_frames = args.s_frames  # frames to be used for automatic optimization (only if no --s flag)
 blocks = args.blocks
-use_optax = False
-if args.optax == "True":
-    use_optax = True
-    print("Using Optax")
+
 
 # Load and format input files and prepare an empty DataFrame for output.
 input_dfs, output_df, keypoint_names = format_data(args.input_dir, data_type)
@@ -45,13 +42,12 @@ key_cols = np.array(keys)
 markers_3d_array = markers_3d_array[:, :, key_cols]
 
 # Call the smoother function
-df_dicts, s_finals, nll_values_array = ensemble_kalman_smoother_singlecam(
+df_dicts, s_finals = ensemble_kalman_smoother_singlecam(
     markers_3d_array,
     bodypart_list,
     s,
     s_frames,
-    blocks,
-    use_optax
+    blocks
 )
 
 keypoint_i = -1  # keypoint to be plotted
@@ -68,7 +64,7 @@ plot_results(output_df=output_df,
              key=f'{bodypart_list[keypoint_i]}',
              idxs=(0, 500),
              s_final=s_finals[keypoint_i],
-             nll_values=nll_values_array[keypoint_i],
+             nll_values=None,
              save_dir=save_dir,
              smoother_type=smoother_type
              )

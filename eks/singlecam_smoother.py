@@ -1,13 +1,16 @@
 import numpy as np
 import pandas as pd
 import jax
+from jax import jit, vmap
+from functools import partial
 import jax.numpy as jnp
+from jax.lax import associative_scan, psum, scan
 import optax
 from eks.utils import make_dlc_pandas_index, crop_frames
 from eks.core import eks_zscore, jax_ensemble, jax_forward_pass, jax_backward_pass, \
-    compute_covariance_matrix, jax_compute_nll, compute_initial_guesses
+    compute_covariance_matrix, jax_compute_nll, compute_initial_guesses, pkf_and_loss
 from scipy.optimize import minimize
-
+import time
 
 def ensemble_kalman_smoother_singlecam(
         markers_3d_array, bodypart_list, smooth_param, s_frames, blocks=[], use_optax=False,
@@ -28,13 +31,6 @@ def ensemble_kalman_smoother_singlecam(
     tuple: Dataframes with smoothed predictions, final smoothing parameters, negative log-likelihood values.
     """
 
-    # Detect GPU
-    try:
-        _ = jax.device_put(jax.numpy.ones(1), device=jax.devices('gpu')[0])
-        print("Using GPU")
-    except:
-        print("Using CPU")
-
     T = markers_3d_array.shape[1]
     n_keypoints = markers_3d_array.shape[2] // 3
     n_coords = 2
@@ -53,10 +49,9 @@ def ensemble_kalman_smoother_singlecam(
         scaled_ensemble_preds, adjusted_obs_dict, n_keypoints)
 
     # Main smoothing function
-    s_finals, ms, Vs, nlls, nll_values = singlecam_optimize_smooth(
+    s_finals, ms, Vs = singlecam_optimize_smooth(
         cov_mats, ys, m0s, S0s, Cs, As, Rs, ensemble_vars,
-        s_frames, smooth_param, blocks, use_optax=use_optax
-    )
+        s_frames, smooth_param, blocks)
 
     y_m_smooths = np.zeros((n_keypoints, T, n_coords))
     y_v_smooths = np.zeros((n_keypoints, T, n_coords, n_coords))
@@ -98,7 +93,7 @@ def ensemble_kalman_smoother_singlecam(
         dfs.append(df)
         df_dicts.append({bodypart_list[k] + '_df': df})
 
-    return df_dicts, s_finals, nll_values
+    return df_dicts, s_finals
 
 
 def adjust_observations(keypoints_avg_dict, n_keypoints, scaled_ensemble_preds):
@@ -202,13 +197,13 @@ def initialize_kalman_filter(scaled_ensemble_preds, adjusted_obs_dict, n_keypoin
 
 def singlecam_optimize_smooth(
         cov_mats, ys, m0s, S0s, Cs, As, Rs, ensemble_vars,
-        s_frames, smooth_param, blocks=[], maxiter=1000, use_optax=False):
+        s_frames, smooth_param, blocks=[], maxiter=1000):
     """
-    Optimize smoothing parameter and perform smoothing.
+    Optimize smoothing parameter, and use the result to run the kalman filter-smoother
 
     Parameters:
     cov_mats (np.ndarray): Covariance matrices.
-    ys (np.ndarray): Observations.
+    ys (np.ndarray): Observations. Shape (keypoints, frames, coordinates). coordinate is usually 2
     m0s (np.ndarray): Initial mean state.
     S0s (np.ndarray): Initial state covariance.
     Cs (np.ndarray): Measurement function.
@@ -230,91 +225,105 @@ def singlecam_optimize_smooth(
             blocks.append([n])
     print(f'Correlated keypoint blocks: {blocks}')
 
-    def nll_loss(s, block, cov_mats, cropped_ys, m0s, S0s, Cs, As, Rs):
-        s = jnp.exp(s)  # To ensure positivity
-        return singlecam_smooth_min(s, block, cov_mats, cropped_ys, m0s, S0s, Cs, As, Rs)
+    # Depending on whether we use GPU, we optimize the smoothing param using parallel or sequential kalman filter algorithms in JAX
+    try:
+        _ = jax.device_put(jax.numpy.ones(1), device=jax.devices('gpu')[0])
+        print("Using GPU")
+        @partial(jit)
+        def nll_loss_parallel_scan(s, cov_mats, cropped_ys, m0s, S0s, Cs, As, Rs):
+            s = jnp.exp(s)  # To ensure positivity
+            output = singlecam_smooth_min_parallel(s, cov_mats, cropped_ys, m0s, S0s, Cs, As, Rs)
+            return output
+        loss_function = nll_loss_parallel_scan
+    except:
+        print("Using CPU")
+        @partial(jit)
+        def nll_loss_sequential_scan(s, cov_mats, cropped_ys, m0s, S0s, Cs, As, Rs):
+            s = jnp.exp(s)  # To ensure positivity
+            return singlecam_smooth_min(s, cov_mats, cropped_ys, m0s, S0s, Cs, As, Rs)
+        loss_function = nll_loss_sequential
 
     # Optimize smooth_param
-    if smooth_param is None:
+    if smooth_param is not None:
+        s_finals = [smooth_param]
+    else:
         guesses = []
         cropped_ys = []
         for k in range(n_keypoints):
-            guesses.append(compute_initial_guesses(ensemble_vars[:, k, :]))
-            # Unpack s_frames
+            current_guess = compute_initial_guesses(ensemble_vars[:, k, :])
+            guesses.append(current_guess)
             cropped_ys.append(crop_frames(ys[k], s_frames))
-        if not use_optax:
-            print("Nelder-Mead active")
-            # Minimize negative log likelihood serially for each keypoint
-            for block in blocks:
-                s_final = minimize(
-                    singlecam_smooth_min,
-                    x0=guesses[k],  # initial smooth param guess
-                    args=(block,
-                          cov_mats,
-                          cropped_ys,
-                          m0s,
-                          S0s,
-                          Cs,
-                          As,
-                          Rs),
-                    method='Nelder-Mead',
-                    tol=0.1,
-                    bounds=[(0, None)],
-                )
-                for b in block:
-                    s = s_final.x[0]
-                    print(f's={s} for keypoint {b}, nll={s_final.fun}')
-                    s_finals.append(s_final.x[0])
-        else:
-            print("Optax active")
-            # Optimize negative log likelihood using Optax for each block
-            for block in blocks:
-                guess = guesses[block[0]]
-                s_init = jnp.log(guess)  # Initialize in log-space
-                optimizer = optax.adam(learning_rate=0.25)
-                opt_state = optimizer.init(s_init)
 
-                @jax.jit
-                def step(s, opt_state):
-                    loss, grads = jax.value_and_grad(nll_loss)(s, block, cov_mats, cropped_ys, m0s,
-                                                               S0s, Cs, As, Rs)
-                    updates, opt_state = optimizer.update(grads, opt_state)
-                    s = optax.apply_updates(s, updates)
-                    return s, opt_state, loss
+        cropped_ys = np.array(cropped_ys) #Concatenation of this list along dimension 0
+        
+        # Optimize negative log likelihood
+        for block in blocks:
+            s_init = guesses[block[0]]
+            if s_init <= 0: 
+                s_init = 2
+            s_init = jnp.log(s_init)
+            optimizer = optax.adam(learning_rate=0.25)
+            opt_state = optimizer.init(s_init)
 
-                prev_loss = jnp.inf
-                for iteration in range(
-                        maxiter):  # Reasonable number of iterations to allow convergence
-                    s_init, opt_state, loss = step(s_init, opt_state)
-                    # print(f'Iteration {iteration}, Current loss: {loss}, Current s: {s_init}')
+            selector = np.array(block).astype(int)
+            cov_mats_sub = cov_mats[selector]
+            m0s_crop = m0s[selector]
+            S0s_crop = S0s[selector]
+            Cs_crop = Cs[selector]
+            As_crop = As[selector]
+            Rs_crop = Rs[selector]
+            y_subset = cropped_ys[selector]
 
-                    tol = 0.001 * jnp.abs(
-                        jnp.log(prev_loss))  # Dynamic tolerance set to 0.1% of the previous loss
-                    # print(f'tol: {tol}')
-                    if jnp.linalg.norm(loss - prev_loss) < tol:
-                        print(
-                            f'Converged at iteration {iteration} with smoothing parameter {jnp.exp(s_init)}. NLL={loss}')
-                        break
+            def step(s, opt_state):
+                loss, grads = jax.value_and_grad(loss_function)(s, cov_mats_sub, y_subset, m0s_crop,
+                                                           S0s_crop, Cs_crop, As_crop, Rs_crop)
+                updates, opt_state = optimizer.update(grads, opt_state)
+                s = optax.apply_updates(s, updates)
+                return s, opt_state, loss
 
-                    prev_loss = loss
+            prev_loss = jnp.inf
+            for iteration in range(maxiter):  
+                start_time = time.time()
+                s_init, opt_state, loss = step(s_init, opt_state)
 
-                s_final = jnp.exp(s_init)  # Convert back from log-space
-                for b in block:
-                    print(f's={s_final} for keypoint {b}')
-                    s_finals.append(s_final)
-    else:
-        s_finals = [smooth_param]
+                if iteration % 10 == 0 or iteration == maxiter - 1:
+                    print(f'Iteration {iteration}, Current loss: {loss}, Current s: {s_init}')
+                    
+                tol = 0.001 * jnp.abs(jnp.log(prev_loss)) 
+                if jnp.linalg.norm(loss - prev_loss) < tol + 1e-6:
+                    print(
+                        f'Converged at iteration {iteration} with smoothing parameter {jnp.exp(s_init)}. NLL={loss}')
+                    break
 
+                prev_loss = loss
+
+            s_final = jnp.exp(s_init)  # Convert back from log-space
+            for b in block:
+                print(f's={s_final} for keypoint {b}')
+                s_finals.append(s_final)
+        
+    s_finals = np.array(s_finals)
     # Final smooth with optimized s
-    ms, Vs, nll, nll_values = singlecam_smooth_final(
+    ms, Vs = final_forwards_backwards_pass(
         cov_mats, s_finals,
         ys, m0s, S0s, Cs, As, Rs)
 
-    return s_finals, ms, Vs, nll, nll_values
+    return s_finals, ms, Vs,
 
+######
+## Routines that use the sequential kalman filter implementation to arrive at the negative log likelihood function
+## Note: this code is set up to always run on CPU. 
+######
+
+def inner_smooth_min_routine(y, m0, S0, A, Q, C, R):
+    # Run filtering with the current smooth_param
+    _, _, nll = jax_forward_pass(y, m0, S0, A, Q, C, R)
+    return nll
+    
+inner_smooth_min_routine_vmap = vmap(inner_smooth_min_routine, in_axes=(0, 0, 0, 0, 0, 0, 0))
 
 def singlecam_smooth_min(
-        smooth_param, block, cov_mats, ys, m0s, S0s, Cs, As, Rs):
+        smooth_param, cov_mats, ys, m0s, S0s, Cs, As, Rs):
     """
     Smooths once using the given smooth_param. Returns only the nll, which is the parameter to
     be minimized using the scipy.minimize() function.
@@ -335,30 +344,35 @@ def singlecam_smooth_min(
     """
     # Adjust Q based on smooth_param and cov_matrix
     Qs = smooth_param * cov_mats
-    nll_sum = 0
-    for b in block:
-        Q = Qs[b]
-        y = ys[b]
-        m0 = m0s[b]
-        S0 = S0s[b]
-        C = Cs[b]
-        A = As[b]
-        R = Rs[b]
-        # Run filtering with the current smooth_param
-        _, _, _, innovs, innov_cov = jax_forward_pass(y, m0, S0, A, Q, C, R)
-        # Compute the negative log-likelihood based on innovations and their covariance
-        nll, nll_values = jax_compute_nll(innovs, innov_cov)
-        nll_sum += nll
-    return nll_sum
+    nlls = jnp.sum(inner_smooth_min_routine_vmap(ys, m0s, S0s, As, Qs, Cs, Rs))
+    return nlls
+
+def inner_smooth_min_routine_parallel(y, m0, S0, A, Q, C, R):
+    # Run filtering with the current smooth_param
+    means, covariances, NLL = pkf_and_loss(y, m0, S0, A, Q, C, R)
+    return jnp.sum(NLL)
+    
+inner_smooth_min_routine_parallel_vmap = jit(vmap(inner_smooth_min_routine_parallel, in_axes=(0, 0, 0, 0, 0, 0, 0)))
 
 
-def singlecam_smooth_final(cov_mats, s_finals, ys, m0s, S0s, Cs, As, Rs):
+
+######
+## Routines that use the parallel scan kalman filter implementation to arrive at the negative log likelihood function.
+## Note: This should only be run on GPUs
+######
+
+
+def singlecam_smooth_min_parallel(
+        smooth_param, cov_mats, observations, initial_means, initial_covariances, Cs, As, Rs):
     """
-    Perform final smoothing with the optimized smoothing parameters.
-
+    Computes the maximum likelihood estimator for the process noise variance (smoothness param). 
+    This function is parallelized to process all keypoints in a given block.
+    KEY: This function uses the parallel scan algorithm, which has effectively O(log(n)) runtime on GPUs. On CPUs, it is slower than the jax.lax.scan implementation above because.
+    
     Parameters:
+    smooth_param (float): Smoothing parameter.
+    block (list): List of blocks.
     cov_mats (np.ndarray): Covariance matrices.
-    s_finals (np.ndarray): Final smoothing parameters.
     ys (np.ndarray): Observations.
     m0s (np.ndarray): Initial mean state.
     S0s (np.ndarray): Initial state covariance.
@@ -367,29 +381,48 @@ def singlecam_smooth_final(cov_mats, s_finals, ys, m0s, S0s, Cs, As, Rs):
     Rs (np.ndarray): Measurement noise covariance.
 
     Returns:
-    tuple: Smoothed means, smoothed covariances, negative log-likelihoods, negative log-likelihood values.
+        float: Negative log-likelihood.
+    """
+    # Adjust Q based on smooth_param and cov_matrix
+    Qs = smooth_param * cov_mats
+    values = inner_smooth_min_routine_parallel_vmap(observations, initial_means, initial_covariances, As, Qs, Cs, Rs)
+    return jnp.sum(values)
+
+
+
+def final_forwards_backwards_pass(process_cov, s, ys, m0s, S0s, Cs, As, Rs):
+    """
+    Perform final smoothing with the optimized smoothing parameters.
+
+    Parameters:
+        process_cov (np.ndarray): Shape (num_keypoints, num_state_coordinates, num_state_coordinates). Process noise covariance matrix
+        s (np.ndarray): Shape (num_keypoints,). We scale the process noise covariance by this value at each keypoint. 
+        ys (np.ndarray): Shape (num_keypoints, num_frames, num_observation_coordinates). Observations for all keypoints.
+        m0s (np.ndarray): Shape (num_keypoints, num_state_coordinates). Initial ensembled mean state for each keypoint.
+        S0s (np.ndarray): Shape (num_keypoints, num_state_coordinates, num_state_coordinates). Initial ensembled state covariance for each keypoint. 
+        Cs (np.ndarray): Shape (num_keypoints, num_observation_coordinates, num_state_coordinates). Observation measurement coefficient matrix.
+        As (np.ndarray): Shape (num_keypoints, num_state_coordinates, num_state_coordinates). Process matrix for each keypoint.
+        Rs (np.ndarray): Shape (num_keypoints, num_observation_coordinates, num_observation_coordinates). Measurement noise covariance.
+
+    Returns:
+        smoothed means (np.ndarray): Shape (num_keypoints, num_timepoints, num_coordinates). Kalman smoother state estimates outputs for all frames/all keypoints.
+        smoothed covariances (np.ndarray): Shape (num_keypoints, num_state_coordinates, num_state_coordinates)
     """
 
     # Initialize
-    s_finals = jnp.array(s_finals)
-    if s_finals.ndim == 0:
-        s_finals = s_finals[jnp.newaxis]
-    cov_mats = jnp.array(cov_mats)
     n_keypoints = ys.shape[0]
     ms_array = []
     Vs_array = []
-    nlls = []
-    nll_values_array = []
-    Qs = jax.vmap(lambda s: s * cov_mats)(s_finals)[0]
+    Qs = s[:, None, None] * process_cov
+
     # Run forward and backward pass for each keypoint
     for k in range(n_keypoints):
-        mf, Vf, S, innovs, innov_covs = jax_forward_pass(
-            ys[k], m0s[k], S0s[k], As[k], Qs[k], Cs[k], Rs[k])
-        ms, Vs = jax_backward_pass(mf, Vf, S, As[k])
-        ms_array.append(ms)
-        Vs_array.append(Vs)
-        nll, nll_values = jax_compute_nll(innovs, innov_covs)
-        nlls.append(nll)
-        nll_values_array.append(nll_values)
+        mf, Vf, nll = jax_forward_pass(ys[k], m0s[k], S0s[k], As[k], Qs[k], Cs[k], Rs[k])
+        ms, Vs = jax_backward_pass(mf, Vf, As[k], Qs[k])
+        ms_array.append(np.array(ms))
+        Vs_array.append(np.array(Vs))
 
-    return ms_array, Vs_array, nlls, nll_values_array
+    smoothed_means = np.stack(ms_array, axis = 0)
+    smoothed_covariances = np.stack(Vs_array, axis = 0)
+
+    return smoothed_means, smoothed_covariances

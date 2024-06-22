@@ -214,22 +214,13 @@ def plot_results(output_df, input_dfs_list, key, s_final, nll_values, idxs, save
     """
     Plot the results of the EKS.
 
-    Parameters:
-        output_df (pd.DataFrame): Output DataFrame containing EKS results.
-        input_dfs_list (list of pd.DataFrame): List of input DataFrames.
-        key (str): Key for the plot.
-        s_final (float): Final smoothing parameter.
-        nll_values (np.ndarray): Array of NLL values.
-        idxs (tuple): Tuple of start and end indices for cropping the plot.
-        save_dir (str): Directory to save the plot.
-        smoother_type (str): Type of smoother used.
-
-    Returns:
-        None
-    """
-    nll_values_subset = nll_values[idxs[0]:idxs[1]]
-
-    fig, axes = plt.subplots(5, 1, figsize=(9, 10))
+def plot_results(output_df, input_dfs_list,
+                 key, s_final, nll_values, idxs, save_dir, smoother_type):
+    
+    if nll_values is None:
+        fig, axes = plt.subplots(4, 1, figsize=(9, 10))
+    else:
+        fig, axes = plt.subplots(5, 1)
 
     for ax, coord in zip(axes, ['x', 'y', 'likelihood', 'zscore']):
         if coord == 'likelihood':
@@ -253,8 +244,11 @@ def plot_results(output_df, input_dfs_list, key, s_final, nll_values, idxs, save
         if coord == 'x':
             ax.legend()
 
-        axes[-1].plot(range(*idxs), nll_values_subset, color='k', linewidth=2)
-        axes[-1].set_ylabel('EKS NLL', fontsize=12)
+        # Plot nll_values against the time axis
+        if nll_values is not None:
+            nll_values_subset = nll_values[idxs[0]:idxs[1]]
+            axes[-1].plot(range(*idxs), nll_values_subset, color='k', linewidth=2)
+            axes[-1].set_ylabel('EKS NLL', fontsize=12)
 
     plt.suptitle(f'EKS results for {key}, smoothing = {s_final}', fontsize=14)
     plt.tight_layout()
