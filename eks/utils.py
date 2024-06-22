@@ -190,10 +190,11 @@ def populate_output_dataframe(keypoint_df, keypoint_ensemble, output_df,
 
 def plot_results(output_df, input_dfs_list,
                  key, s_final, nll_values, idxs, save_dir, smoother_type):
-    # crop NLL values
-    nll_values_subset = nll_values[idxs[0]:idxs[1]]
-
-    fig, axes = plt.subplots(5, 1, figsize=(9, 10))
+    
+    if nll_values is None:
+        fig, axes = plt.subplots(4, 1, figsize=(9, 10))
+    else:
+        fig, axes = plt.subplots(5, 1)
 
     for ax, coord in zip(axes, ['x', 'y', 'likelihood', 'zscore']):
         # Rename axes label for likelihood and zscore coordinates
@@ -227,8 +228,10 @@ def plot_results(output_df, input_dfs_list,
             ax.legend()
 
         # Plot nll_values against the time axis
-        axes[-1].plot(range(*idxs), nll_values_subset, color='k', linewidth=2)
-        axes[-1].set_ylabel('EKS NLL', fontsize=12)
+        if nll_values is not None:
+            nll_values_subset = nll_values[idxs[0]:idxs[1]]
+            axes[-1].plot(range(*idxs), nll_values_subset, color='k', linewidth=2)
+            axes[-1].set_ylabel('EKS NLL', fontsize=12)
 
     plt.suptitle(f'EKS results for {key}, smoothing = {s_final}', fontsize=14)
     plt.tight_layout()
