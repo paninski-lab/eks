@@ -508,7 +508,7 @@ def parallel_loss_single(A_scan, b_scan, C_scan, A, C, Q, R, next_observation, m
     next_mean, next_cov = get_next_cov(A, C, Q, R, curr_cov, curr_mean)
     return jnp.squeeze(curr_mean), curr_cov, compute_marginal_nll(jnp.squeeze(next_observation), jnp.squeeze(next_mean), next_cov)
 
-parallel_loss_func_vmap = vmap(parallel_loss_single, in_axes = (0, 0, 0, None, None, None, None, 0, None), out_axes = (0, 0, 0))
+parallel_loss_func_vmap = jit(vmap(parallel_loss_single, in_axes = (0, 0, 0, None, None, None, None, 0, None), out_axes = (0, 0, 0)))
 
 @partial(jit)
 def y1_given_x0_nll(C, A, Q, R, m0, cov0, obs):
@@ -532,7 +532,7 @@ def pkf_and_loss(y, m0, cov0, A, Q, C, R):
     final_covariance = jnp.expand_dims(get_kalman_variances(C_scan[-1]), axis = 0)
     filtered_states = jnp.concatenate([filtered_states, final_mean], axis = 0)
     filtered_variances = jnp.concatenate([filtered_covariances, final_covariance], axis = 0)
-    return filtered_states, filtered_variances, losses + addend
+    return filtered_states, filtered_variances, jnp.sum(losses) + addend
 
 
 

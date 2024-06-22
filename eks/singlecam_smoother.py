@@ -238,7 +238,7 @@ def singlecam_optimize_smooth(
         s = jnp.exp(s)  # To ensure positivity
         return singlecam_smooth_min_2(s, cov_mats, cropped_ys, m0s, S0s, Cs, As, Rs)
 
-    # @partial(jit)
+    @partial(jit)
     def nll_loss_new(s, cov_mats, cropped_ys, m0s, S0s, Cs, As, Rs):
         s = jnp.exp(s)  # To ensure positivity
         output = singlecam_smooth_min_parallel(s, cov_mats, cropped_ys, m0s, S0s, Cs, As, Rs)
@@ -287,7 +287,7 @@ def singlecam_optimize_smooth(
                 if s_init <= 0: 
                     s_init = 2
                 s_init = jnp.log(s_init)
-                optimizer = optax.adam(learning_rate=1e-2)
+                optimizer = optax.adam(learning_rate=0.25)
                 opt_state = optimizer.init(s_init)
 
                 selector = np.array(block).astype(int)
@@ -316,8 +316,9 @@ def singlecam_optimize_smooth(
                     start_time = time.time()
                     s_init, opt_state, loss = step(s_init, opt_state)
 
-                    print("grad update took {}".format(time.time() - start_time))
-                    print(f'Iteration {iteration}, Current loss: {loss}, Current s: {s_init}')
+                    if iteration % 10 == 0 or iteration == maxiter - 1:
+                        print(f'Iteration {iteration}, Current loss: {loss}, Current s: {s_init}')
+                        
 
                     tol = 0.001 * jnp.abs(
                         jnp.log(prev_loss))  # Dynamic tolerance set to 1% of the previous smoothing parameter
@@ -377,10 +378,7 @@ def singlecam_smooth_min(
         A = As[b]
         R = Rs[b]
         # Run filtering with the current smooth_param
-        _, _, _, innovs, innov_cov = jax_forward_pass(y, m0, S0, A, Q, C, R)
-        print(f"the shape of innovs and innovs_cov are {innovs.shape} {innov_cov.shape}")
-        # Compute the negative log-likelihood based on innovations and their covariance
-        nll, nll_values = jax_compute_nll(innovs, innov_cov)
+        ms, Vs, nll = jax_forward_pass(y, m0, S0, A, Q, C, R)
         nll_sum += nll
     return nll_sum
 
@@ -424,7 +422,7 @@ def inner_smooth_min_routine_parallel(y, m0, S0, A, Q, C, R):
     means, covariances, NLL = pkf_and_loss(y, m0, S0, A, Q, C, R)
     return jnp.sum(NLL)
     
-inner_smooth_min_routine_parallel_vmap = vmap(inner_smooth_min_routine_parallel, in_axes=(0, 0, 0, 0, 0, 0, 0))
+inner_smooth_min_routine_parallel_vmap = jit(vmap(inner_smooth_min_routine_parallel, in_axes=(0, 0, 0, 0, 0, 0, 0)))
 
 
 def singlecam_smooth_min_parallel(
