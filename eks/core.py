@@ -2,6 +2,10 @@ import jax
 import numpy as np
 from jax import numpy as jnp
 from matplotlib import pyplot as plt
+from jax import jit, vmap
+import jax.scipy as jsc
+from functools import partial
+from jax.lax import associative_scan, psum, scan
 
 
 def ensemble(markers_list, keys, mode='median'):
@@ -217,6 +221,12 @@ def eks_zscore(eks_predictions, ensemble_means, ensemble_vars, min_ensemble_std=
 def jax_ensemble(markers_3d_array, mode='median'):
     """
     Computes ensemble median (or mean) and variance of a 3D array of DLC marker data using JAX.
+
+    Returns:
+        ensemble_preds: np.ndarray
+            shape (n_timepoints, n_keypoints, n_coordinates). ensembled predictions for each keypoint for each target
+        ensemble_vars: np.ndarray
+            shape (n_timepoints, n_keypoints, n_coordinates). ensembled variances for each keypoint for each target
     """
     markers_3d_array = jnp.array(markers_3d_array)  # Convert to JAX array
     n_frames = markers_3d_array.shape[1]
@@ -296,10 +306,10 @@ def compute_covariance_matrix(ensemble_preds):
     flattened_preds = ensemble_preds.reshape(T, -1)
 
     # Compute the temporal differences
-    temporal_diffs = jnp.diff(flattened_preds, axis=0)
+    temporal_diffs = np.diff(flattened_preds, axis=0)
 
     # Compute the covariance matrix of the temporal differences
-    E = jnp.cov(temporal_diffs, rowvar=False)
+    E = np.cov(temporal_diffs, rowvar=False)
     '''
     plt.imshow(E, cmap='coolwarm', interpolation='nearest', vmin=-100, vmax=100)
     plt.colorbar()  # Show a colorbar on the side
@@ -312,7 +322,7 @@ def compute_covariance_matrix(ensemble_preds):
     cov_mats = []
     for i in range(n_keypoints):
         # E_block = extract_submatrix(E, i)
-        E_block = [[1, 0],[0, 1]]
+        E_block = [[1, 0], [0, 1]]
         cov_mats.append(E_block)
     cov_mats = jnp.array(cov_mats)
     return cov_mats
@@ -385,92 +395,284 @@ def compute_initial_guesses(ensemble_vars):
 # --------------------------------------------------------------------
 
 
-def jax_forward_pass(y, m0, S0, A, Q, C, R):
-    T = y.shape[0]
+def first_filtering_element(C, A, Q, R, m0, P0, y):
+    # model.F = A, model.H = C,
+    S = C @ Q @ C.T + R
+    CF, low = jsc.linalg.cho_factor(S)  # note the jsc
+
+    m1 = A @ m0
+    P1 = A @ P0 @ A.T + Q
+    S1 = C @ P1 @ C.T + R
+    K1 = jsc.linalg.solve(S1, C @ P1, assume_a='pos').T  # note the jsc
+
+    A_updated = jnp.zeros_like(A)
+    b = m1 + K1 @ (y - C @ m1)
+    C_updated = P1 - K1 @ S1 @ K1.T
+
+    # note the jsc
+    eta = A.T @ C.T @ jsc.linalg.cho_solve((CF, low), y)
+    J = A.T @ C.T @ jsc.linalg.cho_solve((CF, low), C @ A)
+    return A_updated, b, C_updated, J, eta
+
+
+def generic_filtering_element(C, A, Q, R, y):
+    S = C @ Q @ C.T + R
+    CF, low = jsc.linalg.cho_factor(S)  # note the jsc
+    K = jsc.linalg.cho_solve((CF, low), C @ Q).T  # note the jsc
+    A_updated = A - K @ C @ A
+    b = K @ y
+    C_updated = Q - K @ C @ Q
+
+    # note the jsc
+    eta = A.T @ C.T @ jsc.linalg.cho_solve((CF, low), y)
+    J = A.T @ C.T @ jsc.linalg.cho_solve((CF, low), C @ A)
+    return A_updated, b, C_updated, J, eta
+
+
+def make_associative_filtering_elements(C, A, Q, R, m0, P0, observations):
+    first_elems = first_filtering_element(C, A, Q, R, m0, P0, observations[0])
+    generic_elems = vmap(lambda o: generic_filtering_element(C, A, Q, R, o))(observations[1:])
+    return tuple(jnp.concatenate([jnp.expand_dims(first_e, 0), gen_es])
+                 for first_e, gen_es in zip(first_elems, generic_elems))
+
+
+@partial(vmap)
+def filtering_operator(elem1, elem2):
+    # # note the jsc everywhere
+    A1, b1, C1, J1, eta1 = elem1
+    A2, b2, C2, J2, eta2 = elem2
+    dim = A1.shape[0]
+    I = jnp.eye(dim)  # note the jnp
+
+    I_C1J2 = I + C1 @ J2
+    temp = jsc.linalg.solve(I_C1J2.T, A2.T).T
+    A = temp @ A1
+    b = temp @ (b1 + C1 @ eta2) + b2
+    C = temp @ C1 @ A2.T + C2
+
+    I_J2C1 = I + J2 @ C1
+    temp = jsc.linalg.solve(I_J2C1.T, A1).T
+
+    eta = temp @ (eta2 - J2 @ b1) + eta1
+    J = temp @ J2 @ A1 + J1
+
+    return A, b, C, J, eta
+
+
+def pkf(y, m0, cov0, A, Q, C, R):
+    initial_elements = make_associative_filtering_elements(C, A, Q, R, m0, cov0, y)
+    final_elements = associative_scan(filtering_operator, initial_elements)
+    return final_elements
+
+
+pkf_func = jit(pkf)
+
+
+def get_kalman_means(A_scan, b_scan, m0):
+    """
+    Computes the Kalman mean at a single timepoint, the result is:
+    A_scan @ m0 + b_scan
+
+    Returned shape: (state_dimension, 1)
+    """
+    return A_scan @ jnp.expand_dims(m0, axis=1) + jnp.expand_dims(b_scan, axis=1)
+
+
+def get_kalman_variances(C):
+    return C
+
+
+def get_next_cov(A, C, Q, R, filter_cov, filter_mean):
+    """
+    Given the moments of p(x_t | y_1, ..., y_t) (normal filter distribution), compute the moments of the distribution for:
+    p(y_{t+1} | y_1, ..., y_t)
+
+    Params:
+        A (np.ndarray): Shape (state_dimension, state_dimension) Process coeff matrix
+        C (np.ndarray): Shape (obs_dimension, state_dimension) Observation coeff matrix
+        Q (np.ndarray): Shape (state_dimension, state_dimension). Process noise covariance matrix.
+        R (np.ndarray): Shape (obs_dimension, obs_dimension). Observation noise covariance matrix.
+        filter_cov (np.ndarray). Shape (state_dimension, state_dimension). Filtered covariance
+        filter_mean (np.ndarray). Shape (state_dimension, 1). Filter mean
+
+    Returns:
+        mean (np.ndarray). Shape (obs_dimension, 1)
+        cov (np.ndarray). Shape (obs_dimension, obs_dimension).
+    """
+    mean = C @ A @ filter_mean
+    cov = C @ (A @ filter_cov @ A.T + Q) @ C.T + R
+    return mean, cov
+
+
+def compute_marginal_nll(value, mean, covariance):
+    return -1 * jax.scipy.stats.multivariate_normal.logpdf(value, mean, covariance)
+
+
+def parallel_loss_single(A_scan, b_scan, C_scan, A, C, Q, R, next_observation, m0):
+    curr_mean = get_kalman_means(A_scan, b_scan, m0)
+    curr_cov = get_kalman_variances(C_scan)  # Placeholder; just returns identity
+
+    next_mean, next_cov = get_next_cov(A, C, Q, R, curr_cov, curr_mean)
+    return jnp.squeeze(curr_mean), curr_cov, compute_marginal_nll(jnp.squeeze(next_observation),
+                                                                  jnp.squeeze(next_mean), next_cov)
+
+
+parallel_loss_func_vmap = jit(
+    vmap(parallel_loss_single, in_axes=(0, 0, 0, None, None, None, None, 0, None),
+         out_axes=(0, 0, 0)))
+
+
+@partial(jit)
+def y1_given_x0_nll(C, A, Q, R, m0, cov0, obs):
+    y1_predictive_mean = C @ A @ jnp.expand_dims(m0, axis=1)
+    y1_predictive_cov = C @ (A @ cov0 @ A.T + Q) @ C.T + R
+    addend = -1 * jax.scipy.stats.multivariate_normal.logpdf(obs, jnp.squeeze(y1_predictive_mean),
+                                                             y1_predictive_cov)
+    return addend
+
+
+def pkf_and_loss(y, m0, cov0, A, Q, C, R):
+    A_scan, b_scan, C_scan, _, _ = pkf_func(y, m0, cov0, A, Q, C, R)
+
+    # Gives us the NLL for p(y_i | y_1, ..., y_{i-1}) for i > 1. Need to use the parallel scan outputs for this. i = 1 handled below
+    filtered_states, filtered_covariances, losses = parallel_loss_func_vmap(A_scan[:-1],
+                                                                            b_scan[:-1],
+                                                                            C_scan[:-1], A, C, Q,
+                                                                            R, y[1:], m0)
+
+    # Gives us the NLL for p_y(y_1 | x_0)
+    addend = y1_given_x0_nll(C, A, Q, R, m0, cov0, y[0])
+
+    final_mean = get_kalman_means(A_scan[-1], b_scan[-1], m0).T
+    final_covariance = jnp.expand_dims(get_kalman_variances(C_scan[-1]), axis=0)
+    filtered_states = jnp.concatenate([filtered_states, final_mean], axis=0)
+    filtered_variances = jnp.concatenate([filtered_covariances, final_covariance], axis=0)
+    return filtered_states, filtered_variances, jnp.sum(losses) + addend
+
+
+def kalman_filter_step(carry, curr_y):
+    m_prev, V_prev, A, Q, C, R, nll_net = carry
+
+    # Predict
+    m_pred = jnp.dot(A, m_prev)
+    V_pred = jnp.dot(A, jnp.dot(V_prev, A.T)) + Q
+
+    # Update
+    innovation = curr_y - jnp.dot(C, m_pred)
+    innovation_cov = jnp.dot(C, jnp.dot(V_pred, C.T)) + R
+    K = jnp.dot(V_pred, jnp.dot(C.T, jnp.linalg.inv(innovation_cov)))
+    m_t = m_pred + jnp.dot(K, innovation)
+    V_t = V_pred - jnp.dot(K, jnp.dot(C, V_pred))
+
+    nll_current = single_timestep_nll(innovation, innovation_cov)
+    nll_net = nll_net + nll_current
+
+    return (m_t, V_t, A, Q, C, R, nll_net), (m_t, V_t, nll_current)
+
+
+# Always run the sequential filter on CPU because the GPU will deploy individual kernels for each scan iteration, very slow.
+@partial(jit, backend='cpu')
+def jax_forward_pass(y, m0, cov0, A, Q, C, R):
+    """
+    Kalman Filter for a single keypoint (can be vectorized using vmap for handling multiple keypoints in parallel)
+    Parameters:
+        y (np.ndarray): Shape (num_timepoints, observation_dimension).
+        m0 (np.ndarray): Shape (state_dimension,). Initial state of system.
+        cov0 (np.ndarray): Shape (state_dimension, state_dimension). Initial covariance of state variable.
+        A (np.ndarray): Shape (state_dimension, state_dimension). Process transition matrix.
+        Q (np.ndarray): Shape (state_dimension, state_dimension). Process noise covariance matrix.
+        C (np.ndarray): Shape (observation_dimension, state_dimension). Observation coefficient matrix.
+        R (np.ndarray): Shape (observation_dimension, observation_dimension). Observation noise covariance matrix.
+
+    Returns:
+        mfs (np.ndarray): Shape (num_timepoints, state_dimension). Mean filter state at each timepoint.
+        Vfs (np.ndarray): Shape (num_timepoints, state_dimension, state_dimension). Covariance for each filtered state estimate.
+        nll_net (np.ndarray): Shape (1,). Negative log likelihood observations -log (p(y_1, ..., y_T)) where T is total number of timepoints.
+    """
     # Initialize carry
-    carry = (y, m0, S0, A, Q, C, R)
-
-    def kalman_filter_step(carry, t):
-        y, m_prev, V_prev, A, Q, C, R = carry
-
-        # Predict
-        m_pred = jnp.dot(A, m_prev)
-        V_pred = jnp.dot(A, jnp.dot(V_prev, A.T)) + Q
-
-        # Update
-        innovation = y[t] - jnp.dot(C, m_pred)
-        innovation_cov = jnp.dot(C, jnp.dot(V_pred, C.T)) + R
-        K = jnp.dot(V_pred, jnp.dot(C.T, jnp.linalg.inv(innovation_cov)))
-        m_t = m_pred + jnp.dot(K, innovation)
-        V_t = V_pred - jnp.dot(K, jnp.dot(C, V_pred))
-        S_t = V_pred
-
-        return (y, m_t, V_t, A, Q, C, R), (m_t, V_t, S_t, innovation, innovation_cov)
-
-    carry, outputs = jax.lax.scan(kalman_filter_step, carry, jnp.arange(T))
-    mfs, Vfs, Ss, innovations, innovation_covs = outputs
-    return mfs, Vfs, Ss, innovations, innovation_covs
+    carry = (m0, cov0, A, Q, C, R, 0)
+    carry, outputs = jax.lax.scan(kalman_filter_step, carry, y)
+    mfs, Vfs, _ = outputs
+    nll_net = carry[-1]
+    return mfs, Vfs, nll_net
 
 
-def jax_backward_pass(mfs, Vfs, Ss, A):
-    T = mfs.shape[0]
-    # Initialize carry with the last values and A
-    carry = (mfs[-1], Vfs[-1])
+def kalman_smoother_step(carry, X):
+    m_ahead_smooth, v_ahead_smooth, A, Q = carry
+    m_curr_filter, v_curr_filter = X[0], X[1]
 
-    def kalman_smoother_step(carry, t):
-        m_next, V_next = carry
-        mf_t = mfs[t]
-        Vf_t = Vfs[t]
-        S_t = Ss[t]
+    # Compute the smoother gain
+    ahead_predict = jnp.dot(A, m_curr_filter)
+    ahead_cov = jnp.dot(A, jnp.dot(v_curr_filter, A.T)) + Q
 
-        # Compute the smoother gain
-        S_t_inv = jnp.linalg.inv(S_t)
-        J = jnp.dot(Vf_t, jnp.dot(A.T, S_t_inv))
+    smoothing_gain = jsc.linalg.solve(ahead_cov, jnp.dot(A, v_curr_filter.T)).T
+    smoothed_state = m_curr_filter + jnp.dot(smoothing_gain, m_ahead_smooth - m_curr_filter)
+    smoothed_cov = v_curr_filter + jnp.dot(jnp.dot(smoothing_gain, m_ahead_smooth - ahead_cov),
+                                           smoothing_gain.T)
 
-        # Update the smoothed state and covariance
-        m_smooth = mf_t + jnp.dot(J, (m_next - jnp.dot(A, mf_t)))
-        V_smooth = Vf_t + jnp.dot(J, jnp.dot(V_next - S_t, J.T))
+    return (smoothed_state, smoothed_cov, A, Q), (smoothed_state, smoothed_cov)
 
-        return (m_smooth, V_smooth), (m_smooth, V_smooth)
+
+@partial(jit, backend='cpu')
+def jax_backward_pass(mfs, Vfs, A, Q):
+    """
+    Runs the kalman smoother given the filtered values
+    Parameters:
+        mfs (np.ndarray). Shape (num_timepoints, state_dimension). The kalman-filtered means of the data.
+        Vfs (np.ndarray). Shape (num_timepoints, state_dimension, state_dimension). The kalman-filtered covariance matrix of the state vector at each time point.
+        A (np.ndarray). Shape (state_dimension, state_dimension). The process transition matrix
+        Q (np.ndarray). Shape (state_dimension, state_dimension). The covariance of the process noise.
+    Returns:
+        smoothed_states (np.ndarray): Shape (num_timepoints, state_dimension). The smoothed estimates for the state vector starting at the first timepoint where observations are possible.
+        smoothed_state_covariances (np.ndarray): Shape (num_timepoints, state_dimension, state_dimension).
+    """
+    carry = (mfs[-1], Vfs[-1], A, Q)
 
     # Reverse scan over the time steps
-    _, outputs = jax.lax.scan(
+    carry, outputs = jax.lax.scan(
         kalman_smoother_step,
         carry,
-        jnp.arange(T - 2, -1, -1)  # Reverse order to ensure proper time sequence
+        [mfs[:-1], Vfs[:-1]],
+        reverse=True
     )
 
-    ms, Vs = outputs
+    smoothed_states, smoothed_state_covariances = outputs
+    smoothed_states = jnp.append(smoothed_states, jnp.expand_dims(mfs[-1], 0), 0)
+    smoothed_state_covariances = jnp.append(smoothed_state_covariances,
+                                            jnp.expand_dims(Vfs[-1], 0), 0)
+    return smoothed_states, smoothed_state_covariances
 
-    # Include the initial state in the outputs
-    ms = jnp.concatenate([ms[::-1], mfs[-1][None]], axis=0)
-    Vs = jnp.concatenate([Vs[::-1], Vfs[-1][None]], axis=0)
-    return ms, Vs
+
+def single_timestep_nll(innovation, innovation_cov):
+    epsilon = 1e-6
+    n_coords = innovation.shape[0]
+
+    # Regularize the innovation covariance matrix by adding epsilon to the diagonal
+    reg_innovation_cov = innovation_cov + epsilon * jnp.eye(n_coords)
+
+    # Compute the log determinant of the regularized covariance matrix
+    log_det_S = jnp.log(jnp.abs(jnp.linalg.det(reg_innovation_cov)) + epsilon)
+    solved_term = jnp.linalg.solve(reg_innovation_cov, innovation)
+    quadratic_term = jnp.dot(innovation, solved_term)
+
+    # Compute the NLL increment for the current time step
+    c = jnp.log(2 * jnp.pi) * n_coords  # The Gaussian normalization constant part
+    nll_increment = 0.5 * jnp.abs(log_det_S + quadratic_term + c)
+    return nll_increment
 
 
-def jax_compute_nll(innovations, innovation_covs, epsilon=1e-6):
+single_timestep_nll_vmap = vmap(single_timestep_nll, in_axes=(0, 0))
+
+
+@partial(jit)
+def jax_compute_nll(innovations, innovation_covs):
     """
     Computes the negative log likelihood (NLL) for the EKS prediction in a parallelized manner using JAX.
+    Args:
+
     """
-
-    def single_timestep_nll(innovation, innovation_cov):
-        n_coords = innovation.shape[0]
-
-        # Regularize the innovation covariance matrix by adding epsilon to the diagonal
-        reg_innovation_cov = innovation_cov + epsilon * jnp.eye(n_coords)
-
-        # Compute the log determinant of the regularized covariance matrix
-        log_det_S = jnp.log(jnp.abs(jnp.linalg.det(reg_innovation_cov)) + epsilon)
-        solved_term = jnp.linalg.solve(reg_innovation_cov, innovation)
-        quadratic_term = jnp.dot(innovation, solved_term)
-
-        # Compute the NLL increment for the current time step
-        c = jnp.log(2 * jnp.pi) * n_coords  # The Gaussian normalization constant part
-        nll_increment = 0.5 * jnp.abs(log_det_S + quadratic_term + c)
-        return nll_increment
-
     # Apply the single_timestep_nll function across all time steps using vmap
-    nll_values = jax.vmap(single_timestep_nll)(innovations, innovation_covs)
+    nll_values = single_timestep_nll_vmap(innovations, innovation_covs)
 
     # Sum all the NLL increments to get the total NLL
     nll = jnp.sum(nll_values)
