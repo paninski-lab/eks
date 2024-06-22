@@ -4,10 +4,11 @@ import jax
 from jax import jit, vmap
 from functools import partial
 import jax.numpy as jnp
+from jax.lax import associative_scan, psum, scan
 import optax
 from eks.utils import make_dlc_pandas_index, crop_frames
 from eks.core import eks_zscore, jax_ensemble, jax_forward_pass, jax_backward_pass, \
-    compute_covariance_matrix, jax_compute_nll, compute_initial_guesses
+    compute_covariance_matrix, jax_compute_nll, compute_initial_guesses, pkf_and_loss
 from scipy.optimize import minimize
 import time
 
@@ -231,10 +232,18 @@ def singlecam_optimize_smooth(
             blocks.append([n])
     print(f'Correlated keypoint blocks: {blocks}')
 
-    # @partial(jit)
+
+    @partial(jit)
     def nll_loss(s, cov_mats, cropped_ys, m0s, S0s, Cs, As, Rs):
         s = jnp.exp(s)  # To ensure positivity
-        return singlecam_smooth_min_2(s, cov_mats, cropped_ys, m0s, S0s, Cs, As, Rs)[0]
+        return singlecam_smooth_min_2(s, cov_mats, cropped_ys, m0s, S0s, Cs, As, Rs)
+
+    # @partial(jit)
+    def nll_loss_new(s, cov_mats, cropped_ys, m0s, S0s, Cs, As, Rs):
+        s = jnp.exp(s)  # To ensure positivity
+        output = singlecam_smooth_min_parallel(s, cov_mats, cropped_ys, m0s, S0s, Cs, As, Rs)
+        return output
+
 
     # Optimize smooth_param
     if smooth_param is None:
@@ -274,6 +283,7 @@ def singlecam_optimize_smooth(
             # Optimize negative log likelihood using Optax for each block
             for block in blocks:
                 s_init = guesses[block[0]]
+                print(f"the guess is {s_init}")
                 if s_init <= 0: 
                     s_init = 2
                 s_init = jnp.log(s_init)
@@ -283,6 +293,8 @@ def singlecam_optimize_smooth(
                 selector = np.array(block).astype(int)
                 cov_mats_sub = cov_mats[selector]
                 m0s_crop = m0s[selector]
+                print(f"shape of m0s_crop is {m0s_crop.shape}")
+                print(f"m0s is {m0s}")
                 S0s_crop = S0s[selector]
                 Cs_crop = Cs[selector]
                 As_crop = As[selector]
@@ -290,12 +302,10 @@ def singlecam_optimize_smooth(
                 y_subset = cropped_ys[selector]
 
 
-                # @partial.jit
+
                 def step(s, opt_state):
-                    start_time = time.time()
-                    loss, grads = jax.value_and_grad(nll_loss)(s, cov_mats_sub, y_subset, m0s_crop,
+                    loss, grads = jax.value_and_grad(nll_loss_new)(s, cov_mats_sub, y_subset, m0s_crop,
                                                                S0s_crop, Cs_crop, As_crop, Rs_crop)
-                    print("grad took {}".format(time.time() - start_time))
                     updates, opt_state = optimizer.update(grads, opt_state)
                     s = optax.apply_updates(s, updates)
                     return s, opt_state, loss
@@ -303,13 +313,16 @@ def singlecam_optimize_smooth(
                 prev_loss = jnp.inf
                 for iteration in range(
                         maxiter):  # Reasonable number of iterations to allow convergence
+                    start_time = time.time()
                     s_init, opt_state, loss = step(s_init, opt_state)
-                    # print(f'Iteration {iteration}, Current loss: {loss}, Current s: {s_init}')
+
+                    print("grad update took {}".format(time.time() - start_time))
+                    print(f'Iteration {iteration}, Current loss: {loss}, Current s: {s_init}')
 
                     tol = 0.001 * jnp.abs(
                         jnp.log(prev_loss))  # Dynamic tolerance set to 1% of the previous smoothing parameter
                     # print(f'tol: {tol}')
-                    if jnp.linalg.norm(loss - prev_loss) < tol:
+                    if jnp.linalg.norm(loss - prev_loss) < tol + 1e-6:
                         print(
                             f'Converged at iteration {iteration} with smoothing parameter {jnp.exp(s_init)}. NLL={loss}')
                         break
@@ -403,7 +416,41 @@ def singlecam_smooth_min_2(
     """
     # Adjust Q based on smooth_param and cov_matrix
     Qs = smooth_param * cov_mats
-    return inner_smooth_min_routine_vmap(ys, m0s, S0s, As, Qs, Cs, Rs)
+    nlls = jnp.sum(inner_smooth_min_routine_vmap(ys, m0s, S0s, As, Qs, Cs, Rs))
+    return nlls
+
+def inner_smooth_min_routine_parallel(y, m0, S0, A, Q, C, R):
+    # Run filtering with the current smooth_param
+    means, covariances, NLL = pkf_and_loss(y, m0, S0, A, Q, C, R)
+    return jnp.sum(NLL)
+    
+inner_smooth_min_routine_parallel_vmap = vmap(inner_smooth_min_routine_parallel, in_axes=(0, 0, 0, 0, 0, 0, 0))
+
+
+def singlecam_smooth_min_parallel(
+        smooth_param, cov_mats, ys, m0s, S0s, Cs, As, Rs):
+    """
+    Smooths once using the given smooth_param. Returns only the nll, which is the parameter to
+    be minimized using the scipy.minimize() function.
+
+    Parameters:
+    smooth_param (float): Smoothing parameter.
+    block (list): List of blocks.
+    cov_mats (np.ndarray): Covariance matrices.
+    ys (np.ndarray): Observations.
+    m0s (np.ndarray): Initial mean state.
+    S0s (np.ndarray): Initial state covariance.
+    Cs (np.ndarray): Measurement function.
+    As (np.ndarray): State-transition matrix.
+    Rs (np.ndarray): Measurement noise covariance.
+
+    Returns:
+    float: Negative log-likelihood.
+    """
+    # Adjust Q based on smooth_param and cov_matrix
+    Qs = smooth_param * cov_mats
+    values = inner_smooth_min_routine_parallel_vmap(ys, m0s, S0s, As, Qs, Cs, Rs)
+    return jnp.sum(values)
 
 def singlecam_smooth_final(process_cov, s, ys, m0s, S0s, Cs, As, Rs):
     """
