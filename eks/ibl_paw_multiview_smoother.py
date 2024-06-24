@@ -132,9 +132,6 @@ def ensemble_kalman_smoother_ibl_paw(
         right_cam_keypoints_stack_dict = \
         ensemble(markers_list_right_cam, keys, mode=ensembling_mode)
 
-    # ensemble_stacked = np.median(markers_list_stacked_interp, 0)
-    # ensemble_stacked_vars = np.var(markers_list_stacked_interp, 0)
-
     # keep percentage of the points for multi-view PCA based lowest ensemble variance
     hstacked_vars = np.hstack((left_cam_ensemble_vars, right_cam_ensemble_vars))
     max_vars = np.max(hstacked_vars, 1)
@@ -251,9 +248,9 @@ def ensemble_kalman_smoother_ibl_paw(
 
         # diagonal: var
         S0 = np.asarray([
-            [np.var(good_z_t_obs[:, 0]), 0.0, 0.0],
-            [0.0, np.var(good_z_t_obs[:, 1]), 0.0],
-            [0.0, 0.0, np.var(good_z_t_obs[:, 2])]
+            [np.nanvar(good_z_t_obs[:, 0]), 0.0, 0.0],
+            [0.0, np.nanvar(good_z_t_obs[:, 1]), 0.0],
+            [0.0, 0.0, np.nanvar(good_z_t_obs[:, 2])]
         ])
 
         # state-transition matrix
