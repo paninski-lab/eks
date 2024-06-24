@@ -33,9 +33,9 @@ install_requires = [
     'scipy>=1.2.0',
     'tqdm',
     'typing',
-    'sleap_io'
-    'jax'
-    'jaxlib'
+    'sleap_io',
+    'jax',
+    'jaxlib',
 ]
 
 # additional requirements
