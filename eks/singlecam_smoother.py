@@ -4,12 +4,10 @@ import jax
 from jax import jit, vmap
 from functools import partial
 import jax.numpy as jnp
-from jax.lax import associative_scan, psum, scan
 import optax
 from eks.utils import make_dlc_pandas_index, crop_frames
 from eks.core import eks_zscore, jax_ensemble, jax_forward_pass, jax_backward_pass, \
-    compute_covariance_matrix, jax_compute_nll, compute_initial_guesses, pkf_and_loss
-from scipy.optimize import minimize
+    compute_covariance_matrix, compute_initial_guesses, pkf_and_loss
 import time
 
 
@@ -29,7 +27,7 @@ def ensemble_kalman_smoother_singlecam(
     zscore_threshold (float): Z-score threshold.
 
     Returns:
-    tuple: Dataframes with smoothed predictions, final smoothing parameters, negative log-likelihood values.
+    tuple: Dataframes with smoothed predictions, final smoothing parameters, NLL values.
     """
 
     T = markers_3d_array.shape[1]
@@ -107,7 +105,7 @@ def adjust_observations(keypoints_avg_dict, n_keypoints, scaled_ensemble_preds):
     scaled_ensemble_preds (np.ndarray): Scaled ensemble predictions.
 
     Returns:
-    tuple: Mean observations dictionary, adjusted observations dictionary, scaled ensemble predictions.
+    tuple: Mean observations dictionary, adjusted observations dictionary, scaled ensemble preds.
     """
 
     # Convert dictionaries to JAX arrays
@@ -216,7 +214,8 @@ def singlecam_optimize_smooth(
     blocks (list): List of blocks.
 
     Returns:
-    tuple: Final smoothing parameters, smoothed means, smoothed covariances, negative log-likelihoods, negative log-likelihood values.
+    tuple: Final smoothing parameters, smoothed means, smoothed covariances,
+    negative log-likelihoods, negative log-likelihood values.
     """
 
     n_keypoints = ys.shape[0]
@@ -226,7 +225,7 @@ def singlecam_optimize_smooth(
             blocks.append([n])
     print(f'Correlated keypoint blocks: {blocks}')
 
-    # Depending on whether we use GPU, we optimize the smoothing param using parallel or sequential kalman filter algorithms in JAX
+    # Depending on whether we use GPU, choose parallel or sequential smoothing param optimization
     try:
         _ = jax.device_put(jax.numpy.ones(1), device=jax.devices('gpu')[0])
         print("Using GPU")
@@ -299,7 +298,8 @@ def singlecam_optimize_smooth(
                 tol = 0.001 * jnp.abs(jnp.log(prev_loss))
                 if jnp.linalg.norm(loss - prev_loss) < tol + 1e-6:
                     print(
-                        f'Converged at iteration {iteration} with smoothing parameter {jnp.exp(s_init)}. NLL={loss}')
+                        f'Converged at iteration {iteration} with '
+                        f'smoothing parameter {jnp.exp(s_init)}. NLL={loss}')
                     break
 
                 prev_loss = loss
@@ -319,7 +319,7 @@ def singlecam_optimize_smooth(
 
 
 ######
-## Routines that use the sequential kalman filter implementation to arrive at the negative log likelihood function
+## Routines that use the sequential kalman filter implementation to arrive at the NLL function
 ## Note: this code is set up to always run on CPU.
 ######
 
@@ -368,10 +368,10 @@ inner_smooth_min_routine_parallel_vmap = jit(
     vmap(inner_smooth_min_routine_parallel, in_axes=(0, 0, 0, 0, 0, 0, 0)))
 
 
-######
-## Routines that use the parallel scan kalman filter implementation to arrive at the negative log likelihood function.
-## Note: This should only be run on GPUs
-######
+# ------------------------------------------------------------------------------------------------
+# Routines that use the parallel scan kalman filter implementation to arrive at the NLL function.
+# Note: This should only be run on GPUs
+# ------------------------------------------------------------------------------------------------
 
 
 def singlecam_smooth_min_parallel(
@@ -379,7 +379,8 @@ def singlecam_smooth_min_parallel(
     """
     Computes the maximum likelihood estimator for the process noise variance (smoothness param).
     This function is parallelized to process all keypoints in a given block.
-    KEY: This function uses the parallel scan algorithm, which has effectively O(log(n)) runtime on GPUs. On CPUs, it is slower than the jax.lax.scan implementation above because.
+    KEY: This function uses the parallel scan algorithm, which has effectively O(log(n))
+    runtime on GPUs. On CPUs, it is slower than the jax.lax.scan implementation above.
 
     Parameters:
     smooth_param (float): Smoothing parameter.
@@ -407,18 +408,19 @@ def final_forwards_backwards_pass(process_cov, s, ys, m0s, S0s, Cs, As, Rs):
     Perform final smoothing with the optimized smoothing parameters.
 
     Parameters:
-        process_cov (np.ndarray): Shape (num_keypoints, num_state_coordinates, num_state_coordinates). Process noise covariance matrix
-        s (np.ndarray): Shape (num_keypoints,). We scale the process noise covariance by this value at each keypoint. 
-        ys (np.ndarray): Shape (num_keypoints, num_frames, num_observation_coordinates). Observations for all keypoints.
-        m0s (np.ndarray): Shape (num_keypoints, num_state_coordinates). Initial ensembled mean state for each keypoint.
-        S0s (np.ndarray): Shape (num_keypoints, num_state_coordinates, num_state_coordinates). Initial ensembled state covariance for each keypoint. 
-        Cs (np.ndarray): Shape (num_keypoints, num_observation_coordinates, num_state_coordinates). Observation measurement coefficient matrix.
-        As (np.ndarray): Shape (num_keypoints, num_state_coordinates, num_state_coordinates). Process matrix for each keypoint.
-        Rs (np.ndarray): Shape (num_keypoints, num_observation_coordinates, num_observation_coordinates). Measurement noise covariance.
+        process_cov: Shape (keypoints, state_coords, state_coords). Process noise covariance matrix
+        s: Shape (keypoints,). We scale the process noise covariance by this value at each keypoint
+        ys: Shape (keypoints, frames, observation_coordinates). Observations for all keypoints.
+        m0s: Shape (keypoints, state_coords). Initial ensembled mean state for each keypoint.
+        S0s: Shape (keypoints, state_coords, state_coords). Initial ensembled state covars fek.
+        Cs: Shape (keypoints, obs_coords, state_coords). Observation measurement coeff matrix.
+        As: Shape (keypoints, state_coords, state_coords). Process matrix for each keypoint.
+        Rs: Shape (keypoints, obs_coords, obs_coords). Measurement noise covariance.
 
     Returns:
-        smoothed means (np.ndarray): Shape (num_keypoints, num_timepoints, num_coordinates). Kalman smoother state estimates outputs for all frames/all keypoints.
-        smoothed covariances (np.ndarray): Shape (num_keypoints, num_state_coordinates, num_state_coordinates)
+        smoothed means: Shape (keypoints, timepoints, coords).
+            Kalman smoother state estimates outputs for all frames/all keypoints.
+        smoothed covariances: Shape (num_keypoints, num_state_coordinates, num_state_coordinates)
     """
 
     # Initialize

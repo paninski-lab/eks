@@ -15,11 +15,19 @@ save_filename = args.save_filename
 bodypart_list = args.bodypart_list
 s = args.s  # defaults to automatic optimization
 s_frames = args.s_frames  # frames to be used for automatic optimization (only if no --s flag)
+blocks = args.blocks
+use_optax = False
+if args.optax == "True":
+    use_optax = True
+    print("Using Optax for gradient-based smoothing parameter auto-tuning.")
 camera_names = args.camera_names
 quantile_keep_pca = args.quantile_keep_pca
 
 # Load and format input files and prepare an empty DataFrame for output.
-input_dfs_list, output_df, _ = format_data(input_dir, data_type)
+input_dfs_list, output_df, keypoint_names = format_data(input_dir, data_type)
+if bodypart_list is None:
+    bodypart_list = keypoint_names
+print(f'Input data has been read in for the following keypoints:\n{bodypart_list}')
 
 # loop over keypoints; apply eks to each individually
 # Note: all camera views must be stored in the same csv file

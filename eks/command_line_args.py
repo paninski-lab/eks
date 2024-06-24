@@ -21,6 +21,7 @@ def handle_io(input_dir, save_dir):
         os.makedirs(save_dir, exist_ok=True)
     return save_dir
 
+
 # Handles extraction of arguments from command-line flags
 def handle_parse_args(script_type):
     parser = argparse.ArgumentParser()

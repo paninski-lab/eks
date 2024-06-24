@@ -1,11 +1,16 @@
 import jax
 import numpy as np
 from jax import numpy as jnp
-from matplotlib import pyplot as plt
 from jax import jit, vmap
 import jax.scipy as jsc
 from functools import partial
-from jax.lax import associative_scan, psum, scan
+from jax.lax import associative_scan
+
+# ------------------------------------------------------------------------------------------
+# Original Core Functions: These functions are still in use for the multicam and IBL scripts
+# as of this update, but will eventually be replaced the with faster versions used in
+# the singlecam script
+# ------------------------------------------------------------------------------------------
 
 
 def ensemble(markers_list, keys, mode='median'):
@@ -190,33 +195,39 @@ def kalman_dot(innovation, V, C, R):
     return Ks, innovation_cov
 
 
-def eks_zscore(eks_predictions, ensemble_means, ensemble_vars, min_ensemble_std=2):
-    """Computes zscore between eks prediction and the ensemble for a single keypoint.
-    Args:
-        eks_predictions: list
-            EKS prediction for each coordinate (x and ys) for as single keypoint - (samples, 2)
-        ensemble_means: list
-            Ensemble mean for each coordinate (x and ys) for as single keypoint - (samples, 2)
-        ensemble_vars: string
-            Ensemble var for each coordinate (x and ys) for as single keypoint - (samples, 2)
-        min_ensemble_std:
-            Minimum std threshold to reduce the effect of low ensemble std (default 2).
-    Returns:
-        z_score
-            z_score for each time point - (samples, 1)
+def compute_nll(innovations, innovation_covs, epsilon=1e-6):
     """
-    ensemble_std = np.sqrt(
-        # trace of covariance matrix - multi-d variance measure
-        ensemble_vars[:, 0] + ensemble_vars[:, 1])
-    num = np.sqrt(
-        (eks_predictions[:, 0]
-         - ensemble_means[:, 0]) ** 2
-        + (eks_predictions[:, 1] - ensemble_means[:, 1]) ** 2)
-    thresh_ensemble_std = ensemble_std.copy()
-    thresh_ensemble_std[thresh_ensemble_std < min_ensemble_std] = min_ensemble_std
-    z_score = num / thresh_ensemble_std
-    return z_score
+    Computes the negative log likelihood, which is a likelihood measurement for the
+    EKS prediction. This metric is used (minimized) to optimize s.
+    """
+    T = innovations.shape[0]
+    n_coords = innovations.shape[1]
+    nll = 0
+    nll_values = []
+    c = np.log(2 * np.pi) * n_coords  # The Gaussian normalization constant part
+    for t in range(T):
+        if not np.any(np.isnan(innovations[t])):  # Check if any value in innovations[t] is not NaN
+            # Regularize the innovation covariance matrix by adding epsilon to the diagonal
+            reg_innovation_cov = innovation_covs[t] + epsilon * np.eye(n_coords)
 
+            # Compute the log determinant of the regularized covariance matrix
+            log_det_S = np.log(np.abs(np.linalg.det(reg_innovation_cov)) + epsilon)
+            solved_term = np.linalg.solve(reg_innovation_cov, innovations[t])
+            quadratic_term = np.dot(innovations[t], solved_term)
+
+            # Compute the NLL increment for time step t
+            nll_increment = 0.5 * np.abs((log_det_S + quadratic_term + c))
+            nll_values.append(nll_increment)
+            nll += nll_increment
+    return nll, nll_values
+
+
+# -------------------------------------------------------------------------------------
+# Fast Core Functions: These functions are fast versions used by the singlecam script
+# and will eventually replace the Original Core Functions
+# -------------------------------------------------------------------------------------
+
+# ----- Sequential Functions for CPU -----
 
 def jax_ensemble(markers_3d_array, mode='median'):
     """
@@ -224,9 +235,11 @@ def jax_ensemble(markers_3d_array, mode='median'):
 
     Returns:
         ensemble_preds: np.ndarray
-            shape (n_timepoints, n_keypoints, n_coordinates). ensembled predictions for each keypoint for each target
+            shape (n_timepoints, n_keypoints, n_coordinates).
+            ensembled predictions for each keypoint for each target
         ensemble_vars: np.ndarray
-            shape (n_timepoints, n_keypoints, n_coordinates). ensembled variances for each keypoint for each target
+            shape (n_timepoints, n_keypoints, n_coordinates).
+            ensembled variances for each keypoint for each target
     """
     markers_3d_array = jnp.array(markers_3d_array)  # Convert to JAX array
     n_frames = markers_3d_array.shape[1]
@@ -288,112 +301,122 @@ def jax_ensemble(markers_3d_array, mode='median'):
     return ensemble_preds, ensemble_vars, keypoints_avg_dict
 
 
-def compute_covariance_matrix(ensemble_preds):
-    """
-    Compute the covariance matrix E for correlated noise dynamics.
+def kalman_filter_step(carry, curr_y):
+    m_prev, V_prev, A, Q, C, R, nll_net = carry
 
+    # Predict
+    m_pred = jnp.dot(A, m_prev)
+    V_pred = jnp.dot(A, jnp.dot(V_prev, A.T)) + Q
+
+    # Update
+    innovation = curr_y - jnp.dot(C, m_pred)
+    innovation_cov = jnp.dot(C, jnp.dot(V_pred, C.T)) + R
+    K = jnp.dot(V_pred, jnp.dot(C.T, jnp.linalg.inv(innovation_cov)))
+    m_t = m_pred + jnp.dot(K, innovation)
+    V_t = V_pred - jnp.dot(K, jnp.dot(C, V_pred))
+
+    nll_current = single_timestep_nll(innovation, innovation_cov)
+    nll_net = nll_net + nll_current
+
+    return (m_t, V_t, A, Q, C, R, nll_net), (m_t, V_t, nll_current)
+
+
+# Always run the sequential filter on CPU.
+# GPU will deploy individual kernels for each scan iteration, very slow.
+@partial(jit, backend='cpu')
+def jax_forward_pass(y, m0, cov0, A, Q, C, R):
+    """
+    Kalman Filter for a single keypoint
+    (can be vectorized using vmap for handling multiple keypoints in parallel)
     Parameters:
-    ensemble_preds: A 3D array of shape (T, n_keypoints, n_coords)
-                          containing the ensemble predictions.
+        y: Shape (num_timepoints, observation_dimension).
+        m0: Shape (state_dim,). Initial state of system.
+        cov0: Shape (state_dim, state_dim). Initial covariance of state variable.
+        A: Shape (state_dim, state_dim). Process transition matrix.
+        Q: Shape (state_dim, state_dim). Process noise covariance matrix.
+        C: Shape (observation_dim, state_dim). Observation coefficient matrix.
+        R: Shape (observation_dim, observation_dim). Observation noise covar matrix.
 
     Returns:
-    E: A 2K x 2K covariance matrix where K is the number of keypoints.
+        mfs: Shape (timepoints, state_dim). Mean filter state at each timepoint.
+        Vfs: Shape (timepoints, state_dim, state_dim). Covar for each filtered estimate.
+        nll_net: Shape (1,). Negative log likelihood observations -log (p(y_1, ..., y_T))
     """
-    # Get the number of time steps, keypoints, and coordinates
-    T, n_keypoints, n_coords = ensemble_preds.shape
-
-    # Flatten the ensemble predictions to shape (T, 2K) where K is the number of keypoints
-    flattened_preds = ensemble_preds.reshape(T, -1)
-
-    # Compute the temporal differences
-    temporal_diffs = np.diff(flattened_preds, axis=0)
-
-    # Compute the covariance matrix of the temporal differences
-    E = np.cov(temporal_diffs, rowvar=False)
-    '''
-    plt.imshow(E, cmap='coolwarm', interpolation='nearest', vmin=-100, vmax=100)
-    plt.colorbar()  # Show a colorbar on the side
-    plt.title('Heatmap of 16x16 Matrix')
-    plt.xlabel('X-axis')
-    plt.ylabel('Y-axis')
-    plt.show()
-    '''
-    # Index covariance matrix into blocks for each keypoint
-    cov_mats = []
-    for i in range(n_keypoints):
-        # E_block = extract_submatrix(E, i)
-        E_block = [[1, 0], [0, 1]]
-        cov_mats.append(E_block)
-    cov_mats = jnp.array(cov_mats)
-    return cov_mats
+    # Initialize carry
+    carry = (m0, cov0, A, Q, C, R, 0)
+    carry, outputs = jax.lax.scan(kalman_filter_step, carry, y)
+    mfs, Vfs, _ = outputs
+    nll_net = carry[-1]
+    return mfs, Vfs, nll_net
 
 
-def extract_submatrix(Qs, i, submatrix_size=2):
-    # Compute the start indices for the submatrix
-    i_q = 2 * i
-    start_indices = (i_q, i_q)
+def kalman_smoother_step(carry, X):
+    m_ahead_smooth, v_ahead_smooth, A, Q = carry
+    m_curr_filter, v_curr_filter = X[0], X[1]
 
-    # Use jax.lax.dynamic_slice to extract the submatrix
-    submatrix = jax.lax.dynamic_slice(Qs, start_indices, (submatrix_size, submatrix_size))
+    # Compute the smoother gain
+    ahead_cov = jnp.dot(A, jnp.dot(v_curr_filter, A.T)) + Q
 
-    return submatrix
+    smoothing_gain = jsc.linalg.solve(ahead_cov, jnp.dot(A, v_curr_filter.T)).T
+    smoothed_state = m_curr_filter + jnp.dot(smoothing_gain, m_ahead_smooth - m_curr_filter)
+    smoothed_cov = v_curr_filter + jnp.dot(jnp.dot(smoothing_gain, m_ahead_smooth - ahead_cov),
+                                           smoothing_gain.T)
+
+    return (smoothed_state, smoothed_cov, A, Q), (smoothed_state, smoothed_cov)
 
 
-def compute_nll(innovations, innovation_covs, epsilon=1e-6):
+@partial(jit, backend='cpu')
+def jax_backward_pass(mfs, Vfs, A, Q):
     """
-    Computes the negative log likelihood, which is a likelihood measurement for the
-    EKS prediction. This metric is used (minimized) to optimize s.
+    Runs the kalman smoother given the filtered values
+    Parameters:
+        mfs: Shape (timepoints, state_dim). The kalman-filtered means of the data.
+        Vfs: Shape (timepoints, state_dim, state_dimension).
+            The kalman-filtered covariance matrix of the state vector at each time point.
+        A: Shape (state_dim, state_dim). The process transition matrix
+        Q: Shape (state_dim, state_dim). The covariance of the process noise.
+    Returns:
+        smoothed_states: Shape (timepoints, state_dim).
+            The smoothed estimates for the state vector starting at the first timepoint
+            where observations are possible.
+        smoothed_state_covariances: Shape (timepoints, state_dim, state_dim).
     """
-    T = innovations.shape[0]
-    n_coords = innovations.shape[1]
-    nll = 0
-    nll_values = []
-    c = np.log(2 * np.pi) * n_coords  # The Gaussian normalization constant part
-    for t in range(T):
-        if not np.any(np.isnan(innovations[t])):  # Check if any value in innovations[t] is not NaN
-            # Regularize the innovation covariance matrix by adding epsilon to the diagonal
-            reg_innovation_cov = innovation_covs[t] + epsilon * np.eye(n_coords)
+    carry = (mfs[-1], Vfs[-1], A, Q)
 
-            # Compute the log determinant of the regularized covariance matrix
-            log_det_S = np.log(np.abs(np.linalg.det(reg_innovation_cov)) + epsilon)
-            solved_term = np.linalg.solve(reg_innovation_cov, innovations[t])
-            quadratic_term = np.dot(innovations[t], solved_term)
+    # Reverse scan over the time steps
+    carry, outputs = jax.lax.scan(
+        kalman_smoother_step,
+        carry,
+        [mfs[:-1], Vfs[:-1]],
+        reverse=True
+    )
 
-            # Compute the NLL increment for time step t
-            nll_increment = 0.5 * np.abs((log_det_S + quadratic_term + c))
-            nll_values.append(nll_increment)
-            nll += nll_increment
-    return nll, nll_values
+    smoothed_states, smoothed_state_covariances = outputs
+    smoothed_states = jnp.append(smoothed_states, jnp.expand_dims(mfs[-1], 0), 0)
+    smoothed_state_covariances = jnp.append(smoothed_state_covariances,
+                                            jnp.expand_dims(Vfs[-1], 0), 0)
+    return smoothed_states, smoothed_state_covariances
 
 
-def compute_initial_guesses(ensemble_vars):
-    """Computes an initial guess for optimized s, which is the stdev of temporal differences."""
-    # Consider only the first 2000 entries in ensemble_vars
-    ensemble_vars = ensemble_vars[:2000]
+def single_timestep_nll(innovation, innovation_cov):
+    epsilon = 1e-6
+    n_coords = innovation.shape[0]
 
-    # Compute ensemble mean
-    ensemble_mean = np.nanmean(ensemble_vars, axis=0)
-    if ensemble_mean is None:
-        raise ValueError("No data found. Unable to compute ensemble mean.")
+    # Regularize the innovation covariance matrix by adding epsilon to the diagonal
+    reg_innovation_cov = innovation_cov + epsilon * jnp.eye(n_coords)
 
-    # Initialize list to store temporal differences
-    temporal_diffs_list = []
+    # Compute the log determinant of the regularized covariance matrix
+    log_det_S = jnp.log(jnp.abs(jnp.linalg.det(reg_innovation_cov)) + epsilon)
+    solved_term = jnp.linalg.solve(reg_innovation_cov, innovation)
+    quadratic_term = jnp.dot(innovation, solved_term)
 
-    # Iterate over each time step
-    for i in range(1, len(ensemble_mean)):
-        # Compute temporal difference for current time step
-        temporal_diff = ensemble_mean - ensemble_vars[i]
-        temporal_diffs_list.append(temporal_diff)
-
-    # Compute standard deviation of temporal differences
-    std_dev_guess = round(np.std(temporal_diffs_list), 5)
-    return std_dev_guess
+    # Compute the NLL increment for the current time step
+    c = jnp.log(2 * jnp.pi) * n_coords  # The Gaussian normalization constant part
+    nll_increment = 0.5 * jnp.abs(log_det_S + quadratic_term + c)
+    return nll_increment
 
 
-# --------------------------------------------------------------------
-# JAX functions (will rename once other scripts all use these funcs)
-# --------------------------------------------------------------------
-
+# ----- Parallel Functions for GPU -----
 
 def first_filtering_element(C, A, Q, R, m0, P0, y):
     # model.F = A, model.H = C,
@@ -442,15 +465,15 @@ def filtering_operator(elem1, elem2):
     A1, b1, C1, J1, eta1 = elem1
     A2, b2, C2, J2, eta2 = elem2
     dim = A1.shape[0]
-    I = jnp.eye(dim)  # note the jnp
+    I_var = jnp.eye(dim)  # note the jnp
 
-    I_C1J2 = I + C1 @ J2
+    I_C1J2 = I_var + C1 @ J2
     temp = jsc.linalg.solve(I_C1J2.T, A2.T).T
     A = temp @ A1
     b = temp @ (b1 + C1 @ eta2) + b2
     C = temp @ C1 @ A2.T + C2
 
-    I_J2C1 = I + J2 @ C1
+    I_J2C1 = I_var + J2 @ C1
     temp = jsc.linalg.solve(I_J2C1.T, A1).T
 
     eta = temp @ (eta2 - J2 @ b1) + eta1
@@ -484,7 +507,8 @@ def get_kalman_variances(C):
 
 def get_next_cov(A, C, Q, R, filter_cov, filter_mean):
     """
-    Given the moments of p(x_t | y_1, ..., y_t) (normal filter distribution), compute the moments of the distribution for:
+    Given the moments of p(x_t | y_1, ..., y_t) (normal filter distribution),
+    compute the moments of the distribution for:
     p(y_{t+1} | y_1, ..., y_t)
 
     Params:
@@ -534,7 +558,8 @@ def y1_given_x0_nll(C, A, Q, R, m0, cov0, obs):
 def pkf_and_loss(y, m0, cov0, A, Q, C, R):
     A_scan, b_scan, C_scan, _, _ = pkf_func(y, m0, cov0, A, Q, C, R)
 
-    # Gives us the NLL for p(y_i | y_1, ..., y_{i-1}) for i > 1. Need to use the parallel scan outputs for this. i = 1 handled below
+    # Gives us the NLL for p(y_i | y_1, ..., y_{i-1}) for i > 1.
+    # Need to use the parallel scan outputs for this. i = 1 handled below
     filtered_states, filtered_covariances, losses = parallel_loss_func_vmap(A_scan[:-1],
                                                                             b_scan[:-1],
                                                                             C_scan[:-1], A, C, Q,
@@ -550,130 +575,102 @@ def pkf_and_loss(y, m0, cov0, A, Q, C, R):
     return filtered_states, filtered_variances, jnp.sum(losses) + addend
 
 
-def kalman_filter_step(carry, curr_y):
-    m_prev, V_prev, A, Q, C, R, nll_net = carry
-
-    # Predict
-    m_pred = jnp.dot(A, m_prev)
-    V_pred = jnp.dot(A, jnp.dot(V_prev, A.T)) + Q
-
-    # Update
-    innovation = curr_y - jnp.dot(C, m_pred)
-    innovation_cov = jnp.dot(C, jnp.dot(V_pred, C.T)) + R
-    K = jnp.dot(V_pred, jnp.dot(C.T, jnp.linalg.inv(innovation_cov)))
-    m_t = m_pred + jnp.dot(K, innovation)
-    V_t = V_pred - jnp.dot(K, jnp.dot(C, V_pred))
-
-    nll_current = single_timestep_nll(innovation, innovation_cov)
-    nll_net = nll_net + nll_current
-
-    return (m_t, V_t, A, Q, C, R, nll_net), (m_t, V_t, nll_current)
+# -------------------------------------------------------------------------------------
+# Misc: These miscellaneous functions generally have specific computations used by the
+# core functions or the smoothers
+# -------------------------------------------------------------------------------------
 
 
-# Always run the sequential filter on CPU because the GPU will deploy individual kernels for each scan iteration, very slow.
-@partial(jit, backend='cpu')
-def jax_forward_pass(y, m0, cov0, A, Q, C, R):
-    """
-    Kalman Filter for a single keypoint (can be vectorized using vmap for handling multiple keypoints in parallel)
-    Parameters:
-        y (np.ndarray): Shape (num_timepoints, observation_dimension).
-        m0 (np.ndarray): Shape (state_dimension,). Initial state of system.
-        cov0 (np.ndarray): Shape (state_dimension, state_dimension). Initial covariance of state variable.
-        A (np.ndarray): Shape (state_dimension, state_dimension). Process transition matrix.
-        Q (np.ndarray): Shape (state_dimension, state_dimension). Process noise covariance matrix.
-        C (np.ndarray): Shape (observation_dimension, state_dimension). Observation coefficient matrix.
-        R (np.ndarray): Shape (observation_dimension, observation_dimension). Observation noise covariance matrix.
-
-    Returns:
-        mfs (np.ndarray): Shape (num_timepoints, state_dimension). Mean filter state at each timepoint.
-        Vfs (np.ndarray): Shape (num_timepoints, state_dimension, state_dimension). Covariance for each filtered state estimate.
-        nll_net (np.ndarray): Shape (1,). Negative log likelihood observations -log (p(y_1, ..., y_T)) where T is total number of timepoints.
-    """
-    # Initialize carry
-    carry = (m0, cov0, A, Q, C, R, 0)
-    carry, outputs = jax.lax.scan(kalman_filter_step, carry, y)
-    mfs, Vfs, _ = outputs
-    nll_net = carry[-1]
-    return mfs, Vfs, nll_net
-
-
-def kalman_smoother_step(carry, X):
-    m_ahead_smooth, v_ahead_smooth, A, Q = carry
-    m_curr_filter, v_curr_filter = X[0], X[1]
-
-    # Compute the smoother gain
-    ahead_predict = jnp.dot(A, m_curr_filter)
-    ahead_cov = jnp.dot(A, jnp.dot(v_curr_filter, A.T)) + Q
-
-    smoothing_gain = jsc.linalg.solve(ahead_cov, jnp.dot(A, v_curr_filter.T)).T
-    smoothed_state = m_curr_filter + jnp.dot(smoothing_gain, m_ahead_smooth - m_curr_filter)
-    smoothed_cov = v_curr_filter + jnp.dot(jnp.dot(smoothing_gain, m_ahead_smooth - ahead_cov),
-                                           smoothing_gain.T)
-
-    return (smoothed_state, smoothed_cov, A, Q), (smoothed_state, smoothed_cov)
-
-
-@partial(jit, backend='cpu')
-def jax_backward_pass(mfs, Vfs, A, Q):
-    """
-    Runs the kalman smoother given the filtered values
-    Parameters:
-        mfs (np.ndarray). Shape (num_timepoints, state_dimension). The kalman-filtered means of the data.
-        Vfs (np.ndarray). Shape (num_timepoints, state_dimension, state_dimension). The kalman-filtered covariance matrix of the state vector at each time point.
-        A (np.ndarray). Shape (state_dimension, state_dimension). The process transition matrix
-        Q (np.ndarray). Shape (state_dimension, state_dimension). The covariance of the process noise.
-    Returns:
-        smoothed_states (np.ndarray): Shape (num_timepoints, state_dimension). The smoothed estimates for the state vector starting at the first timepoint where observations are possible.
-        smoothed_state_covariances (np.ndarray): Shape (num_timepoints, state_dimension, state_dimension).
-    """
-    carry = (mfs[-1], Vfs[-1], A, Q)
-
-    # Reverse scan over the time steps
-    carry, outputs = jax.lax.scan(
-        kalman_smoother_step,
-        carry,
-        [mfs[:-1], Vfs[:-1]],
-        reverse=True
-    )
-
-    smoothed_states, smoothed_state_covariances = outputs
-    smoothed_states = jnp.append(smoothed_states, jnp.expand_dims(mfs[-1], 0), 0)
-    smoothed_state_covariances = jnp.append(smoothed_state_covariances,
-                                            jnp.expand_dims(Vfs[-1], 0), 0)
-    return smoothed_states, smoothed_state_covariances
-
-
-def single_timestep_nll(innovation, innovation_cov):
-    epsilon = 1e-6
-    n_coords = innovation.shape[0]
-
-    # Regularize the innovation covariance matrix by adding epsilon to the diagonal
-    reg_innovation_cov = innovation_cov + epsilon * jnp.eye(n_coords)
-
-    # Compute the log determinant of the regularized covariance matrix
-    log_det_S = jnp.log(jnp.abs(jnp.linalg.det(reg_innovation_cov)) + epsilon)
-    solved_term = jnp.linalg.solve(reg_innovation_cov, innovation)
-    quadratic_term = jnp.dot(innovation, solved_term)
-
-    # Compute the NLL increment for the current time step
-    c = jnp.log(2 * jnp.pi) * n_coords  # The Gaussian normalization constant part
-    nll_increment = 0.5 * jnp.abs(log_det_S + quadratic_term + c)
-    return nll_increment
-
-
-single_timestep_nll_vmap = vmap(single_timestep_nll, in_axes=(0, 0))
-
-
-@partial(jit)
-def jax_compute_nll(innovations, innovation_covs):
-    """
-    Computes the negative log likelihood (NLL) for the EKS prediction in a parallelized manner using JAX.
+def eks_zscore(eks_predictions, ensemble_means, ensemble_vars, min_ensemble_std=2):
+    """Computes zscore between eks prediction and the ensemble for a single keypoint.
     Args:
-
+        eks_predictions: list
+            EKS prediction for each coordinate (x and ys) for as single keypoint - (samples, 2)
+        ensemble_means: list
+            Ensemble mean for each coordinate (x and ys) for as single keypoint - (samples, 2)
+        ensemble_vars: string
+            Ensemble var for each coordinate (x and ys) for as single keypoint - (samples, 2)
+        min_ensemble_std:
+            Minimum std threshold to reduce the effect of low ensemble std (default 2).
+    Returns:
+        z_score
+            z_score for each time point - (samples, 1)
     """
-    # Apply the single_timestep_nll function across all time steps using vmap
-    nll_values = single_timestep_nll_vmap(innovations, innovation_covs)
+    ensemble_std = np.sqrt(
+        # trace of covariance matrix - multi-d variance measure
+        ensemble_vars[:, 0] + ensemble_vars[:, 1])
+    num = np.sqrt(
+        (eks_predictions[:, 0]
+         - ensemble_means[:, 0]) ** 2
+        + (eks_predictions[:, 1] - ensemble_means[:, 1]) ** 2)
+    thresh_ensemble_std = ensemble_std.copy()
+    thresh_ensemble_std[thresh_ensemble_std < min_ensemble_std] = min_ensemble_std
+    z_score = num / thresh_ensemble_std
+    return z_score
 
-    # Sum all the NLL increments to get the total NLL
-    nll = jnp.sum(nll_values)
-    return nll, nll_values
+
+def compute_covariance_matrix(ensemble_preds):
+    """
+    Compute the covariance matrix E for correlated noise dynamics.
+
+    Parameters:
+    ensemble_preds: A 3D array of shape (T, n_keypoints, n_coords)
+                          containing the ensemble predictions.
+
+    Returns:
+    E: A 2K x 2K covariance matrix where K is the number of keypoints.
+    """
+    # Get the number of time steps, keypoints, and coordinates
+    T, n_keypoints, n_coords = ensemble_preds.shape
+
+    # Flatten the ensemble predictions to shape (T, 2K) where K is the number of keypoints
+    flattened_preds = ensemble_preds.reshape(T, -1)
+
+    # Compute the temporal differences
+    temporal_diffs = np.diff(flattened_preds, axis=0)
+
+    # Compute the covariance matrix of the temporal differences
+    E = np.cov(temporal_diffs, rowvar=False)
+
+    # Index covariance matrix into blocks for each keypoint
+    cov_mats = []
+    for i in range(n_keypoints):
+        E_block = extract_submatrix(E, i)
+        cov_mats.append(E_block)
+    cov_mats = jnp.array(cov_mats)
+    return cov_mats
+
+
+def extract_submatrix(Qs, i, submatrix_size=2):
+    # Compute the start indices for the submatrix
+    i_q = 2 * i
+    start_indices = (i_q, i_q)
+
+    # Use jax.lax.dynamic_slice to extract the submatrix
+    submatrix = jax.lax.dynamic_slice(Qs, start_indices, (submatrix_size, submatrix_size))
+
+    return submatrix
+
+
+def compute_initial_guesses(ensemble_vars):
+    """Computes an initial guess for optimized s, which is the stdev of temporal differences."""
+    # Consider only the first 2000 entries in ensemble_vars
+    ensemble_vars = ensemble_vars[:2000]
+
+    # Compute ensemble mean
+    ensemble_mean = np.nanmean(ensemble_vars, axis=0)
+    if ensemble_mean is None:
+        raise ValueError("No data found. Unable to compute ensemble mean.")
+
+    # Initialize list to store temporal differences
+    temporal_diffs_list = []
+
+    # Iterate over each time step
+    for i in range(1, len(ensemble_mean)):
+        # Compute temporal difference for current time step
+        temporal_diff = ensemble_mean - ensemble_vars[i]
+        temporal_diffs_list.append(temporal_diff)
+
+    # Compute standard deviation of temporal differences
+    std_dev_guess = round(np.std(temporal_diffs_list), 5)
+    return std_dev_guess
