@@ -1,10 +1,11 @@
 """Example script for single-camera datasets."""
 import os
+
 import numpy as np
 
 from eks.command_line_args import handle_io, handle_parse_args
-from eks.utils import format_data, populate_output_dataframe, plot_results
 from eks.singlecam_smoother import ensemble_kalman_smoother_singlecam
+from eks.utils import format_data, plot_results, populate_output_dataframe
 
 # Collect User-Provided Args
 smoother_type = 'singlecam'

@@ -1,18 +1,27 @@
-import numpy as np
-import pandas as pd
-import jax
-from jax import jit, vmap
-from functools import partial
-import jax.numpy as jnp
-import optax
-from eks.utils import make_dlc_pandas_index, crop_frames
-from eks.core import eks_zscore, jax_ensemble, jax_forward_pass, jax_backward_pass, \
-    compute_covariance_matrix, compute_initial_guesses, pkf_and_loss
 import time
+from functools import partial
+
+import jax
+import jax.numpy as jnp
+import numpy as np
+import optax
+import pandas as pd
+from jax import jit, vmap
+
+from eks.core import (
+    compute_covariance_matrix,
+    compute_initial_guesses,
+    eks_zscore,
+    jax_backward_pass,
+    jax_ensemble,
+    jax_forward_pass,
+    pkf_and_loss,
+)
+from eks.utils import crop_frames, make_dlc_pandas_index
 
 
 def ensemble_kalman_smoother_singlecam(
-        markers_3d_array, bodypart_list, smooth_param, s_frames, blocks=[], use_optax=False,
+        markers_3d_array, bodypart_list, smooth_param, s_frames, blocks=[],
         ensembling_mode='median',
         zscore_threshold=2):
     """
@@ -292,14 +301,14 @@ def singlecam_optimize_smooth(
                 start_time = time.time()
                 s_init, opt_state, loss = step(s_init, opt_state)
 
-                if iteration % 10 == 0 or iteration == maxiter - 1:
-                    print(f'Iteration {iteration}, Current loss: {loss}, Current s: {s_init}')
+                # if iteration % 10 == 0 or iteration == maxiter - 1:
+                #     print(f'Iteration {iteration}, Current loss: {loss}, Current s: {s_init}')
 
                 tol = 0.001 * jnp.abs(jnp.log(prev_loss))
                 if jnp.linalg.norm(loss - prev_loss) < tol + 1e-6:
-                    print(
-                        f'Converged at iteration {iteration} with '
-                        f'smoothing parameter {jnp.exp(s_init)}. NLL={loss}')
+                #    print(
+                #        f'Converged at iteration {iteration} with '
+                #        f'smoothing parameter {jnp.exp(s_init)}. NLL={loss}')
                     break
 
                 prev_loss = loss
@@ -315,7 +324,7 @@ def singlecam_optimize_smooth(
         cov_mats, s_finals,
         ys, m0s, S0s, Cs, As, Rs)
 
-    return s_finals, ms, Vs,
+    return s_finals, ms, Vs
 
 
 ######

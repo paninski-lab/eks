@@ -1,13 +1,13 @@
 """Example script for ibl-paw dataset."""
+import os
+
 import matplotlib.pyplot as plt
 import numpy as np
-import os
 import pandas as pd
 
 from eks.command_line_args import handle_io, handle_parse_args
-from eks.utils import convert_lp_dlc
 from eks.ibl_paw_multiview_smoother import ensemble_kalman_smoother_ibl_paw
-
+from eks.utils import convert_lp_dlc
 
 # Collect User-Provided Args
 smoother_type = 'paw'
@@ -95,7 +95,7 @@ else:
 
 fig, axes = plt.subplots(4, 1, figsize=(9, 6))
 
-for ax, coord in zip(axes, ['x', 'ys', 'likelihood', 'zscore']):
+for ax, coord in zip(axes, ['x', 'y', 'likelihood', 'zscore']):
     ax.set_ylabel(coord, fontsize=12)
     if coord == 'zscore':
         zscores = df_dicts[f'{view}_df'].loc[slice(*idxs),

@@ -2,8 +2,8 @@
 import os
 
 from eks.command_line_args import handle_io, handle_parse_args
-from eks.utils import format_data, populate_output_dataframe, plot_results
 from eks.multicam_smoother import ensemble_kalman_smoother_multicam
+from eks.utils import format_data, plot_results, populate_output_dataframe
 
 # Collect User-Provided Args
 smoother_type = 'multicam'
@@ -16,10 +16,6 @@ bodypart_list = args.bodypart_list
 s = args.s  # defaults to automatic optimization
 s_frames = args.s_frames  # frames to be used for automatic optimization (only if no --s flag)
 blocks = args.blocks
-use_optax = False
-if args.optax == "True":
-    use_optax = True
-    print("Using Optax for gradient-based smoothing parameter auto-tuning.")
 camera_names = args.camera_names
 quantile_keep_pca = args.quantile_keep_pca
 

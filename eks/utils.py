@@ -1,7 +1,8 @@
 import os
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 from sleap_io.io.slp import read_labels
 
 
@@ -182,6 +183,7 @@ def populate_output_dataframe(keypoint_df, keypoint_ensemble, output_df,
         src_cols = ('ensemble-kalman_tracker', f'{keypoint_ensemble}', coord)
         dst_cols = ('ensemble-kalman_tracker', f'{keypoint_ensemble}' + key_suffix, coord)
         output_df.loc[:, dst_cols] = keypoint_df.loc[:, src_cols]
+
     return output_df
 
 
@@ -231,8 +233,8 @@ def plot_results(output_df, input_dfs_list,
 
     plt.suptitle(f'EKS results for {key}, smoothing = {s_final}', fontsize=14)
     plt.tight_layout()
-
-    save_file = os.path.join(save_dir, f'{smoother_type}_s={s_final}.pdf')
+    save_file = os.path.join(save_dir,
+                             f'{smoother_type}_{key}.pdf')
     plt.savefig(save_file)
     plt.close()
     print(f'see example EKS output at {save_file}')

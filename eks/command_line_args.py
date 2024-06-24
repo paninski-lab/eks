@@ -1,5 +1,5 @@
-import os
 import argparse
+import os
 import re
 
 # -------------------------------------------------------------
@@ -66,13 +66,6 @@ def handle_parse_args(script_type):
              ' referring to keypoint indices (starting at 0)',
         default=[],
         type=parse_blocks,
-    )
-    parser.add_argument(
-        '--optax',
-        help='uses gradient based stochastic minimization if set to True, otherwise uses '
-             'Nelder-Mead',
-        default="False",
-        type=str,
     )
     if script_type == 'singlecam':
         add_bodyparts(parser)
