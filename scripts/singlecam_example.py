@@ -1,112 +1,71 @@
 """Example script for single-camera datasets."""
-
-import matplotlib.pyplot as plt
 import os
 
-from general_scripting import handle_io, handle_parse_args
-from eks.utils import format_data, populate_output_dataframe
-from eks.singleview_smoother import ensemble_kalman_smoother_single_view
+import numpy as np
 
+from eks.command_line_args import handle_io, handle_parse_args
+from eks.singlecam_smoother import ensemble_kalman_smoother_singlecam
+from eks.utils import format_data, plot_results, populate_output_dataframe
 
 # Collect User-Provided Args
 smoother_type = 'singlecam'
 args = handle_parse_args(smoother_type)
-
 input_dir = os.path.abspath(args.input_dir)
-
-# Note: LP and DLC are .csv, SLP is .slp
-data_type = args.data_type
-
-# Find save directory if specified, otherwise defaults to outputs\
-save_dir = handle_io(input_dir, args.save_dir)
+data_type = args.data_type  # Note: LP and DLC are .csv, SLP is .slp
+save_dir = handle_io(input_dir, args.save_dir)  # defaults to outputs\
 save_filename = args.save_filename
-
 bodypart_list = args.bodypart_list
-s = args.s  # optional, defaults to automatic optimization
+s = args.s  # defaults to automatic optimization
+s_frames = args.s_frames  # frames to be used for automatic optimization (only if no --s flag)
+blocks = args.blocks
+
 
 # Load and format input files and prepare an empty DataFrame for output.
-input_dfs_list, output_df = format_data(args.input_dir, data_type)
+input_dfs, output_df, keypoint_names = format_data(args.input_dir, data_type)
+if bodypart_list is None:
+    bodypart_list = keypoint_names
+print(f'Input data has been read in for the following keypoints:\n{bodypart_list}')
 
+# Convert list of DataFrames to a 3D NumPy array
+data_arrays = [df.to_numpy() for df in input_dfs]
+markers_3d_array = np.stack(data_arrays, axis=0)
 
-# ---------------------------------------------
-# Run EKS Algorithm
-# ---------------------------------------------
+# Map keypoint names to keys in input_dfs and crop markers_3d_array
+keypoint_is = {}
+keys = []
+for i, col in enumerate(input_dfs[0].columns):
+    keypoint_is[col] = i
+for part in bodypart_list:
+    keys.append(keypoint_is[part + '_x'])
+    keys.append(keypoint_is[part + '_y'])
+    keys.append(keypoint_is[part + '_likelihood'])
+key_cols = np.array(keys)
+markers_3d_array = markers_3d_array[:, :, key_cols]
 
-# loop over keypoints; apply eks to each individually
-for keypoint in bodypart_list:
-    # run eks
-    keypoint_df_dict, s_final, nll_values = ensemble_kalman_smoother_single_view(
-        input_dfs_list,
-        keypoint,
-        s,
-    )
-    keypoint_df = keypoint_df_dict[keypoint + '_df']
+# Call the smoother function
+df_dicts, s_finals = ensemble_kalman_smoother_singlecam(
+    markers_3d_array,
+    bodypart_list,
+    s,
+    s_frames,
+    blocks
+)
 
-    # put results into new dataframe
-    output_df = populate_output_dataframe(keypoint_df, keypoint, output_df)
-    output_df.to_csv('populated_output.csv', index=False)
-    print(f"DataFrame successfully converted to CSV")
-# save optimized smoothing param for plot title
-
-# save eks results
-save_filename = save_filename or f'{smoother_type}.csv'  # use type and s if no user input
-output_df.to_csv(os.path.join(save_dir, save_filename))
-
-
-# ---------------------------------------------
-# plot results
-# ---------------------------------------------
-
-# select example keypoint
-kp = bodypart_list[-1]
-idxs = (0, 1990)
-
-# crop NLL values
-# nll_values_subset = nll_values[idxs[0]:idxs[1]]
-
-fig, axes = plt.subplots(5, 1, figsize=(9, 10))
-
-for ax, coord in zip(axes, ['x', 'y', 'likelihood', 'zscore']):
-    # Rename axes label for likelihood and zscore coordinates
-    if coord == 'likelihood':
-        ylabel = 'model likelihoods'
-    elif coord == 'zscore':
-        ylabel = 'EKS disagreement'
-    else:
-        ylabel = coord
-
-    # plot individual models
-    ax.set_ylabel(ylabel, fontsize=12)
-    if coord == 'zscore':
-        ax.plot(
-            output_df.loc[slice(*idxs), ('ensemble-kalman_tracker', f'{kp}', coord)],
-            color='k', linewidth=2)
-        ax.set_xlabel('Time (frames)', fontsize=12)
-        continue
-    for m, markers_curr in enumerate(input_dfs_list):
-        ax.plot(
-            markers_curr.loc[slice(*idxs), f'{kp}_{coord}'], color=[0.5, 0.5, 0.5],
-            label='Individual models' if m == 0 else None,
-        )
-    # plot eks
-    if coord == 'likelihood':
-        continue
-    ax.plot(
-        output_df.loc[slice(*idxs), ('ensemble-kalman_tracker', f'{kp}', coord)],
-        color='k', linewidth=2, label='EKS',
-    )
-    if coord == 'x':
-        ax.legend()
-
-    # Plot nll_values_subset against the time axis
-    # axes[-1].plot(range(*idxs), nll_values_subset, color='k', linewidth=2)
-    # axes[-1].set_ylabel('EKS NLL', fontsize=12)
-
-
-plt.suptitle(f'EKS results for {kp}, smoothing = {s}', fontsize=14)
-plt.tight_layout()
-
-save_file = os.path.join(save_dir, f'singlecam_s={s}.pdf')
-plt.savefig(save_file)
-plt.close()
-print(f'see example EKS output at {save_file}')
+keypoint_i = -1  # keypoint to be plotted
+# Save eks results in new DataFrames and .csv output files
+for k in range(len(bodypart_list)):
+    df = df_dicts[k][bodypart_list[k] + '_df']
+    output_df = populate_output_dataframe(df, bodypart_list[k], output_df)
+    save_filename = save_filename or f'{smoother_type}_{s_finals[keypoint_i]}.csv'
+    output_df.to_csv(os.path.join(save_dir, save_filename))
+print("DataFrames successfully converted to CSV")
+# Plot results
+plot_results(output_df=output_df,
+             input_dfs_list=input_dfs,
+             key=f'{bodypart_list[keypoint_i]}',
+             idxs=(0, 500),
+             s_final=s_finals[keypoint_i],
+             nll_values=None,
+             save_dir=save_dir,
+             smoother_type=smoother_type
+             )

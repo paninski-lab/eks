@@ -135,3 +135,6 @@ data/ibl-pupil/outputs/
 data/mirror-mouse/outputs/
 
 *.pdf
+/eks/timing.py
+/scripts/plotting.py
+/scripts/plotting2.py

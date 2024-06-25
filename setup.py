@@ -1,6 +1,6 @@
-from setuptools import setup
 from pathlib import Path
 
+from setuptools import setup
 
 # add the README.md file to the long_description
 with open('README.md', 'r') as fh:
@@ -33,6 +33,9 @@ install_requires = [
     'scipy>=1.2.0',
     'tqdm',
     'typing',
+    'sleap_io',
+    'jax',
+    'jaxlib',
 ]
 
 # additional requirements
