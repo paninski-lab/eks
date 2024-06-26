@@ -1,14 +1,12 @@
 # EKS
 This repo contains code to run an Ensemble Kalman Smoother (EKS) for improving pose estimation outputs.
 
-The EKS uses a Kalman filter to ensemble and smooth pose estimation outputs as a post-processing
+The EKS uses a Kalman smoother to ensemble and smooth pose estimation outputs as a post-processing
 step after multiple model predictions have been generated, resulting in a more robust output:
 
 ![](assets/crim13_singlecam.gif)
 
-In this gif, there are five models (in red) on which EKS is run to generate the EKS
-output (in green). As can be seen, the EKS output improves tracking by ensembling and smoothing the
-individual model outputs, which can often diverge considerably for difficult frames.
+For more details see [Biderman, Whiteway et al. 2024, Nature Methods](https://rdcu.be/dLP3z).
 
 ---
 
