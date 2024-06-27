@@ -25,17 +25,18 @@ def get_version(rel_path):
 # basic requirements
 install_requires = [
     'ipykernel',
+    'jax',
+    'jaxlib',
     'matplotlib',
     'numpy',
     'opencv-python',
+    'optax',
     'pandas',
     'scikit-learn',
     'scipy>=1.2.0',
+    'sleap_io',
     'tqdm',
     'typing',
-    'sleap_io',
-    'jax',
-    'jaxlib',
 ]
 
 # additional requirements
