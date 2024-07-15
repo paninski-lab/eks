@@ -18,6 +18,7 @@ bodypart_list = args.bodypart_list
 s = args.s  # defaults to automatic optimization
 s_frames = args.s_frames  # frames to be used for automatic optimization (only if no --s flag)
 blocks = args.blocks
+verbose = True if args.verbose == 'True' else False
 
 
 # Load and format input files and prepare an empty DataFrame for output.
@@ -48,7 +49,8 @@ df_dicts, s_finals = ensemble_kalman_smoother_singlecam(
     bodypart_list,
     s,
     s_frames,
-    blocks
+    blocks,
+    verbose
 )
 
 keypoint_i = -1  # keypoint to be plotted

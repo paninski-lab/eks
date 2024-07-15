@@ -23,7 +23,8 @@ from eks.utils import crop_frames, make_dlc_pandas_index
 def ensemble_kalman_smoother_singlecam(
         markers_3d_array, bodypart_list, smooth_param, s_frames, blocks=[],
         ensembling_mode='median',
-        zscore_threshold=2):
+        zscore_threshold=2,
+        verbose=False):
     """
     Perform Ensemble Kalman Smoothing on 3D marker data from a single camera.
 
@@ -59,7 +60,7 @@ def ensemble_kalman_smoother_singlecam(
     # Main smoothing function
     s_finals, ms, Vs = singlecam_optimize_smooth(
         cov_mats, ys, m0s, S0s, Cs, As, Rs, ensemble_vars,
-        s_frames, smooth_param, blocks)
+        s_frames, smooth_param, blocks, verbose)
 
     y_m_smooths = np.zeros((n_keypoints, T, n_coords))
     y_v_smooths = np.zeros((n_keypoints, T, n_coords, n_coords))
@@ -205,7 +206,7 @@ def initialize_kalman_filter(scaled_ensemble_preds, adjusted_obs_dict, n_keypoin
 
 def singlecam_optimize_smooth(
         cov_mats, ys, m0s, S0s, Cs, As, Rs, ensemble_vars,
-        s_frames, smooth_param, blocks=[], maxiter=1000):
+        s_frames, smooth_param, blocks=[], maxiter=1000, verbose=False):
     """
     Optimize smoothing parameter, and use the result to run the kalman filter-smoother
 
@@ -301,8 +302,8 @@ def singlecam_optimize_smooth(
                 start_time = time.time()
                 s_init, opt_state, loss = step(s_init, opt_state)
 
-                # if iteration % 10 == 0 or iteration == maxiter - 1:
-                #     print(f'Iteration {iteration}, Current loss: {loss}, Current s: {s_init}')
+                if verbose and iteration % 10 == 0 or iteration == maxiter - 1:
+                     print(f'Iteration {iteration}, Current loss: {loss}, Current s: {s_init}')
 
                 tol = 0.001 * jnp.abs(jnp.log(prev_loss))
                 if jnp.linalg.norm(loss - prev_loss) < tol + 1e-6:

@@ -67,6 +67,12 @@ def handle_parse_args(script_type):
         default=[],
         type=parse_blocks,
     )
+    parser.add_argument(
+        '--verbose',
+        help='if set to true, displays smoothing parameter optimization iterations',
+        default='',
+        type=str,
+    )
     if script_type == 'singlecam':
         add_bodyparts(parser)
         add_s(parser)
