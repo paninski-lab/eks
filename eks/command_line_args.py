@@ -1,5 +1,5 @@
-import os
 import argparse
+import os
 import re
 
 # -------------------------------------------------------------
@@ -20,6 +20,7 @@ def handle_io(input_dir, save_dir):
         save_dir = os.path.join(os.getcwd(), 'outputs')
         os.makedirs(save_dir, exist_ok=True)
     return save_dir
+
 
 # Handles extraction of arguments from command-line flags
 def handle_parse_args(script_type):
@@ -67,10 +68,9 @@ def handle_parse_args(script_type):
         type=parse_blocks,
     )
     parser.add_argument(
-        '--optax',
-        help='uses gradient based stochastic minimization if set to True, otherwise uses '
-             'Nelder-Mead',
-        default="False",
+        '--verbose',
+        help='if set to true, displays smoothing parameter optimization iterations',
+        default='',
         type=str,
     )
     if script_type == 'singlecam':

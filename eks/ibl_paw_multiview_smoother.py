@@ -2,9 +2,9 @@ import numpy as np
 import pandas as pd
 from scipy.interpolate import interp1d
 from sklearn.decomposition import PCA
+
+from eks.core import backward_pass, eks_zscore, ensemble, forward_pass
 from eks.utils import make_dlc_pandas_index
-from eks.core import ensemble, forward_pass, \
-    backward_pass, eks_zscore
 
 
 def remove_camera_means(ensemble_stacks, camera_means):
@@ -132,9 +132,6 @@ def ensemble_kalman_smoother_ibl_paw(
         right_cam_keypoints_stack_dict = \
         ensemble(markers_list_right_cam, keys, mode=ensembling_mode)
 
-    # ensemble_stacked = np.median(markers_list_stacked_interp, 0)
-    # ensemble_stacked_vars = np.var(markers_list_stacked_interp, 0)
-
     # keep percentage of the points for multi-view PCA based lowest ensemble variance
     hstacked_vars = np.hstack((left_cam_ensemble_vars, right_cam_ensemble_vars))
     max_vars = np.max(hstacked_vars, 1)
@@ -251,9 +248,9 @@ def ensemble_kalman_smoother_ibl_paw(
 
         # diagonal: var
         S0 = np.asarray([
-            [np.var(good_z_t_obs[:, 0]), 0.0, 0.0],
-            [0.0, np.var(good_z_t_obs[:, 1]), 0.0],
-            [0.0, 0.0, np.var(good_z_t_obs[:, 2])]
+            [np.nanvar(good_z_t_obs[:, 0]), 0.0, 0.0],
+            [0.0, np.nanvar(good_z_t_obs[:, 1]), 0.0],
+            [0.0, 0.0, np.nanvar(good_z_t_obs[:, 2])]
         ])
 
         # state-transition matrix
@@ -282,7 +279,7 @@ def ensemble_kalman_smoother_ibl_paw(
         # --------------------------------------
         # Do the smoothing step
         print(f"smoothing {paw} paw...")
-        ms, Vs, _ = backward_pass(y, mf, Vf, S, A, Q, C)
+        ms, Vs, _ = backward_pass(y, mf, Vf, S, A)
         print("done smoothing")
         # Smoothed posterior over ys
         y_m_smooth = np.dot(C, ms.T).T
@@ -294,7 +291,7 @@ def ensemble_kalman_smoother_ibl_paw(
         save_keypoint_names = ['l_cam_' + save_keypoint_name, 'r_cam_' + save_keypoint_name]
         pdindex = make_dlc_pandas_index(
             save_keypoint_names,
-            labels=["x", "ys", "likelihood", "x_var", "y_var", "zscore"]
+            labels=["x", "y", "likelihood", "x_var", "y_var", "zscore"]
         )
 
         scaled_y_m_smooth = add_camera_means(y_m_smooth[None, :, :], means_camera)[0]
@@ -326,13 +323,13 @@ def ensemble_kalman_smoother_ibl_paw(
     # final cleanup
     # --------------------------------------
     pdindex = make_dlc_pandas_index(keypoint_names,
-                                    labels=["x", "ys", "likelihood", "x_var", "y_var", "zscore"])
+                                    labels=["x", "y", "likelihood", "x_var", "y_var", "zscore"])
 
     # make left cam dataframe
     pred_arr = np.hstack([
         dfs['left'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_l', 'x')].to_numpy()
         [:, None],
-        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_l', 'ys')].to_numpy()
+        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_l', 'y')].to_numpy()
         [:, None],
         dfs['left'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_l', 'likelihood')].to_numpy()
         [:, None],
@@ -343,7 +340,7 @@ def ensemble_kalman_smoother_ibl_paw(
         dfs['left'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_l', 'zscore')].to_numpy()
         [:, None],
         dfs['right'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_r', 'x')].to_numpy()[:, None],
-        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_r', 'ys')].to_numpy()[:, None],
+        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_r', 'y')].to_numpy()[:, None],
         dfs['right'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_r', 'likelihood')].to_numpy()
         [:, None],
         dfs['right'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_r', 'x_var')].to_numpy()
@@ -361,7 +358,7 @@ def ensemble_kalman_smoother_ibl_paw(
     pred_arr = np.hstack([
         img_width - dfs['right'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_r', 'x')].to_numpy()
         [:, None],
-        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_r', 'ys')].to_numpy()
+        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_r', 'y')].to_numpy()
         [:, None],
         dfs['right'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_r', 'likelihood')].to_numpy()
         [:, None],
@@ -373,7 +370,7 @@ def ensemble_kalman_smoother_ibl_paw(
         [:, None],
         img_width - dfs['left'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_l', 'x')].to_numpy()
         [:, None],
-        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_l', 'ys')].to_numpy()
+        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_l', 'y')].to_numpy()
         [:, None],
         dfs['left'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_l', 'likelihood')].to_numpy()
         [:, None],

@@ -15,11 +15,12 @@ the example scripts.
 Arguments are either general or script-specific.
 ## General Arguments
 These arguments are present in all example scripts.
-- `--csv-dir <csv_directory>` String specifying read-in directory containing CSV files used as input data.
+- `--input-dir <input_data_directory>` String specifying read-in directory containing data.
 - `--save-dir <save_directory>` String specifying write-to directory (csv-dir by default).
-- `--save-filename <save_filename>` String specifying output file name ({'smoother_type}_{smooth_param}' by default).
-- `--data-type <data_type>` String specifying input data file type. Accepts DeepLabCut (dlc), Lightning Pose (lp), and SLEAP (slp) file types. DLC by default.
+- `--save-filename <save_filename>` String specifying output file name ({'smoother_type}_{last_keypoint_smooth_param}' by default).
+- `--data-type <data_type>` String specifying input data file type. Accepts DeepLabCut (dlc), Lightning Pose (lp), and SLEAP (slp) file types. LP by default.
 - `--s-frames <s-frame_int> or <list of tuples (e.g. [(1, 300), (1000, None)]` Specifies frames to be considered for smoothing. If the input is an integer, selects that many frames starting from frame 1.
+Selects the first 10,000 frames by default.
 
 ## Script-specific Arguments
 These arguments are specific to the example script (e.g. `eks/singleview_smoother.py`) being used, which is

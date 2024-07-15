@@ -1,5 +1,14 @@
 # EKS
-This repo contains code to run an Ensemble Kalman Smoother (EKS) for improving pose estimation outputs. 
+This repo contains code to run an Ensemble Kalman Smoother (EKS) for improving pose estimation outputs.
+
+The EKS uses a Kalman smoother to ensemble and smooth pose estimation outputs as a post-processing
+step after multiple model predictions have been generated, resulting in a more robust output:
+
+![](assets/crim13_singlecam.gif)
+
+For more details see [Biderman, Whiteway et al. 2024, Nature Methods](https://rdcu.be/dLP3z).
+
+---
 
 ## Installation
 
@@ -46,6 +55,8 @@ If you wish to install the developer version of the package, run installation li
 pip install -e ".[dev]"
 ```
 
+For more information on individual modules and their usage, see [Requirements](docs/requirements.md)
+
 ### Method 2: pip
 
 You can also install the `eks` package using the Python Package Index (PyPI):
@@ -55,10 +66,20 @@ python3 -m pip install ensemble-kalman-smoother
 Note that you will not have access to the example data or example scripts with the pip install 
 option.
 
+### Note: Using GPU for fast parallel-scan
+As of now, EKS singlecam features a jitted parallel scan implementation for quickly optimizing the
+smoothing parameter (notably for larger datasets of 10,000+ frames). In order to utilize parallel scan,
+you will need to have a cuda environment with jax enabled. Further instructions can be found in the [jax
+docs](https://jax.readthedocs.io/en/latest/installation.html).
+-------------------------------
+
 ## Example scripts
 
 We provide several example datasets and fitting scripts to illustrate use of the package. See
-[Command-Line Arguments](docs/command-line_arguments.md) for more information on arguments.
+[Command-Line Arguments](docs/command-line_arguments.md) for more information on arguments, 
+including optional flags and defaults. We recommend starting with the first of four scripts outlined
+below, `singlecam_example.py`, following along with the [Singlecam Overview](docs/singlecam_overview.md)
+if a deeper understanding of EKS is desired.
 
 ### Single-camera datasets
 The `singlecam_example.py` script demonstrates how to run the EKS code for standard single-camera
@@ -70,6 +91,10 @@ To run the EKS on the example data, execute the following command from inside th
 ```console 
 python scripts/singlecam_example.py --input-dir ./data/ibl-pupil
 ```
+
+The singlecam script is currently the most up-to-date script with the greatest number of feature
+implementations, including fast smoothing parameter auto-tuning using GPU-driven parallelization.
+[Here](docs/singlecam_overview.md) is a detailed overview of the workflow.
  
 ### Multi-camera datasets
 The `multicam_example.py` script demonstrates how to run the EKS code for multi-camera
@@ -91,7 +116,7 @@ model predictions.
 To run this script on the example data provided, execute the following command from inside this repo:
 
 ```console 
-python scripts/pupil_example.py --input-dir ./data/ibl-pupil
+python scripts/ibl_pupil_example.py --input-dir ./data/ibl-pupil
 ```
 
 ### IBL paw dataset (multiple asynchronous views)
@@ -101,12 +126,16 @@ the two cameras.
 To run this script on the example data provided, execute the following command from inside this repo:
 
 ```console 
-python scripts/multiview_paw_example.py --input-dir ./data/ibl-paw
+python scripts/ibl_paw_multiview_example.py --input-dir ./data/ibl-paw
 ```
 
-### Authors 
+### Authors
+
 Cole Hurwitz
+
+Keemin Lee
+
+Amol Pasarkar
 
 Matt Whiteway
 
-Keemin Lee

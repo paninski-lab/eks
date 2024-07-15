@@ -1,6 +1,6 @@
-from setuptools import setup
 from pathlib import Path
 
+from setuptools import setup
 
 # add the README.md file to the long_description
 with open('README.md', 'r') as fh:
@@ -25,12 +25,16 @@ def get_version(rel_path):
 # basic requirements
 install_requires = [
     'ipykernel',
+    'jax',
+    'jaxlib',
     'matplotlib',
     'numpy',
     'opencv-python',
+    'optax',
     'pandas',
     'scikit-learn',
     'scipy>=1.2.0',
+    'sleap_io',
     'tqdm',
     'typing',
     'sleap_io',

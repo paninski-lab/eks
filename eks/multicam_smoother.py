@@ -153,9 +153,8 @@ def ensemble_kalman_smoother_multicam(
     cov_matrix = np.cov(d_t.T)
 
     # Call functions from ensemble_kalman to optimize smooth_param before filtering and smoothing
-    if smooth_param is None:
-        smooth_param, ms, Vs, nll, nll_values = multicam_optimize_smooth(
-            cov_matrix, y_obs, m0, S0, C, A, R, ensemble_vars, s_frames)
+    smooth_param, ms, Vs, nll, nll_values = multicam_optimize_smooth(
+        cov_matrix, y_obs, m0, S0, C, A, R, ensemble_vars, s_frames, smooth_param)
     print(f"NLL is {nll} for {keypoint_ensemble}, smooth_param={smooth_param}")
     smooth_param_final = smooth_param
 
@@ -167,7 +166,7 @@ def ensemble_kalman_smoother_multicam(
     # final cleanup
     # --------------------------------------
     pdindex = make_dlc_pandas_index([keypoint_ensemble],
-                                    labels=["x", "ys", "likelihood", "x_var", "y_var", "zscore"])
+                                    labels=["x", "y", "likelihood", "x_var", "y_var", "zscore"])
     camera_indices = []
     for camera in range(num_cameras):
         camera_indices.append([camera * 2, camera * 2 + 1])
@@ -222,7 +221,7 @@ def multicam_optimize_smooth(
         cropped_y = crop_frames(y, s_frames)
 
         # Minimize negative log likelihood
-        smooth_param = minimize(
+        sol = minimize(
             multicam_smooth_min,
             x0=guess,  # initial smooth param guess
             args=(cov_matrix, cropped_y, m0, s0, C, A, R, ensemble_vars),
@@ -231,6 +230,7 @@ def multicam_optimize_smooth(
             callback=callback,  # Pass the callback function
             bounds=[(0, None)]
         )
+        smooth_param = sol.x[0]
         print(f'Optimal at s={smooth_param}')
 
     # Final smooth with optimized s
@@ -260,7 +260,6 @@ def multicam_smooth_min(smooth_param, cov_matrix, y, m0, S0, C, A, R, ensemble_v
     Smooths once using the given smooth_param. Returns only the nll, which is the parameter to
     be minimized using the scipy.minimize() function
     """
-    print(smooth_param)
     # Adjust Q based on smooth_param and cov_matrix
     Q = smooth_param * cov_matrix
     # Run filtering with the current smooth_param

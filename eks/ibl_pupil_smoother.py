@@ -1,10 +1,11 @@
+import warnings
+
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
 
-from eks.utils import make_dlc_pandas_index, crop_frames
-from eks.core import ensemble, eks_zscore, forward_pass, backward_pass, compute_nll
-import warnings
+from eks.core import backward_pass, compute_nll, eks_zscore, ensemble, forward_pass
+from eks.utils import crop_frames, make_dlc_pandas_index
 
 
 # -----------------------
@@ -144,9 +145,9 @@ def ensemble_kalman_smoother_ibl_pupil(
 
     # diagonal: var
     S0 = np.asarray([
-        [np.var(pupil_diameters), 0.0, 0.0],
-        [0.0, np.var(x_t_obs), 0.0],
-        [0.0, 0.0, np.var(y_t_obs)]
+        [np.nanvar(pupil_diameters), 0.0, 0.0],
+        [0.0, np.nanvar(x_t_obs), 0.0],
+        [0.0, 0.0, np.nanvar(y_t_obs)]
     ])
 
     # Measurement function
@@ -190,7 +191,7 @@ def ensemble_kalman_smoother_ibl_pupil(
     # --------------------------------------
     # save out marker info
     pdindex = make_dlc_pandas_index(keypoint_names,
-                                    labels=["x", "ys", "likelihood", "x_var", "y_var", "zscore"])
+                                    labels=["x", "y", "likelihood", "x_var", "y_var", "zscore"])
     processed_arr_dict = add_mean_to_array(y_m_smooth, keys, mean_x_obs, mean_y_obs)
     key_pair_list = [['pupil_top_r_x', 'pupil_top_r_y'],
                      ['pupil_right_r_x', 'pupil_right_r_y'],

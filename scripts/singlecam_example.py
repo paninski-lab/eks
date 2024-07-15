@@ -1,10 +1,11 @@
 """Example script for single-camera datasets."""
 import os
+
 import numpy as np
 
 from eks.command_line_args import handle_io, handle_parse_args
-from eks.utils import format_data, populate_output_dataframe, plot_results
 from eks.singlecam_smoother import ensemble_kalman_smoother_singlecam
+from eks.utils import format_data, plot_results, populate_output_dataframe
 
 # Collect User-Provided Args
 smoother_type = 'singlecam'
@@ -17,6 +18,7 @@ bodypart_list = args.bodypart_list
 s = args.s  # defaults to automatic optimization
 s_frames = args.s_frames  # frames to be used for automatic optimization (only if no --s flag)
 blocks = args.blocks
+verbose = True if args.verbose == 'True' else False
 
 
 # Load and format input files and prepare an empty DataFrame for output.
@@ -47,7 +49,8 @@ df_dicts, s_finals = ensemble_kalman_smoother_singlecam(
     bodypart_list,
     s,
     s_frames,
-    blocks
+    blocks,
+    verbose
 )
 
 keypoint_i = -1  # keypoint to be plotted

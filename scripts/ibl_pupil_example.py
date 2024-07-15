@@ -2,8 +2,8 @@
 import os
 
 from eks.command_line_args import handle_io, handle_parse_args
-from eks.utils import format_data, plot_results
 from eks.ibl_pupil_smoother import ensemble_kalman_smoother_ibl_pupil
+from eks.utils import format_data, plot_results
 
 # Collect User-Provided Args
 smoother_type = 'pupil'
