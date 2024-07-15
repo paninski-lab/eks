@@ -315,8 +315,10 @@ def singlecam_optimize_smooth(
                 prev_loss = loss
 
             s_final = jnp.exp(s_init)  # Convert back from log-space
+
             for b in block:
-                print(f's={s_final} for keypoint {b}')
+                if verbose:
+                    print(f's={s_final} for keypoint {b}')
                 s_finals.append(s_final)
 
     s_finals = np.array(s_finals)
