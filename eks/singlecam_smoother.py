@@ -233,12 +233,14 @@ def singlecam_optimize_smooth(
     if blocks == []:
         for n in range(n_keypoints):
             blocks.append([n])
-    print(f'Correlated keypoint blocks: {blocks}')
+    if verbose:
+        print(f'Correlated keypoint blocks: {blocks}')
 
     # Depending on whether we use GPU, choose parallel or sequential smoothing param optimization
     try:
         _ = jax.device_put(jax.numpy.ones(1), device=jax.devices('gpu')[0])
-        print("Using GPU")
+        if verbose:
+            print("Using GPU")
 
         @partial(jit)
         def nll_loss_parallel_scan(s, cov_mats, cropped_ys, m0s, S0s, Cs, As, Rs):
@@ -248,7 +250,8 @@ def singlecam_optimize_smooth(
 
         loss_function = nll_loss_parallel_scan
     except:
-        print("Using CPU")
+        if verbose:
+            print("Using CPU")
 
         @partial(jit)
         def nll_loss_sequential_scan(s, cov_mats, cropped_ys, m0s, S0s, Cs, As, Rs):
