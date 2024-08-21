@@ -352,6 +352,36 @@ def kalman_filter_step(carry, curr_y):
     return (m_t, V_t, A, Q, C, R, nll_net), (m_t, V_t, nll_current)
 
 
+def kalman_filter_step_nlls(carry, curr_y):
+    m_prev, V_prev, A, Q, C, R, nll_net, nll_array, t = carry
+
+    # Predict
+    m_pred = jnp.dot(A, m_prev)
+    V_pred = jnp.dot(A, jnp.dot(V_prev, A.T)) + Q
+
+    # Update
+    innovation = curr_y - jnp.dot(C, m_pred)
+    innovation_cov = jnp.dot(C, jnp.dot(V_pred, C.T)) + R
+    K = jnp.dot(V_pred, jnp.dot(C.T, jnp.linalg.inv(innovation_cov)))
+    m_t = m_pred + jnp.dot(K, innovation)
+    V_t = V_pred - jnp.dot(K, jnp.dot(C, V_pred))
+
+    # Compute the negative log-likelihood for the current time step
+    nll_current = single_timestep_nll(innovation, innovation_cov)
+
+    # Accumulate the negative log-likelihood
+    nll_net = nll_net + nll_current
+
+    # Save the current NLL to the preallocated array
+    nll_array = nll_array.at[t].set(nll_current)
+
+    # Increment the time step
+    t = t + 1
+
+    # Return the updated state and outputs
+    return (m_t, V_t, A, Q, C, R, nll_net, nll_array, t), (m_t, V_t, nll_current)
+
+
 # Always run the sequential filter on CPU.
 # GPU will deploy individual kernels for each scan iteration, very slow.
 @partial(jit, backend='cpu')
@@ -379,6 +409,37 @@ def jax_forward_pass(y, m0, cov0, A, Q, C, R):
     mfs, Vfs, _ = outputs
     nll_net = carry[-1]
     return mfs, Vfs, nll_net
+
+
+def jax_forward_pass_nlls(y, m0, cov0, A, Q, C, R):
+    """
+    Kalman Filter for a single keypoint
+    (can be vectorized using vmap for handling multiple keypoints in parallel)
+    Parameters:
+        y: Shape (num_timepoints, observation_dimension).
+        m0: Shape (state_dim,). Initial state of system.
+        cov0: Shape (state_dim, state_dim). Initial covariance of state variable.
+        A: Shape (state_dim, state_dim). Process transition matrix.
+        Q: Shape (state_dim, state_dim). Process noise covariance matrix.
+        C: Shape (observation_dim, state_dim). Observation coefficient matrix.
+        R: Shape (observation_dim, observation_dim). Observation noise covar matrix.
+
+    Returns:
+        mfs: Shape (timepoints, state_dim). Mean filter state at each timepoint.
+        Vfs: Shape (timepoints, state_dim, state_dim). Covar for each filtered estimate.
+        nll_net: Shape (1,). Negative log likelihood observations -log (p(y_1, ..., y_T))
+        nll_array: Shape (num_timepoints,). Incremental negative log-likelihood at each timepoint.
+    """
+    # Initialize carry
+    num_timepoints = y.shape[0]
+    nll_array_init = jnp.zeros(num_timepoints)  # Preallocate an array with zeros
+    t_init = 0  # Initialize the time step counter
+    carry = (m0, cov0, A, Q, C, R, 0, nll_array_init, t_init)
+    carry, outputs = jax.lax.scan(kalman_filter_step_nlls, carry, y)
+    mfs, Vfs, _ = outputs
+    nll_net = carry[-3]  # Total NLL
+    nll_array = carry[-2]  # Array of incremental NLL values
+    return mfs, Vfs, nll_net, nll_array
 
 
 def kalman_smoother_step(carry, X):

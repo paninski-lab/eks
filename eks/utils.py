@@ -179,7 +179,7 @@ def dataframe_to_csv(df, filename):
 
 def populate_output_dataframe(keypoint_df, keypoint_ensemble, output_df,
                               key_suffix=''):  # key_suffix only required for multi-camera setups
-    for coord in ['x', 'y', 'zscore']:
+    for coord in ['x', 'y', 'zscore', 'nll']:
         src_cols = ('ensemble-kalman_tracker', f'{keypoint_ensemble}', coord)
         dst_cols = ('ensemble-kalman_tracker', f'{keypoint_ensemble}' + key_suffix, coord)
         output_df.loc[:, dst_cols] = keypoint_df.loc[:, src_cols]

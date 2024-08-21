@@ -15,6 +15,7 @@ from eks.core import (
     jax_backward_pass,
     jax_ensemble,
     jax_forward_pass,
+    jax_forward_pass_nlls,
     pkf_and_loss,
 )
 from eks.utils import crop_frames, make_dlc_pandas_index
@@ -58,7 +59,7 @@ def ensemble_kalman_smoother_singlecam(
         scaled_ensemble_preds, adjusted_obs_dict, n_keypoints)
 
     # Main smoothing function
-    s_finals, ms, Vs = singlecam_optimize_smooth(
+    s_finals, ms, Vs, nlls = singlecam_optimize_smooth(
         cov_mats, ys, m0s, S0s, Cs, As, Rs, ensemble_vars,
         s_frames, smooth_param, blocks, verbose)
 
@@ -83,11 +84,12 @@ def ensemble_kalman_smoother_singlecam(
                             ensemble_preds[:, k, :],
                             ensemble_vars[:, k, :],
                             min_ensemble_std=zscore_threshold)
+        nll = nlls[k]
 
         # Final Cleanup
         pdindex = make_dlc_pandas_index([bodypart_list[k]],
                                         labels=["x", "y", "likelihood", "x_var", "y_var",
-                                                "zscore"])
+                                                "zscore", "nll"])
         var = np.empty(y_m_smooths[k].T[0].shape)
         var[:] = np.nan
         pred_arr = np.vstack([
@@ -97,6 +99,7 @@ def ensemble_kalman_smoother_singlecam(
             y_v_smooths[k][:, 0, 0],
             y_v_smooths[k][:, 1, 1],
             zscore,
+            nll
         ]).T
         df = pd.DataFrame(pred_arr, columns=pdindex)
         dfs.append(df)
@@ -326,11 +329,11 @@ def singlecam_optimize_smooth(
 
     s_finals = np.array(s_finals)
     # Final smooth with optimized s
-    ms, Vs = final_forwards_backwards_pass(
+    ms, Vs, nlls = final_forwards_backwards_pass(
         cov_mats, s_finals,
         ys, m0s, S0s, Cs, As, Rs)
 
-    return s_finals, ms, Vs
+    return s_finals, ms, Vs, nlls
 
 
 ######
@@ -442,16 +445,19 @@ def final_forwards_backwards_pass(process_cov, s, ys, m0s, S0s, Cs, As, Rs):
     n_keypoints = ys.shape[0]
     ms_array = []
     Vs_array = []
+    nlls_array = []
     Qs = s[:, None, None] * process_cov
 
     # Run forward and backward pass for each keypoint
     for k in range(n_keypoints):
-        mf, Vf, nll = jax_forward_pass(ys[k], m0s[k], S0s[k], As[k], Qs[k], Cs[k], Rs[k])
+        mf, Vf, nll, nll_array = jax_forward_pass_nlls(ys[k], m0s[k], S0s[k], As[k], Qs[k], Cs[k], Rs[k])
         ms, Vs = jax_backward_pass(mf, Vf, As[k], Qs[k])
         ms_array.append(np.array(ms))
         Vs_array.append(np.array(Vs))
+        nlls_array.append(np.array(nll_array))
 
     smoothed_means = np.stack(ms_array, axis=0)
     smoothed_covariances = np.stack(Vs_array, axis=0)
+    nlls_final = np.stack(nlls_array, axis=0)
 
-    return smoothed_means, smoothed_covariances
+    return smoothed_means, smoothed_covariances, nlls_array
