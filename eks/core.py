@@ -673,7 +673,7 @@ def pkf_and_loss(y, m0, cov0, A, Q, C, R):
 # -------------------------------------------------------------------------------------
 
 
-def eks_zscore(eks_predictions, ensemble_means, ensemble_vars, min_ensemble_std=2):
+def eks_zscore(eks_predictions, ensemble_means, ensemble_vars, min_ensemble_std=1e-5):
     """Computes zscore between eks prediction and the ensemble for a single keypoint.
     Args:
         eks_predictions: list
@@ -683,7 +683,7 @@ def eks_zscore(eks_predictions, ensemble_means, ensemble_vars, min_ensemble_std=
         ensemble_vars: string
             Ensemble var for each coordinate (x and ys) for as single keypoint - (samples, 2)
         min_ensemble_std:
-            Minimum std threshold to reduce the effect of low ensemble std (default 2).
+            Minimum std threshold to reduce the effect of low ensemble std (default 1e-5).
     Returns:
         z_score
             z_score for each time point - (samples, 1)
