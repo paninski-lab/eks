@@ -62,7 +62,8 @@ def convert_slp_dlc(base_dir, slp_file):
                 point = instance.points[keypoint_node]
                 data[i, j, k, 0] = point.x if not np.isnan(point.x) else 0
                 data[i, j, k, 1] = point.y if not np.isnan(point.y) else 0
-                data[i, j, k, 2] = point.score + 1e-6
+                # Check if 'score' exists, otherwise leave as 0
+                data[i, j, k, 2] = getattr(point, 'score', 0) + 1e-6
 
     # Reshape data to 2D array for DataFrame creation
     reshaped_data = data.reshape(num_frames, -1)

@@ -210,7 +210,7 @@ def initialize_kalman_filter(scaled_ensemble_preds, adjusted_obs_dict, n_keypoin
 
 def singlecam_optimize_smooth(
         cov_mats, ys, m0s, S0s, Cs, As, Rs, ensemble_vars,
-        s_frames, smooth_param, blocks=[], maxiter=1000, verbose=False):
+        s_frames, smooth_param, blocks=[], maxiter=1000, verbose=False, inflation_factor=1.1):
     """
     Optimize smoothing parameter, and use the result to run the kalman filter-smoother
 
@@ -226,6 +226,7 @@ def singlecam_optimize_smooth(
     s_frames (list): List of frames.
     smooth_param (float): Smoothing parameter.
     blocks (list): List of blocks.
+    inflation_factor (float): Inflation factor for the covariances (default = 1.1).
 
     Returns:
     tuple: Final smoothing parameters, smoothed means, smoothed covariances,
@@ -239,6 +240,10 @@ def singlecam_optimize_smooth(
             blocks.append([n])
     if verbose:
         print(f'Correlated keypoint blocks: {blocks}')
+
+    # Inflate the initial state covariance and process noise covariance matrices
+    S0s *= inflation_factor  # Inflating the initial state covariance
+    cov_mats *= inflation_factor  # Inflating the process noise covariance matrices
 
     # Depending on whether we use GPU, choose parallel or sequential smoothing param optimization
     try:
