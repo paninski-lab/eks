@@ -86,12 +86,16 @@ def ensemble_kalman_smoother_ibl_paw(
         bl_left_np = markers_list_left_cam[model_id].to_numpy()
         bl_right_np = markers_list_right_cam[model_id].to_numpy()
         bl_right_interp = []
+        n_beg_nans = 0
+        n_end_nans = 0
         for i in range(bl_left_np.shape[1]):
             bl_right_interp.append(interp1d(timestamps_right_cam, bl_right_np[:, i]))
         for i, ts in enumerate(timestamps_left_cam):
             if ts > timestamps_right_cam[-1]:
-                break
+                n_end_nans += 1
+                continue
             if ts < timestamps_right_cam[0]:
+                n_beg_nans += 1
                 continue
             left_markers = np.array(bl_left_np[i, [0, 1, 3, 4]])
             left_markers_curr.append(left_markers)
@@ -382,6 +386,18 @@ def ensemble_kalman_smoother_ibl_paw(
         [:, None],
     ])
     df_right = pd.DataFrame(pred_arr, columns=pdindex)
+
+    # add nans to beginning/end so that the returned dataframes match the number of left timestamps
+    if n_beg_nans > 0:
+        nan_rows = pd.DataFrame(np.nan, index=range(-n_beg_nans, 0), columns=df_right.columns)
+        df_right = pd.concat([nan_rows, df_right])
+        df_left = pd.concat([nan_rows, df_left])
+    if n_end_nans > 0:
+        curr_len = df_right.shape[0] - n_beg_nans
+        nan_rows = pd.DataFrame(
+            np.nan, index=range(curr_len, curr_len + n_end_nans), columns=df_right.columns)
+        df_right = pd.concat([df_right, nan_rows])
+        df_left = pd.concat([df_left, nan_rows])
 
     return {'left_df': df_left, 'right_df': df_right}, \
         markers_list_left_cam, markers_list_right_cam
