@@ -38,40 +38,6 @@ def convert_lp_dlc(df_lp, keypoint_names, model_name=None):
     return df_dlc
 
 
-def assign_identity_by_total_length(dfrow: pd.Series, fish_numbers: list) -> list:
-    """Assign fish identity based on total length, keeping numeric fish labels and returning them in sorted order."""
-    segments = ["mouth-head", "head-middle", "middle-tail"]
-
-    # Calculate total length for each fish
-    fish_lengths = {}
-    for fish_num in fish_numbers:
-        total_length = 0
-        for seg_key in segments:
-            try:
-                mouth_x = dfrow[f"{fish_num}_mouth_x"]
-                mouth_y = dfrow[f"{fish_num}_mouth_y"]
-                head_x = dfrow[f"{fish_num}_head_x"]
-                head_y = dfrow[f"{fish_num}_head_y"]
-                middle_x = dfrow[f"{fish_num}_middle_x"]
-                middle_y = dfrow[f"{fish_num}_middle_y"]
-                tail_x = dfrow[f"{fish_num}_tail_x"]
-                tail_y = dfrow[f"{fish_num}_tail_y"]
-
-                # Add segment lengths (mouth-head, head-middle, middle-tail)
-                total_length += np.sqrt((mouth_x - head_x) ** 2 + (mouth_y - head_y) ** 2)
-                total_length += np.sqrt((head_x - middle_x) ** 2 + (head_y - middle_y) ** 2)
-                total_length += np.sqrt((middle_x - tail_x) ** 2 + (middle_y - tail_y) ** 2)
-            except KeyError:
-                continue  # Skip fish if data for any segment is missing
-
-        fish_lengths[fish_num] = total_length
-
-    # Sort fish by total length in ascending order
-    sorted_fish = sorted(fish_lengths, key=fish_lengths.get)
-
-    return sorted_fish  # Return sorted fish numbers by size
-
-
 def convert_slp_dlc(base_dir, slp_file):
     # Read data from .slp file
     filepath = os.path.join(base_dir, slp_file)
@@ -80,6 +46,7 @@ def convert_slp_dlc(base_dir, slp_file):
     # Determine the maximum number of instances and keypoints
     max_instances = len(labels[0].instances)
     keypoint_names = [node.name for node in labels[0].instances[0].points.keys()]
+    print(keypoint_names)
     num_keypoints = len(keypoint_names)
 
     # Initialize a NumPy array to store the data
@@ -95,6 +62,7 @@ def convert_slp_dlc(base_dir, slp_file):
                 point = instance.points[keypoint_node]
                 data[i, j, k, 0] = point.x if not np.isnan(point.x) else 0
                 data[i, j, k, 1] = point.y if not np.isnan(point.y) else 0
+                # Check if 'score' exists, otherwise leave as 0
                 data[i, j, k, 2] = getattr(point, 'score', 0) + 1e-6
 
     # Reshape data to 2D array for DataFrame creation
@@ -108,87 +76,9 @@ def convert_slp_dlc(base_dir, slp_file):
 
     # Create DataFrame from the reshaped data
     df = pd.DataFrame(reshaped_data, columns=columns)
-
-    # Debug tracker to count frames with reassignment
-    reassignment_count = 0
-
-    # Process each row to assign fish identity by length and adjust both data and column names
-    fish_numbers = [1, 2, 3, 4]  # Assuming 4 fish
-    for idx, row in df.iterrows():
-        # Get identity mapping based on total length per frame
-        sorted_fish = assign_identity_by_total_length(row, fish_numbers)
-
-        # Check if reassignment is needed
-        if sorted_fish != fish_numbers:
-            reassignment_count += 1
-
-        # Prepare to store the reordered data
-        new_row = row.copy()
-
-        # For each fish (now sorted by size), move their data to the correct columns
-        for target_fish_num, actual_fish_num in enumerate(sorted_fish, start=1):
-            for keypoint_name in keypoint_names:
-                # Move x, y, and likelihood to the correct "target" fish position
-                new_row[f"{target_fish_num}_{keypoint_name}_x"] = row[
-                    f"{actual_fish_num}_{keypoint_name}_x"]
-                new_row[f"{target_fish_num}_{keypoint_name}_y"] = row[
-                    f"{actual_fish_num}_{keypoint_name}_y"]
-                new_row[f"{target_fish_num}_{keypoint_name}_likelihood"] = row[
-                    f"{actual_fish_num}_{keypoint_name}_likelihood"]
-
-        # Update the DataFrame with the reordered data for this frame
-        df.iloc[idx] = new_row
-
-    # Print total number of frames where reassignment took place
-    print(f"Total number of frames with reassignment: {reassignment_count}")
-
-    # Save the updated DataFrame to a CSV
-    df.to_csv(f'./data/fish-slp-new/{slp_file}_reassigned.csv', index=False)
-    print(f"File processed and saved as {slp_file}_reassigned.csv")
+    df.to_csv(f'{slp_file}.csv', index=False)
+    print(f"File read. See read-in data at {slp_file}.csv")
     return df
-
-
-# def convert_slp_dlc(base_dir, slp_file):
-#     # Read data from .slp file
-#     filepath = os.path.join(base_dir, slp_file)
-#     labels = read_labels(filepath)
-#
-#     # Determine the maximum number of instances and keypoints
-#     max_instances = len(labels[0].instances)
-#     keypoint_names = [node.name for node in labels[0].instances[0].points.keys()]
-#     print(keypoint_names)
-#     num_keypoints = len(keypoint_names)
-#
-#     # Initialize a NumPy array to store the data
-#     num_frames = len(labels.labeled_frames)
-#     data = np.zeros((num_frames, max_instances, num_keypoints, 3))  # 3 for x, y, likelihood
-#
-#     # Fill the NumPy array with data
-#     for i, labeled_frame in enumerate(labels.labeled_frames):
-#         for j, instance in enumerate(labeled_frame.instances):
-#             if j >= max_instances:
-#                 break
-#             for k, keypoint_node in enumerate(instance.points.keys()):
-#                 point = instance.points[keypoint_node]
-#                 data[i, j, k, 0] = point.x if not np.isnan(point.x) else 0
-#                 data[i, j, k, 1] = point.y if not np.isnan(point.y) else 0
-#                 # Check if 'score' exists, otherwise leave as 0
-#                 data[i, j, k, 2] = getattr(point, 'score', 0) + 1e-6
-#
-#     # Reshape data to 2D array for DataFrame creation
-#     reshaped_data = data.reshape(num_frames, -1)
-#     columns = []
-#     for j in range(max_instances):
-#         for keypoint_name in keypoint_names:
-#             columns.append(f"{j + 1}_{keypoint_name}_x")
-#             columns.append(f"{j + 1}_{keypoint_name}_y")
-#             columns.append(f"{j + 1}_{keypoint_name}_likelihood")
-#
-#     # Create DataFrame from the reshaped data
-#     df = pd.DataFrame(reshaped_data, columns=columns)
-#     df.to_csv(f'{slp_file}.csv', index=False)
-#     print(f"File read. See read-in data at {slp_file}.csv")
-#     return df
 
 
 def format_data(input_dir, data_type):
