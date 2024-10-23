@@ -80,7 +80,7 @@ def ensemble_kalman_smoother_singlecam(
         eks_preds_array[k] = y_m_smooths[k].copy()
         eks_preds_array[k] = np.asarray([eks_preds_array[k].T[0] + mean_x_obs,
                                          eks_preds_array[k].T[1] + mean_y_obs]).T
-        zscore = eks_zscore(eks_preds_array[k],
+        zscore, ensemble_std = eks_zscore(eks_preds_array[k],
                             ensemble_preds[:, k, :],
                             ensemble_vars[:, k, :],
                             min_ensemble_std=zscore_threshold)
@@ -89,7 +89,7 @@ def ensemble_kalman_smoother_singlecam(
         # Final Cleanup
         pdindex = make_dlc_pandas_index([bodypart_list[k]],
                                         labels=["x", "y", "likelihood", "x_var", "y_var",
-                                                "zscore", "nll"])
+                                                "zscore", "nll", "ensemble_std"])
         var = np.empty(y_m_smooths[k].T[0].shape)
         var[:] = np.nan
         pred_arr = np.vstack([
@@ -99,7 +99,8 @@ def ensemble_kalman_smoother_singlecam(
             y_v_smooths[k][:, 0, 0],
             y_v_smooths[k][:, 1, 1],
             zscore,
-            nll
+            nll,
+            ensemble_std
         ]).T
         df = pd.DataFrame(pred_arr, columns=pdindex)
         dfs.append(df)

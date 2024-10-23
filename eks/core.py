@@ -698,7 +698,7 @@ def eks_zscore(eks_predictions, ensemble_means, ensemble_vars, min_ensemble_std=
     thresh_ensemble_std = ensemble_std.copy()
     thresh_ensemble_std[thresh_ensemble_std < min_ensemble_std] = min_ensemble_std
     z_score = num / thresh_ensemble_std
-    return z_score
+    return z_score, ensemble_std
 
 
 def compute_covariance_matrix(ensemble_preds):
