@@ -50,7 +50,7 @@ df_dicts, s_finals = ensemble_kalman_smoother_singlecam(
     s,
     s_frames,
     blocks,
-    verbose
+    verbose=verbose
 )
 
 keypoint_i = -1  # keypoint to be plotted
