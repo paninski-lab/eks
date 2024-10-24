@@ -2,6 +2,7 @@
 import os
 
 import numpy as np
+import pandas as pd
 
 from eks.command_line_args import handle_io, handle_parse_args
 from eks.singlecam_smoother import ensemble_kalman_smoother_singlecam
@@ -18,6 +19,7 @@ bodypart_list = args.bodypart_list
 s = args.s  # defaults to automatic optimization
 s_frames = args.s_frames  # frames to be used for automatic optimization (only if no --s flag)
 blocks = args.blocks
+ensembling_mode = 'median'
 
 
 # Load and format input files and prepare an empty DataFrame for output.
@@ -44,28 +46,44 @@ markers_3d_array = markers_3d_array[:, :, key_cols]
 
 # Call the smoother function
 df_dicts, s_finals = ensemble_kalman_smoother_singlecam(
-    markers_3d_array,
-    bodypart_list,
-    s,
-    s_frames,
-    blocks
+    markers_3d_array=markers_3d_array,
+    bodypart_list=bodypart_list,
+    smooth_param=s,
+    s_frames=s_frames,
+    blocks=blocks,
+    ensembling_mode=ensembling_mode,
 )
 
-keypoint_i = -1  # keypoint to be plotted
 # Save eks results in new DataFrames and .csv output files
 for k in range(len(bodypart_list)):
-    df = df_dicts[k][bodypart_list[k] + '_df']
-    output_df = populate_output_dataframe(df, bodypart_list[k], output_df)
-    save_filename = save_filename or f'{smoother_type}_{s_finals[keypoint_i]}.csv'
-    output_df.to_csv(os.path.join(save_dir, save_filename))
+    keypoint_name = bodypart_list[k]
+    df = df_dicts[k][keypoint_name + '_df']
+    output_df = populate_output_dataframe(df, keypoint_name, output_df)
+    # update likelihoods using ensemble
+    dst_cols = ('ensemble-kalman_tracker', keypoint_name, 'likelihood')
+    df_likelihoods = pd.concat([df[f'{keypoint_name}_likelihood'] for df in input_dfs], axis=1)
+    if ensembling_mode == 'median':
+        l_vals = df_likelihoods.median(axis=1).values
+    elif ensembling_mode == 'confidence_weighted_mean':
+        l_vals = df_likelihoods.mean(axis=1).values
+    else:
+        raise NotImplementedError
+    output_df.loc[:, dst_cols] = l_vals
+
+# save out dataframe
+keypoint_i = -1  # keypoint to be plotted
+save_filename = save_filename or f'{smoother_type}_{s_finals[keypoint_i]}.csv'
+output_df.to_csv(os.path.join(save_dir, save_filename))
 print("DataFrames successfully converted to CSV")
+
 # Plot results
-plot_results(output_df=output_df,
-             input_dfs_list=input_dfs,
-             key=f'{bodypart_list[keypoint_i]}',
-             idxs=(0, 500),
-             s_final=s_finals[keypoint_i],
-             nll_values=None,
-             save_dir=save_dir,
-             smoother_type=smoother_type
-             )
+plot_results(
+    output_df=output_df,
+    input_dfs_list=input_dfs,
+    key=f'{bodypart_list[keypoint_i]}',
+    idxs=(0, 500),
+    s_final=s_finals[keypoint_i],
+    nll_values=None,
+    save_dir=save_dir,
+    smoother_type=smoother_type,
+)
