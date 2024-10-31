@@ -344,7 +344,7 @@ def kalman_filter_step(carry, curr_y):
     innovation_cov = jnp.dot(C, jnp.dot(V_pred, C.T)) + R
     K = jnp.dot(V_pred, jnp.dot(C.T, jnp.linalg.inv(innovation_cov)))
     m_t = m_pred + jnp.dot(K, innovation)
-    V_t = V_pred - jnp.dot(K, jnp.dot(C, V_pred))
+    V_t = jnp.dot((jnp.eye(V_pred.shape[0]) - jnp.dot(K, C)), V_pred)
 
     nll_current = single_timestep_nll(innovation, innovation_cov)
     nll_net = nll_net + nll_current
@@ -352,8 +352,13 @@ def kalman_filter_step(carry, curr_y):
     return (m_t, V_t, A, Q, C, R, nll_net), (m_t, V_t, nll_current)
 
 
-def kalman_filter_step_nlls(carry, curr_y):
+def kalman_filter_step_nlls(carry, inputs):
+        # Unpack carry and inputs
     m_prev, V_prev, A, Q, C, R, nll_net, nll_array, t = carry
+    curr_y, curr_ensemble_var = inputs
+
+    # Update R with the current ensemble variance
+    R = jnp.diag(curr_ensemble_var)
 
     # Predict
     m_pred = jnp.dot(A, m_prev)
@@ -365,6 +370,8 @@ def kalman_filter_step_nlls(carry, curr_y):
     K = jnp.dot(V_pred, jnp.dot(C.T, jnp.linalg.inv(innovation_cov)))
     m_t = m_pred + jnp.dot(K, innovation)
     V_t = V_pred - jnp.dot(K, jnp.dot(C, V_pred))
+    # Alternatively, you could use the stable form:
+    # V_t = jnp.dot((jnp.eye(V_pred.shape[0]) - jnp.dot(K, C)), V_pred)
 
     # Compute the negative log-likelihood for the current time step
     nll_current = single_timestep_nll(innovation, innovation_cov)
@@ -411,7 +418,7 @@ def jax_forward_pass(y, m0, cov0, A, Q, C, R):
     return mfs, Vfs, nll_net
 
 
-def jax_forward_pass_nlls(y, m0, cov0, A, Q, C, R):
+def jax_forward_pass_nlls(y, m0, cov0, A, Q, C, R, ensemble_vars):
     """
     Kalman Filter for a single keypoint
     (can be vectorized using vmap for handling multiple keypoints in parallel)
@@ -430,15 +437,22 @@ def jax_forward_pass_nlls(y, m0, cov0, A, Q, C, R):
         nll_net: Shape (1,). Negative log likelihood observations -log (p(y_1, ..., y_T))
         nll_array: Shape (num_timepoints,). Incremental negative log-likelihood at each timepoint.
     """
+    # Ensure R is a (2, 2) matrix
+    if R.ndim == 1:
+        R = jnp.diag(R)
+    
     # Initialize carry
     num_timepoints = y.shape[0]
     nll_array_init = jnp.zeros(num_timepoints)  # Preallocate an array with zeros
     t_init = 0  # Initialize the time step counter
     carry = (m0, cov0, A, Q, C, R, 0, nll_array_init, t_init)
-    carry, outputs = jax.lax.scan(kalman_filter_step_nlls, carry, y)
+    
+    # Run the scan, passing y and ensemble_vars
+    carry, outputs = jax.lax.scan(kalman_filter_step_nlls, carry, (y, ensemble_vars))
     mfs, Vfs, _ = outputs
     nll_net = carry[-3]  # Total NLL
     nll_array = carry[-2]  # Array of incremental NLL values
+    
     return mfs, Vfs, nll_net, nll_array
 
 
@@ -728,7 +742,7 @@ def compute_covariance_matrix(ensemble_preds):
     cov_mats = []
     for i in range(n_keypoints):
         E_block = extract_submatrix(E, i)
-        cov_mats.append(E_block)
+        cov_mats.append([[1, 0], [0, 1]])
     cov_mats = jnp.array(cov_mats)
     return cov_mats
 
