@@ -105,11 +105,6 @@ def ensemble_kalman_smoother_singlecam(
         dfs.append(df)
         df_dicts.append({bodypart_list[k] + '_df': df})
 
-        # Save each DataFrame to a CSV for debugging
-        output_csv_path = f"./{bodypart_list[k]}_smoothing_output.csv"
-        df.to_csv(output_csv_path, index=True)
-        print(f"Debug CSV saved for {bodypart_list[k]} at {output_csv_path}")
-
     return df_dicts, s_finals
 
 
@@ -458,14 +453,10 @@ def final_forwards_backwards_pass(process_cov, s, ys, m0s, S0s, Cs, As, Rs, ense
     Vs_array = []
     nlls_array = []
     Qs = s[:, None, None] * process_cov
-    print(f'ys.shape: {ys.shape}')
-    print(f'ensemble_vars.shape: {ensemble_vars.shape}')
     # Run forward and backward pass for each keypoint
     for k in range(n_keypoints):
         mf, Vf, nll, nll_array = jax_forward_pass_nlls(ys[k], m0s[k], S0s[k], As[k], Qs[k], Cs[k], Rs[k], ensemble_vars[:,k,:])
-        print(f'Vf: {Vf}')
         ms, Vs = jax_backward_pass(mf, Vf, As[k], Qs[k])
-        print(f'Vs: {Vs}')
         ms_array.append(np.array(ms))
         Vs_array.append(np.array(Vs))
         nlls_array.append(np.array(nll_array))
