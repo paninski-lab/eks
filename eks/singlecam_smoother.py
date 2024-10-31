@@ -105,6 +105,11 @@ def ensemble_kalman_smoother_singlecam(
         dfs.append(df)
         df_dicts.append({bodypart_list[k] + '_df': df})
 
+        # Save each DataFrame to a CSV for debugging
+        output_csv_path = f"./{bodypart_list[k]}_smoothing_output.csv"
+        df.to_csv(output_csv_path, index=True)
+        print(f"Debug CSV saved for {bodypart_list[k]} at {output_csv_path}")
+
     return df_dicts, s_finals
 
 
@@ -209,7 +214,7 @@ def initialize_kalman_filter(scaled_ensemble_preds, adjusted_obs_dict, n_keypoin
 
 def singlecam_optimize_smooth(
         cov_mats, ys, m0s, S0s, Cs, As, Rs, ensemble_vars,
-        s_frames, smooth_param, blocks=[], maxiter=1000, verbose=False, inflation_factor=1.1):
+        s_frames, smooth_param, blocks=[], maxiter=1000, verbose=False, inflation_factor=1):
     """
     Optimize smoothing parameter, and use the result to run the kalman filter-smoother
 
@@ -262,9 +267,9 @@ def singlecam_optimize_smooth(
             print("Using CPU")
 
         @partial(jit)
-        def nll_loss_sequential_scan(s, cov_mats, cropped_ys, m0s, S0s, Cs, As, Rs):
+        def nll_loss_sequential_scan(s, cov_mats, cropped_ys, m0s, S0s, Cs, As, Rs, ensemble_vars):
             s = jnp.exp(s)  # To ensure positivity
-            return singlecam_smooth_min(s, cov_mats, cropped_ys, m0s, S0s, Cs, As, Rs)
+            return singlecam_smooth_min(s, cov_mats, cropped_ys, m0s, S0s, Cs, As, Rs, ensemble_vars)
 
         loss_function = nll_loss_sequential_scan
 
@@ -336,7 +341,7 @@ def singlecam_optimize_smooth(
     # Final smooth with optimized s
     ms, Vs, nlls = final_forwards_backwards_pass(
         cov_mats, s_finals,
-        ys, m0s, S0s, Cs, As, Rs)
+        ys, m0s, S0s, Cs, As, Rs, ensemble_vars)
 
     return s_finals, ms, Vs, nlls
 
@@ -346,9 +351,9 @@ def singlecam_optimize_smooth(
 ## Note: this code is set up to always run on CPU.
 ######
 
-def inner_smooth_min_routine(y, m0, S0, A, Q, C, R):
+def inner_smooth_min_routine(y, m0, S0, A, Q, C, R, ensemble_vars):
     # Run filtering with the current smooth_param
-    _, _, nll = jax_forward_pass(y, m0, S0, A, Q, C, R)
+    _, _, nll = jax_forward_pass(y, m0, S0, A, Q, C, R, ensemble_vars)
     return nll
 
 
@@ -356,7 +361,7 @@ inner_smooth_min_routine_vmap = vmap(inner_smooth_min_routine, in_axes=(0, 0, 0,
 
 
 def singlecam_smooth_min(
-        smooth_param, cov_mats, ys, m0s, S0s, Cs, As, Rs):
+        smooth_param, cov_mats, ys, m0s, S0s, Cs, As, Rs, ensemble_vars):
     """
     Smooths once using the given smooth_param. Returns only the nll, which is the parameter to
     be minimized using the scipy.minimize() function.
@@ -426,7 +431,7 @@ def singlecam_smooth_min_parallel(
     return jnp.sum(values)
 
 
-def final_forwards_backwards_pass(process_cov, s, ys, m0s, S0s, Cs, As, Rs):
+def final_forwards_backwards_pass(process_cov, s, ys, m0s, S0s, Cs, As, Rs, ensemble_vars):
     """
     Perform final smoothing with the optimized smoothing parameters.
 
@@ -452,11 +457,14 @@ def final_forwards_backwards_pass(process_cov, s, ys, m0s, S0s, Cs, As, Rs):
     Vs_array = []
     nlls_array = []
     Qs = s[:, None, None] * process_cov
-
+    print(f'ys.shape: {ys.shape}')
+    print(f'ensemble_vars.shape: {ensemble_vars.shape}')
     # Run forward and backward pass for each keypoint
     for k in range(n_keypoints):
-        mf, Vf, nll, nll_array = jax_forward_pass_nlls(ys[k], m0s[k], S0s[k], As[k], Qs[k], Cs[k], Rs[k])
+        mf, Vf, nll, nll_array = jax_forward_pass_nlls(ys[k], m0s[k], S0s[k], As[k], Qs[k], Cs[k], Rs[k], ensemble_vars[:,k,:])
+        print(f'Vf: {Vf}')
         ms, Vs = jax_backward_pass(mf, Vf, As[k], Qs[k])
+        print(f'Vs: {Vs}')
         ms_array.append(np.array(ms))
         Vs_array.append(np.array(Vs))
         nlls_array.append(np.array(nll_array))
