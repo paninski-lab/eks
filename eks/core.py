@@ -344,7 +344,7 @@ def kalman_filter_step(carry, curr_y):
     innovation_cov = jnp.dot(C, jnp.dot(V_pred, C.T)) + R
     K = jnp.dot(V_pred, jnp.dot(C.T, jnp.linalg.inv(innovation_cov)))
     m_t = m_pred + jnp.dot(K, innovation)
-    V_t = V_pred - jnp.dot(K, jnp.dot(C, V_pred))
+    V_t = jnp.dot((jnp.eye(V_pred.shape[0]) - jnp.dot(K, C)), V_pred)
 
     nll_current = single_timestep_nll(innovation, innovation_cov)
     nll_net = nll_net + nll_current
@@ -439,6 +439,10 @@ def jax_forward_pass_nlls(y, m0, cov0, A, Q, C, R, ensemble_vars):
         nll_net: Shape (1,). Negative log likelihood observations -log (p(y_1, ..., y_T))
         nll_array: Shape (num_timepoints,). Incremental negative log-likelihood at each timepoint.
     """
+    # Ensure R is a (2, 2) matrix
+    if R.ndim == 1:
+        R = jnp.diag(R)
+    
     # Initialize carry
     num_timepoints = y.shape[0]
     nll_array_init = jnp.zeros(num_timepoints)  # Preallocate an array with zeros

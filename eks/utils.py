@@ -177,9 +177,9 @@ def dataframe_to_csv(df, filename):
         print("Error:", e)
 
 
-def populate_output_dataframe(keypoint_df, keypoint_ensemble, output_df,
-                              key_suffix=''):  # key_suffix only required for multi-camera setups
-    for coord in ['x', 'y', 'zscore', 'nll', 'ensemble_std']:
+def populate_output_dataframe(keypoint_df, keypoint_ensemble, output_df, key_suffix=''):
+    # Include 'x', 'y', 'zscore', 'nll', 'x_var', and 'y_var' in the coordinates to transfer
+    for coord in ['x', 'y', 'zscore', 'nll', 'x_var', 'y_var']:
         src_cols = ('ensemble-kalman_tracker', f'{keypoint_ensemble}', coord)
         dst_cols = ('ensemble-kalman_tracker', f'{keypoint_ensemble}' + key_suffix, coord)
         output_df.loc[:, dst_cols] = keypoint_df.loc[:, src_cols]

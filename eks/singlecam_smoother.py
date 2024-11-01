@@ -57,7 +57,6 @@ def ensemble_kalman_smoother_singlecam(
     # Initialize Kalman filter values
     m0s, S0s, As, cov_mats, Cs, Rs, ys = initialize_kalman_filter(
         scaled_ensemble_preds, adjusted_obs_dict, n_keypoints)
-
     # Main smoothing function
     s_finals, ms, Vs, nlls = singlecam_optimize_smooth(
         cov_mats, ys, m0s, S0s, Cs, As, Rs, ensemble_vars,
@@ -242,6 +241,7 @@ def singlecam_optimize_smooth(
         print(f'Correlated keypoint blocks: {blocks}')
 
     # Inflate the initial state covariance and process noise covariance matrices
+    print(f'Multiplying covariance by a scale of {inflation_factor}')
     S0s *= inflation_factor  # Inflating the initial state covariance
     cov_mats *= inflation_factor  # Inflating the process noise covariance matrices
 
