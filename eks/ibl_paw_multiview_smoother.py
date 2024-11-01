@@ -312,7 +312,7 @@ def ensemble_kalman_smoother_ibl_paw(
                                           scaled_y_m_smooth.T[1 + 2 * i]]).T
             ensemble_preds = scaled_y[:, 2 * i:2 * (i + 1)]
             ensemble_vars_curr = ensemble_vars[:, 2 * i:2 * (i + 1)]
-            zscore = eks_zscore(eks_predictions, ensemble_preds, ensemble_vars_curr,
+            zscore, _ = eks_zscore(eks_predictions, ensemble_preds, ensemble_vars_curr,
                                 min_ensemble_std=4)
             pred_arr.append(zscore)
             ###

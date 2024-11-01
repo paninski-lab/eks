@@ -180,7 +180,7 @@ def ensemble_kalman_smoother_multicam(
             y_m_smooth.T[camera_indices[camera][1]] + means_camera[camera_indices[camera][1]]
         # compute zscore for EKS to see how it deviates from the ensemble
         eks_predictions = np.asarray([eks_pred_x, eks_pred_y]).T
-        zscore = eks_zscore(eks_predictions, cam_ensemble_preds[camera], cam_ensemble_vars[camera],
+        zscore, _ = eks_zscore(eks_predictions, cam_ensemble_preds[camera], cam_ensemble_vars[camera],
                             min_ensemble_std=zscore_threshold)
         pred_arr = np.vstack([
             eks_pred_x,
