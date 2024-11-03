@@ -96,7 +96,7 @@ def ensemble(markers_list, keys, mode='median'):
     ensemble_vars = np.asarray(ensemble_vars).T
     ensemble_stacks = np.asarray(ensemble_stacks).T
     return ensemble_preds, ensemble_vars, ensemble_stacks, \
-           keypoints_avg_dict, keypoints_var_dict, keypoints_stack_dict
+        keypoints_avg_dict, keypoints_var_dict, keypoints_stack_dict
 
 
 def forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars):
@@ -370,7 +370,6 @@ def kalman_filter_step_nlls(carry, inputs):
     K = jnp.dot(V_pred, jnp.dot(C.T, jnp.linalg.inv(innovation_cov)))
     m_t = m_pred + jnp.dot(K, innovation)
     V_t = V_pred - jnp.dot(K, jnp.dot(C, V_pred))
-    #V_t = jnp.dot((jnp.eye(V_pred.shape[0]) - jnp.dot(K, C)), V_pred)
 
     # Compute the negative log-likelihood for the current time step
     nll_current = single_timestep_nll(innovation, innovation_cov)
@@ -403,7 +402,7 @@ def jax_forward_pass(y, m0, cov0, A, Q, C, R, ensemble_vars):
         Q: Shape (state_dim, state_dim). Process noise covariance matrix.
         C: Shape (observation_dim, state_dim). Observation coefficient matrix.
         R: Shape (observation_dim, observation_dim). Observation noise covar matrix.
-        ensemble_vars: Shape (num_timepoints, observation_dimension). Time-varying observation noise variances.
+        ensemble_vars: Shape (num_timepoints, observation_dimension). Time-varying obs noise var.
 
     Returns:
         mfs: Shape (timepoints, state_dim). Mean filter state at each timepoint.
@@ -442,7 +441,7 @@ def jax_forward_pass_nlls(y, m0, cov0, A, Q, C, R, ensemble_vars):
     # Ensure R is a (2, 2) matrix
     if R.ndim == 1:
         R = jnp.diag(R)
-    
+
     # Initialize carry
     num_timepoints = y.shape[0]
     nll_array_init = jnp.zeros(num_timepoints)  # Preallocate an array with zeros
@@ -744,7 +743,7 @@ def compute_covariance_matrix(ensemble_preds):
     cov_mats = []
     for i in range(n_keypoints):
         E_block = extract_submatrix(E, i)
-        cov_mats.append([[1,0],[0,1]])
+        cov_mats.append([[1, 0], [0, 1]])
     cov_mats = jnp.array(cov_mats)
     return cov_mats
 

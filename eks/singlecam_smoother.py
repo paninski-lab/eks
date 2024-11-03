@@ -1,4 +1,3 @@
-import time
 from functools import partial
 
 import jax
@@ -79,10 +78,11 @@ def ensemble_kalman_smoother_singlecam(
         eks_preds_array[k] = y_m_smooths[k].copy()
         eks_preds_array[k] = np.asarray([eks_preds_array[k].T[0] + mean_x_obs,
                                          eks_preds_array[k].T[1] + mean_y_obs]).T
-        zscore, ensemble_std = eks_zscore(eks_preds_array[k],
-                            ensemble_preds[:, k, :],
-                            ensemble_vars[:, k, :],
-                            min_ensemble_std=zscore_threshold)
+        zscore, ensemble_std = eks_zscore(
+            eks_preds_array[k],
+            ensemble_preds[:, k, :],
+            ensemble_vars[:, k, :],
+            min_ensemble_std=zscore_threshold)
         nll = nlls[k]
 
         # Final Cleanup
@@ -263,7 +263,8 @@ def singlecam_optimize_smooth(
         @partial(jit)
         def nll_loss_sequential_scan(s, cov_mats, cropped_ys, m0s, S0s, Cs, As, Rs, ensemble_vars):
             s = jnp.exp(s)  # To ensure positivity
-            return singlecam_smooth_min(s, cov_mats, cropped_ys, m0s, S0s, Cs, As, Rs, ensemble_vars)
+            return singlecam_smooth_min(
+                s, cov_mats, cropped_ys, m0s, S0s, Cs, As, Rs, ensemble_vars)
 
         loss_function = nll_loss_sequential_scan
 
@@ -309,17 +310,13 @@ def singlecam_optimize_smooth(
 
             prev_loss = jnp.inf
             for iteration in range(maxiter):
-                start_time = time.time()
                 s_init, opt_state, loss = step(s_init, opt_state)
 
                 if verbose and iteration % 10 == 0 or iteration == maxiter - 1:
-                     print(f'Iteration {iteration}, Current loss: {loss}, Current s: {s_init}')
+                    print(f'Iteration {iteration}, Current loss: {loss}, Current s: {s_init}')
 
                 tol = 0.001 * jnp.abs(jnp.log(prev_loss))
                 if jnp.linalg.norm(loss - prev_loss) < tol + 1e-6:
-                #    print(
-                #        f'Converged at iteration {iteration} with '
-                #        f'smoothing parameter {jnp.exp(s_init)}. NLL={loss}')
                     break
 
                 prev_loss = loss
@@ -453,7 +450,8 @@ def final_forwards_backwards_pass(process_cov, s, ys, m0s, S0s, Cs, As, Rs, ense
     Qs = s[:, None, None] * process_cov
     # Run forward and backward pass for each keypoint
     for k in range(n_keypoints):
-        mf, Vf, nll, nll_array = jax_forward_pass_nlls(ys[k], m0s[k], S0s[k], As[k], Qs[k], Cs[k], Rs[k], ensemble_vars[:,k,:])
+        mf, Vf, nll, nll_array = jax_forward_pass_nlls(
+            ys[k], m0s[k], S0s[k], As[k], Qs[k], Cs[k], Rs[k], ensemble_vars[:, k, :])
         ms, Vs = jax_backward_pass(mf, Vf, As[k], Qs[k])
         ms_array.append(np.array(ms))
         Vs_array.append(np.array(Vs))
@@ -461,6 +459,5 @@ def final_forwards_backwards_pass(process_cov, s, ys, m0s, S0s, Cs, As, Rs, ense
 
     smoothed_means = np.stack(ms_array, axis=0)
     smoothed_covariances = np.stack(Vs_array, axis=0)
-    nlls_final = np.stack(nlls_array, axis=0)
 
     return smoothed_means, smoothed_covariances, nlls_array

@@ -151,7 +151,6 @@ def make_output_dataframe(markers_curr):
             # Set likelihood values to 1.0
             markers_eks[col].values[:] = 1.0
         elif col[-1] in ['x_var', 'y_var']:
-            # Set x_var and y_var to NaN to indicate that they need to be filled with variance values
             markers_eks[col].values[:] = np.nan
         else:
             # Set other values to NaN
