@@ -240,8 +240,6 @@ def singlecam_optimize_smooth(
     if verbose:
         print(f'Correlated keypoint blocks: {blocks}')
 
-    # Inflate the initial state covariance and process noise covariance matrices
-    print(f'Multiplying covariance by a scale of {inflation_factor}')
     S0s *= inflation_factor  # Inflating the initial state covariance
     cov_mats *= inflation_factor  # Inflating the process noise covariance matrices
 
