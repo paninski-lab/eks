@@ -37,6 +37,9 @@ install_requires = [
     'sleap_io',
     'tqdm',
     'typing',
+    'sleap_io',
+    'jax',
+    'jaxlib',
 ]
 
 # additional requirements

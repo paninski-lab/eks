@@ -214,8 +214,11 @@ def ensemble_kalman_smoother_ibl_pupil(
             np.asarray([processed_arr_dict[key_pair[0]], processed_arr_dict[key_pair[1]]]).T
         ensemble_preds_curr = ensemble_preds[:, ensemble_indices[i][0]: ensemble_indices[i][1] + 1]
         ensemble_vars_curr = ensemble_vars[:, ensemble_indices[i][0]: ensemble_indices[i][1] + 1]
-        zscore = eks_zscore(eks_predictions, ensemble_preds_curr, ensemble_vars_curr,
-                            min_ensemble_std=zscore_threshold)
+        zscore, _ = eks_zscore(
+            eks_predictions,
+            ensemble_preds_curr,
+            ensemble_vars_curr,
+            min_ensemble_std=zscore_threshold)
         pred_arr.append(zscore)
 
     pred_arr = np.asarray(pred_arr)

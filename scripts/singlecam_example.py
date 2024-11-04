@@ -19,6 +19,7 @@ bodypart_list = args.bodypart_list
 s = args.s  # defaults to automatic optimization
 s_frames = args.s_frames  # frames to be used for automatic optimization (only if no --s flag)
 blocks = args.blocks
+verbose = True if args.verbose == 'True' else False
 ensembling_mode = 'median'
 
 
@@ -46,12 +47,19 @@ markers_3d_array = markers_3d_array[:, :, key_cols]
 
 # Call the smoother function
 df_dicts, s_finals = ensemble_kalman_smoother_singlecam(
+    markers_3d_array,
+    bodypart_list,
+    s,
+    s_frames,
+    blocks,
+    verbose=verbose
     markers_3d_array=markers_3d_array,
     bodypart_list=bodypart_list,
     smooth_param=s,
     s_frames=s_frames,
     blocks=blocks,
     ensembling_mode=ensembling_mode,
+    verbose=verbose
 )
 
 # Save eks results in new DataFrames and .csv output files

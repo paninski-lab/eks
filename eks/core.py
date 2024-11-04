@@ -96,7 +96,7 @@ def ensemble(markers_list, keys, mode='median'):
     ensemble_vars = np.asarray(ensemble_vars).T
     ensemble_stacks = np.asarray(ensemble_stacks).T
     return ensemble_preds, ensemble_vars, ensemble_stacks, \
-           keypoints_avg_dict, keypoints_var_dict, keypoints_stack_dict
+        keypoints_avg_dict, keypoints_var_dict, keypoints_stack_dict
 
 
 def forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars):
@@ -344,7 +344,7 @@ def kalman_filter_step(carry, curr_y):
     innovation_cov = jnp.dot(C, jnp.dot(V_pred, C.T)) + R
     K = jnp.dot(V_pred, jnp.dot(C.T, jnp.linalg.inv(innovation_cov)))
     m_t = m_pred + jnp.dot(K, innovation)
-    V_t = V_pred - jnp.dot(K, jnp.dot(C, V_pred))
+    V_t = jnp.dot((jnp.eye(V_pred.shape[0]) - jnp.dot(K, C)), V_pred)
 
     nll_current = single_timestep_nll(innovation, innovation_cov)
     nll_net = nll_net + nll_current
@@ -352,10 +352,74 @@ def kalman_filter_step(carry, curr_y):
     return (m_t, V_t, A, Q, C, R, nll_net), (m_t, V_t, nll_current)
 
 
+def kalman_filter_step_nlls(carry, inputs):
+    # Unpack carry and inputs
+    m_prev, V_prev, A, Q, C, R, nll_net, nll_array, t = carry
+    curr_y, curr_ensemble_var = inputs
+
+    # Update R with the current ensemble variance
+    R = jnp.diag(curr_ensemble_var)
+
+    # Predict
+    m_pred = jnp.dot(A, m_prev)
+    V_pred = jnp.dot(A, jnp.dot(V_prev, A.T)) + Q
+
+    # Update
+    innovation = curr_y - jnp.dot(C, m_pred)
+    innovation_cov = jnp.dot(C, jnp.dot(V_pred, C.T)) + R
+    K = jnp.dot(V_pred, jnp.dot(C.T, jnp.linalg.inv(innovation_cov)))
+    m_t = m_pred + jnp.dot(K, innovation)
+    V_t = V_pred - jnp.dot(K, jnp.dot(C, V_pred))
+
+    # Compute the negative log-likelihood for the current time step
+    nll_current = single_timestep_nll(innovation, innovation_cov)
+
+    # Accumulate the negative log-likelihood
+    nll_net = nll_net + nll_current
+
+    # Save the current NLL to the preallocated array
+    nll_array = nll_array.at[t].set(nll_current)
+
+    # Increment the time step
+    t = t + 1
+
+    # Return the updated state and outputs
+    return (m_t, V_t, A, Q, C, R, nll_net, nll_array, t), (m_t, V_t, nll_current)
+
+
 # Always run the sequential filter on CPU.
 # GPU will deploy individual kernels for each scan iteration, very slow.
 @partial(jit, backend='cpu')
-def jax_forward_pass(y, m0, cov0, A, Q, C, R):
+def jax_forward_pass(y, m0, cov0, A, Q, C, R, ensemble_vars):
+    """
+    Kalman Filter for a single keypoint
+    (can be vectorized using vmap for handling multiple keypoints in parallel)
+    Parameters:
+        y: Shape (num_timepoints, observation_dimension).
+        m0: Shape (state_dim,). Initial state of system.
+        cov0: Shape (state_dim, state_dim). Initial covariance of state variable.
+        A: Shape (state_dim, state_dim). Process transition matrix.
+        Q: Shape (state_dim, state_dim). Process noise covariance matrix.
+        C: Shape (observation_dim, state_dim). Observation coefficient matrix.
+        R: Shape (observation_dim, observation_dim). Observation noise covar matrix.
+        ensemble_vars: Shape (num_timepoints, observation_dimension). Time-varying obs noise var.
+
+    Returns:
+        mfs: Shape (timepoints, state_dim). Mean filter state at each timepoint.
+        Vfs: Shape (timepoints, state_dim, state_dim). Covar for each filtered estimate.
+        nll_net: Shape (1,). Negative log likelihood observations -log (p(y_1, ..., y_T))
+    """
+    # Initialize carry
+    carry = (m0, cov0, A, Q, C, R, 0)
+
+    # Run the scan, passing y and ensemble_vars as inputs to kalman_filter_step
+    carry, outputs = jax.lax.scan(kalman_filter_step, carry, (y, ensemble_vars))
+    mfs, Vfs, _ = outputs
+    nll_net = carry[-1]
+    return mfs, Vfs, nll_net
+
+
+def jax_forward_pass_nlls(y, m0, cov0, A, Q, C, R, ensemble_vars):
     """
     Kalman Filter for a single keypoint
     (can be vectorized using vmap for handling multiple keypoints in parallel)
@@ -372,13 +436,25 @@ def jax_forward_pass(y, m0, cov0, A, Q, C, R):
         mfs: Shape (timepoints, state_dim). Mean filter state at each timepoint.
         Vfs: Shape (timepoints, state_dim, state_dim). Covar for each filtered estimate.
         nll_net: Shape (1,). Negative log likelihood observations -log (p(y_1, ..., y_T))
+        nll_array: Shape (num_timepoints,). Incremental negative log-likelihood at each timepoint.
     """
+    # Ensure R is a (2, 2) matrix
+    if R.ndim == 1:
+        R = jnp.diag(R)
+
     # Initialize carry
-    carry = (m0, cov0, A, Q, C, R, 0)
-    carry, outputs = jax.lax.scan(kalman_filter_step, carry, y)
+    num_timepoints = y.shape[0]
+    nll_array_init = jnp.zeros(num_timepoints)  # Preallocate an array with zeros
+    t_init = 0  # Initialize the time step counter
+    carry = (m0, cov0, A, Q, C, R, 0, nll_array_init, t_init)
+
+    # Run the scan, passing y and ensemble_vars
+    carry, outputs = jax.lax.scan(kalman_filter_step_nlls, carry, (y, ensemble_vars))
     mfs, Vfs, _ = outputs
-    nll_net = carry[-1]
-    return mfs, Vfs, nll_net
+    nll_net = carry[-3]  # Total NLL
+    nll_array = carry[-2]  # Array of incremental NLL values
+
+    return mfs, Vfs, nll_net, nll_array
 
 
 def kalman_smoother_step(carry, X):
@@ -390,7 +466,7 @@ def kalman_smoother_step(carry, X):
 
     smoothing_gain = jsc.linalg.solve(ahead_cov, jnp.dot(A, v_curr_filter.T)).T
     smoothed_state = m_curr_filter + jnp.dot(smoothing_gain, m_ahead_smooth - m_curr_filter)
-    smoothed_cov = v_curr_filter + jnp.dot(jnp.dot(smoothing_gain, m_ahead_smooth - ahead_cov),
+    smoothed_cov = v_curr_filter + jnp.dot(jnp.dot(smoothing_gain, v_ahead_smooth - ahead_cov),
                                            smoothing_gain.T)
 
     return (smoothed_state, smoothed_cov, A, Q), (smoothed_state, smoothed_cov)
@@ -612,7 +688,7 @@ def pkf_and_loss(y, m0, cov0, A, Q, C, R):
 # -------------------------------------------------------------------------------------
 
 
-def eks_zscore(eks_predictions, ensemble_means, ensemble_vars, min_ensemble_std=2):
+def eks_zscore(eks_predictions, ensemble_means, ensemble_vars, min_ensemble_std=1e-5):
     """Computes zscore between eks prediction and the ensemble for a single keypoint.
     Args:
         eks_predictions: list
@@ -622,7 +698,7 @@ def eks_zscore(eks_predictions, ensemble_means, ensemble_vars, min_ensemble_std=
         ensemble_vars: string
             Ensemble var for each coordinate (x and ys) for as single keypoint - (samples, 2)
         min_ensemble_std:
-            Minimum std threshold to reduce the effect of low ensemble std (default 2).
+            Minimum std threshold to reduce the effect of low ensemble std (default 1e-5).
     Returns:
         z_score
             z_score for each time point - (samples, 1)
@@ -637,7 +713,7 @@ def eks_zscore(eks_predictions, ensemble_means, ensemble_vars, min_ensemble_std=
     thresh_ensemble_std = ensemble_std.copy()
     thresh_ensemble_std[thresh_ensemble_std < min_ensemble_std] = min_ensemble_std
     z_score = num / thresh_ensemble_std
-    return z_score
+    return z_score, ensemble_std
 
 
 def compute_covariance_matrix(ensemble_preds):
@@ -667,7 +743,7 @@ def compute_covariance_matrix(ensemble_preds):
     cov_mats = []
     for i in range(n_keypoints):
         E_block = extract_submatrix(E, i)
-        cov_mats.append(E_block)
+        cov_mats.append([[1, 0], [0, 1]])
     cov_mats = jnp.array(cov_mats)
     return cov_mats
 

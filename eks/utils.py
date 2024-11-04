@@ -62,7 +62,8 @@ def convert_slp_dlc(base_dir, slp_file):
                 point = instance.points[keypoint_node]
                 data[i, j, k, 0] = point.x if not np.isnan(point.x) else 0
                 data[i, j, k, 1] = point.y if not np.isnan(point.y) else 0
-                data[i, j, k, 2] = point.score + 1e-6
+                # Check if 'score' exists, otherwise leave as 0
+                data[i, j, k, 2] = getattr(point, 'score', 0) + 1e-6
 
     # Reshape data to 2D array for DataFrame creation
     reshaped_data = data.reshape(num_frames, -1)
@@ -118,7 +119,7 @@ def format_data(input_dir, data_type):
 
 
 def make_output_dataframe(markers_curr):
-    ''' Makes empty DataFrame for EKS output '''
+    ''' Makes empty DataFrame for EKS output, including x_var and y_var '''
     markers_eks = markers_curr.copy()
 
     # Check if the columns Index is a MultiIndex
@@ -144,18 +145,16 @@ def make_output_dataframe(markers_curr):
         markers_eks.columns = pd.MultiIndex.from_tuples(new_columns,
                                                         names=['scorer', 'bodyparts', 'coords'])
 
-    # Iterate over columns and set values
+    # Iterate over columns and set initial values for likelihood and variance
     for col in markers_eks.columns:
         if col[-1] == 'likelihood':
             # Set likelihood values to 1.0
             markers_eks[col].values[:] = 1.0
+        elif col[-1] in ['x_var', 'y_var']:
+            markers_eks[col].values[:] = np.nan
         else:
             # Set other values to NaN
             markers_eks[col].values[:] = np.nan
-
-    # Write DataFrame to CSV
-    # output_csv = 'output_dataframe.csv'
-    # dataframe_to_csv(markers_eks, output_csv)
 
     return markers_eks
 
@@ -177,9 +176,9 @@ def dataframe_to_csv(df, filename):
         print("Error:", e)
 
 
-def populate_output_dataframe(keypoint_df, keypoint_ensemble, output_df,
-                              key_suffix=''):  # key_suffix only required for multi-camera setups
-    for coord in ['x', 'y', 'zscore']:
+def populate_output_dataframe(keypoint_df, keypoint_ensemble, output_df, key_suffix=''):
+    # Include 'x', 'y', 'zscore', 'nll', 'x_var', and 'y_var' in the coordinates to transfer
+    for coord in ['x', 'y', 'zscore', 'nll', 'x_var', 'y_var']:
         src_cols = ('ensemble-kalman_tracker', f'{keypoint_ensemble}', coord)
         dst_cols = ('ensemble-kalman_tracker', f'{keypoint_ensemble}' + key_suffix, coord)
         output_df.loc[:, dst_cols] = keypoint_df.loc[:, src_cols]
