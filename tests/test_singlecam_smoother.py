@@ -57,7 +57,3 @@ def test_ensemble_kalman_smoother_singlecam():
                 1), "Expected 'y_var' in DataFrame columns"
             assert 'zscore' in df.columns.get_level_values(
                 1), "Expected 'zscore' in DataFrame columns"
-
-
-if __name__ == "__main__":
-    pytest.main()
