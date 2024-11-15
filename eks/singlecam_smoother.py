@@ -1,5 +1,5 @@
 from functools import partial
-
+import os
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -17,7 +17,76 @@ from eks.core import (
     jax_forward_pass_nlls,
     pkf_and_loss,
 )
-from eks.utils import crop_frames, make_dlc_pandas_index
+from eks.utils import crop_frames, make_dlc_pandas_index, format_data, populate_output_dataframe
+
+
+def fit_eks_singlecam(input_source, data_type, save_dir, save_filename, bodypart_list, s, s_frames,
+                      blocks, verbose):
+    """
+    Function to fit the Ensemble Kalman Smoother for single-camera data.
+
+    Args:
+        input_source (str or list): Directory path or list of CSV file paths.
+        data_type (str): Type of data (e.g., 'csv', 'slp').
+        save_dir (str): Directory to save outputs.
+        save_filename (str): Name of the output file.
+        bodypart_list (list): List of body parts to analyze.
+        s (float or None): Smoothing factor.
+        s_frames (list or None): Frames for automatic optimization if s is not provided.
+        blocks (int): Number of blocks for processing.
+        verbose (bool): If True, enables verbose output.
+
+    Returns:
+        output_df (DataFrame): DataFrame containing the smoothed results.
+        s_finals (list): List of optimized smoothing factors for each keypoint.
+        input_dfs (list): List of input DataFrames for plotting.
+        bodypart_list (list): List of body parts used.
+    """
+    # Load and format input files using the unified format_data function
+    input_dfs, output_df, keypoint_names = format_data(input_source, data_type)
+
+    if bodypart_list is None:
+        bodypart_list = keypoint_names
+    print(f'Input data has been read in for the following keypoints:\n{bodypart_list}')
+
+    # Convert list of DataFrames to a 3D NumPy array
+    data_arrays = [df.to_numpy() for df in input_dfs]
+    markers_3d_array = np.stack(data_arrays, axis=0)
+
+    # Map keypoint names to indices and crop markers_3d_array
+    keypoint_is = {}
+    keys = []
+    for i, col in enumerate(input_dfs[0].columns):
+        keypoint_is[col] = i
+    for part in bodypart_list:
+        keys.append(keypoint_is[part + '_x'])
+        keys.append(keypoint_is[part + '_y'])
+        keys.append(keypoint_is[part + '_likelihood'])
+    key_cols = np.array(keys)
+    markers_3d_array = markers_3d_array[:, :, key_cols]
+
+    # Call the smoother function
+    df_dicts, s_finals = ensemble_kalman_smoother_singlecam(
+        markers_3d_array,
+        bodypart_list,
+        s,
+        s_frames,
+        blocks,
+        verbose=verbose
+    )
+
+    # Save eks results in new DataFrames and .csv output files
+    keypoint_i = -1  # keypoint to be plotted
+    for k in range(len(bodypart_list)):
+        df = df_dicts[k][bodypart_list[k] + '_df']
+        output_df = populate_output_dataframe(df, bodypart_list[k], output_df)
+
+    # Save the output DataFrame to CSV
+    save_filename = save_filename or f'singlecam_{s_finals[keypoint_i]}.csv'
+    output_df.to_csv(os.path.join(save_dir, save_filename))
+    print("DataFrames successfully converted to CSV")
+
+    return output_df, s_finals, input_dfs, bodypart_list
 
 
 def ensemble_kalman_smoother_singlecam(

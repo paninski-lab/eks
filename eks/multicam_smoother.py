@@ -166,7 +166,7 @@ def ensemble_kalman_smoother_multicam(
     # final cleanup
     # --------------------------------------
     pdindex = make_dlc_pandas_index([keypoint_ensemble],
-                                    labels=["x", "y", "likelihood", "x_var", "y_var", "zscore"])
+                                    labels=["x", "y", "likelihood", "x_var", "y_var", "zscore", "nll", "ensemble_std"])
     camera_indices = []
     for camera in range(num_cameras):
         camera_indices.append([camera * 2, camera * 2 + 1])
@@ -180,7 +180,7 @@ def ensemble_kalman_smoother_multicam(
             y_m_smooth.T[camera_indices[camera][1]] + means_camera[camera_indices[camera][1]]
         # compute zscore for EKS to see how it deviates from the ensemble
         eks_predictions = np.asarray([eks_pred_x, eks_pred_y]).T
-        zscore, _ = eks_zscore(
+        zscore, ensemble_std = eks_zscore(
             eks_predictions, cam_ensemble_preds[camera], cam_ensemble_vars[camera],
             min_ensemble_std=zscore_threshold)
         pred_arr = np.vstack([
@@ -190,6 +190,8 @@ def ensemble_kalman_smoother_multicam(
             y_v_smooth[:, camera_indices[camera][0], camera_indices[camera][0]],
             y_v_smooth[:, camera_indices[camera][1], camera_indices[camera][1]],
             zscore,
+            nll_values,
+            ensemble_std
         ]).T
         camera_dfs[camera_name + '_df'] = pd.DataFrame(pred_arr, columns=pdindex)
     return camera_dfs, smooth_param_final, nll_values

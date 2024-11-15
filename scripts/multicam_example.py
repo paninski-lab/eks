@@ -27,6 +27,7 @@ print(f'Input data has been read in for the following keypoints:\n{bodypart_list
 
 # loop over keypoints; apply eks to each individually
 # Note: all camera views must be stored in the same csv file
+# TODO: dictionary where keys are view names, values are lists of csv paths
 for keypoint_ensemble in bodypart_list:
     # Separate body part predictions by camera view
     marker_list_by_cam = [[] for _ in range(len(camera_names))]
@@ -51,7 +52,7 @@ for keypoint_ensemble in bodypart_list:
     # put results into new dataframe
     for camera in camera_names:
         cameras_df = cameras_df_dict[f'{camera}_df']
-        populate_output_dataframe(cameras_df, keypoint_ensemble, output_df,
+        output_df = populate_output_dataframe(cameras_df, keypoint_ensemble, output_df,
                                   key_suffix=f'_{camera}')
 
 # save eks results

@@ -81,40 +81,63 @@ def convert_slp_dlc(base_dir, slp_file):
     return df
 
 
-def format_data(input_dir, data_type):
-    input_files = os.listdir(input_dir)
-    input_dfs_list = []
-    # Extracting markers from data
-    # Applies correct format conversion and stores each file's markers in a list
-    for input_file in input_files:
+def format_data(input_source, data_type):
+    """
+    Load and format input files from a directory or a list of file paths.
 
-        if data_type == 'slp':
-            if not input_file.endswith('.slp'):
-                continue
-            markers_curr = convert_slp_dlc(input_dir, input_file)
+    Args:
+        input_source (str or list): Directory path or list of file paths.
+        data_type (str): Type of data (e.g., 'csv', 'slp').
+
+    Returns:
+        input_dfs_list (list): List of formatted DataFrames.
+        output_df (DataFrame): Empty DataFrame for storing results.
+        keypoint_names (list): List of keypoint names.
+    """
+    input_dfs_list = []
+    keypoint_names = None
+
+    # Determine if input_source is a directory or a list of file paths
+    if isinstance(input_source, str) and os.path.isdir(input_source):
+        # If it's a directory, list all files in the directory
+        input_files = os.listdir(input_source)
+        file_paths = [os.path.join(input_source, file) for file in input_files]
+    elif isinstance(input_source, list):
+        # If it's a list of file paths, use it directly
+        file_paths = input_source
+    else:
+        raise ValueError("input_source must be a directory path or a list of file paths")
+
+    # Process each file based on the data type
+    for file_path in file_paths:
+        if data_type == 'slp' and file_path.endswith('.slp'):
+            markers_curr = convert_slp_dlc(os.path.dirname(file_path), os.path.basename(file_path))
             keypoint_names = [c[1] for c in markers_curr.columns[::3]]
             markers_curr_fmt = markers_curr
-        elif data_type == 'lp' or 'dlc':
-            if not input_file.endswith('csv'):
-                continue
-            markers_curr = pd.read_csv(
-                os.path.join(input_dir, input_file), header=[0, 1, 2], index_col=0)
+
+        elif data_type in ['lp', 'dlc'] and file_path.endswith('.csv'):
+            markers_curr = pd.read_csv(file_path, header=[0, 1, 2], index_col=0)
             keypoint_names = [c[1] for c in markers_curr.columns[::3]]
             model_name = markers_curr.columns[0][0]
+
             if data_type == 'lp':
-                markers_curr_fmt = convert_lp_dlc(
-                    markers_curr, keypoint_names, model_name=model_name)
+                markers_curr_fmt = convert_lp_dlc(markers_curr, keypoint_names,
+                                                  model_name=model_name)
             else:
                 markers_curr_fmt = markers_curr
 
-        # markers_curr_fmt.to_csv('fmt_input.csv', index=False)
+        else:
+            continue
+
         input_dfs_list.append(markers_curr_fmt)
 
+    # Check if we found any valid input files
     if len(input_dfs_list) == 0:
-        raise FileNotFoundError(f'No marker input files found in {input_dir}')
+        raise FileNotFoundError(f'No valid marker input files found in {input_source}')
 
-    output_df = make_output_dataframe(markers_curr)
-    # returns both the formatted marker data and the empty dataframe for EKS output
+    # Create an empty output DataFrame using the last processed DataFrame as a template
+    output_df = make_output_dataframe(input_dfs_list[0])
+
     return input_dfs_list, output_df, keypoint_names
 
 
