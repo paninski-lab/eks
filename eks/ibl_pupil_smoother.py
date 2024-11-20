@@ -5,7 +5,7 @@ import pandas as pd
 from scipy.optimize import minimize
 
 from eks.core import backward_pass, compute_nll, eks_zscore, ensemble, forward_pass
-from eks.utils import crop_frames, make_dlc_pandas_index
+from eks.utils import crop_frames, make_dlc_pandas_index, format_data
 
 
 # -----------------------
@@ -77,6 +77,41 @@ def add_mean_to_array(pred_arr, keys, mean_x, mean_y):
         else:
             processed_arr_dict[key] = pred_arr_copy[:, i] + mean_y
     return processed_arr_dict
+
+
+def fit_eks_pupil(input_source, data_type, save_dir, smooth_params, s_frames):
+    """
+    Wrapper function to fit the Ensemble Kalman Smoother for the ibl-pupil dataset.
+
+    Args:
+        input_source (str or list): Directory path or list of input CSV files.
+        data_type (str): Type of data (e.g., 'csv', 'slp').
+        save_dir (str): Directory to save outputs.
+        smooth_params (list): List containing diameter_s and com_s.
+        s_frames (list or None): Frames for automatic optimization if needed.
+
+    Returns:
+        df_dicts (dict): Dictionary containing smoothed DataFrames.
+        smooth_params (list): Final smoothing parameters used.
+        input_dfs_list (list): List of input DataFrames.
+        keypoint_names (list): List of keypoint names.
+        nll_values (list): List of NLL values.
+    """
+    # Load and format input files
+    input_dfs_list, output_df, keypoint_names = format_data(input_source, data_type)
+
+    print(f"Input data loaded for keypoints: {keypoint_names}")
+
+    # Run the ensemble Kalman smoother
+    df_dicts, smooth_params, nll_values = ensemble_kalman_smoother_ibl_pupil(
+        markers_list=input_dfs_list,
+        keypoint_names=keypoint_names,
+        tracker_name='ensemble-kalman_tracker',
+        smooth_params=smooth_params,
+        s_frames=s_frames
+    )
+
+    return df_dicts, smooth_params, input_dfs_list, keypoint_names, nll_values
 
 
 def ensemble_kalman_smoother_ibl_pupil(

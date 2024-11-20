@@ -742,7 +742,8 @@ def compute_covariance_matrix(ensemble_preds):
     # Index covariance matrix into blocks for each keypoint
     cov_mats = []
     for i in range(n_keypoints):
-        E_block = extract_submatrix(E, i)
+        # E_block = extract_submatrix(E, i)  -- using E_block instead of the identity matrix
+        # leads to a correlated dynamics model, but further debugging required due to negative vars
         cov_mats.append([[1, 0], [0, 1]])
     cov_mats = jnp.array(cov_mats)
     return cov_mats

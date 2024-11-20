@@ -27,9 +27,13 @@ def handle_parse_args(script_type):
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '--input-dir',
-        required=True,
         help='directory of model prediction csv files',
         type=str,
+    )
+    parser.add_argument(
+        '--input-files',
+        help='list model prediction csv files in various directories',
+        nargs='+'
     )
     parser.add_argument(
         '--save-dir',
