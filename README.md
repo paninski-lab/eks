@@ -1,4 +1,9 @@
 # EKS
+
+![GitHub](https://img.shields.io/github/license/paninski-lab/eks)
+![PyPI](https://img.shields.io/pypi/v/ensemble-kalman-smoother)
+![PyPI Downloads](https://static.pepy.tech/badge/ensemble-kalman-smoother/week)
+
 This repo contains code to run an Ensemble Kalman Smoother (EKS) for improving pose estimation outputs.
 
 The EKS uses a Kalman smoother to ensemble and smooth pose estimation outputs as a post-processing
