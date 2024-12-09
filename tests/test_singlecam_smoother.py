@@ -4,7 +4,11 @@ import jax
 import jax.numpy as jnp
 import pandas as pd
 import os
-from eks.singlecam_smoother import ensemble_kalman_smoother_singlecam, initialize_kalman_filter, adjust_observations
+from eks.singlecam_smoother import (
+    adjust_observations,
+    ensemble_kalman_smoother_singlecam,
+    initialize_kalman_filter,
+)
 from unittest.mock import patch, MagicMock
 
 
@@ -162,7 +166,3 @@ def test_initialize_kalman_filter():
     assert jnp.allclose(Cs, expected_C), "Measurement function matrix C should be identity"
 
     print("Test for initialize_kalman_filter passed successfully.")
-
-
-if __name__ == "__main__":
-    pytest.main([__file__])

@@ -574,6 +574,7 @@ def test_jax_ensemble_basic():
     assert len(keypoints_avg_dict) == n_keypoints * 2, \
         f"Expected {n_keypoints * 2} entries in keypoints_avg_dict, got {len(keypoints_avg_dict)}"
 
+
 def test_jax_ensemble_median_mode():
     # Test median mode
     n_models = 4
@@ -587,6 +588,7 @@ def test_jax_ensemble_median_mode():
     # Check that ensemble_preds and ensemble_vars are finite
     assert jnp.isfinite(ensemble_preds).all(), "Expected finite values in ensemble_preds"
     assert jnp.isfinite(ensemble_vars).all(), "Expected finite values in ensemble_vars"
+
 
 def test_jax_ensemble_mean_mode():
     # Test mean mode
@@ -602,6 +604,7 @@ def test_jax_ensemble_mean_mode():
     assert jnp.isfinite(ensemble_preds).all(), "Expected finite values in ensemble_preds"
     assert jnp.isfinite(ensemble_vars).all(), "Expected finite values in ensemble_vars"
 
+
 def test_jax_ensemble_confidence_weighted_mean_mode():
     # Test confidence-weighted mean mode
     n_models = 4
@@ -616,6 +619,7 @@ def test_jax_ensemble_confidence_weighted_mean_mode():
     assert jnp.isfinite(ensemble_preds).all(), "Expected finite values in ensemble_preds"
     assert jnp.isfinite(ensemble_vars).all(), "Expected finite values in ensemble_vars"
 
+
 def test_jax_ensemble_unsupported_mode():
     # Test that unsupported mode raises ValueError
     n_models = 4
@@ -625,7 +629,3 @@ def test_jax_ensemble_unsupported_mode():
 
     with pytest.raises(ValueError, match="averaging not supported"):
         jax_ensemble(markers_3d_array, mode='unsupported')
-
-
-if __name__ == "__main__":
-    pytest.main([__file__])
