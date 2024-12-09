@@ -26,7 +26,7 @@ def fit_eks_singlecam(
     input_source: Union[str, list],
     save_file: str,
     bodypart_list: list,
-    smooth_param: Optional[float] = None,
+    smooth_param: Optional[Union[float, list]] = None,
     s_frames: Optional[list] = None,
     blocks: list = [],
     ensembling_mode: str = 'median',
@@ -114,7 +114,7 @@ def fit_eks_singlecam(
 def ensemble_kalman_smoother_singlecam(
     markers_3d_array: np.ndarray,
     bodypart_list: list,
-    smooth_param: float,
+    smooth_param: Union[float, list],
     s_frames: list,
     blocks: list = [],
     ensembling_mode: str = 'median',
@@ -332,7 +332,7 @@ def singlecam_optimize_smooth(
     Rs: np.ndarray,
     ensemble_vars: np.ndarray,
     s_frames: list,
-    smooth_param: float,
+    smooth_param: Union[float, list],
     blocks: list = [],
     maxiter: int = 1000,
     verbose: bool = False,
@@ -364,7 +364,7 @@ def singlecam_optimize_smooth(
 
     n_keypoints = ys.shape[0]
     s_finals = []
-    if blocks == []:
+    if len(blocks) == 0:
         for n in range(n_keypoints):
             blocks.append([n])
     if verbose:
@@ -397,7 +397,7 @@ def singlecam_optimize_smooth(
 
     # Optimize smooth_param
     if smooth_param is not None:
-        s_finals = [smooth_param]
+        s_finals = [smooth_param] if isinstance(smooth_param, float) else smooth_param
     else:
         guesses = []
         cropped_ys = []
@@ -427,10 +427,8 @@ def singlecam_optimize_smooth(
             y_subset = cropped_ys[selector]
 
             def step(s, opt_state):
-                loss, grads = jax.value_and_grad(loss_function)(s, cov_mats_sub, y_subset,
-                                                                m0s_crop,
-                                                                S0s_crop, Cs_crop, As_crop,
-                                                                Rs_crop)
+                loss, grads = jax.value_and_grad(loss_function)(
+                    s, cov_mats_sub, y_subset, m0s_crop, S0s_crop, Cs_crop, As_crop, Rs_crop)
                 updates, opt_state = optimizer.update(grads, opt_state)
                 s = optax.apply_updates(s, updates)
                 return s, opt_state, loss
@@ -458,8 +456,8 @@ def singlecam_optimize_smooth(
     s_finals = np.array(s_finals)
     # Final smooth with optimized s
     ms, Vs, nlls = final_forwards_backwards_pass(
-        cov_mats, s_finals,
-        ys, m0s, S0s, Cs, As, Rs, ensemble_vars)
+        cov_mats, s_finals, ys, m0s, S0s, Cs, As, Rs, ensemble_vars,
+    )
 
     return s_finals, ms, Vs, nlls
 
