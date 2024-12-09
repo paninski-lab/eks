@@ -35,16 +35,31 @@ def generate_random_likelihoods(num_frames, num_keypoints):
 
 # Test function for the ensemble Kalman smoother
 def test_ensemble_kalman_smoother_singlecam():
-    markers_3d_array, bodypart_list, smooth_param, s_frames, blocks, ensembling_mode, zscore_threshold = simulate_marker_data()
+
+    (
+        markers_3d_array,
+        bodypart_list,
+        smooth_param,
+        s_frames,
+        blocks,
+        ensembling_mode,
+        zscore_threshold
+    ) = simulate_marker_data()
 
     # Add random likelihoods to the simulated data
-    likelihoods = generate_random_likelihoods(markers_3d_array.shape[0],
-                                              markers_3d_array.shape[2] // 3)
+    # likelihoods = generate_random_likelihoods(markers_3d_array.shape[0],
+    #                                           markers_3d_array.shape[2] // 3)
 
     # Call the smoother function
     df_dicts, s_finals = ensemble_kalman_smoother_singlecam(
-        markers_3d_array, bodypart_list, smooth_param, s_frames, blocks,
-        ensembling_mode, zscore_threshold)
+        markers_3d_array=markers_3d_array,
+        bodypart_list=bodypart_list,
+        smooth_param=smooth_param,
+        s_frames=s_frames,
+        blocks=blocks,
+        ensembling_mode=ensembling_mode,
+        zscore_threshold=zscore_threshold,
+    )
 
     # Basic checks to ensure the function runs and returns expected types
     assert isinstance(df_dicts, list), "Expected df_dicts to be a list"

@@ -11,7 +11,6 @@ args = handle_parse_args(smoother_type)
 
 # Determine input source (directory or list of files)
 input_source = args.input_dir if isinstance(args.input_dir, str) else args.input_files
-data_type = args.data_type  # LP and DLC are .csv, SLP is .slp
 
 # Set up the save directory
 if isinstance(input_source, str):
@@ -29,7 +28,6 @@ s_frames = args.s_frames
 # Run the smoothing function
 df_dicts, smooth_params, input_dfs_list, keypoint_names, nll_values = fit_eks_pupil(
     input_source=input_source,
-    data_type=data_type,
     save_dir=save_dir,
     smooth_params=[diameter_s, com_s],
     s_frames=s_frames

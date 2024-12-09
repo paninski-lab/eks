@@ -9,7 +9,6 @@ from eks.utils import format_data, plot_results, populate_output_dataframe
 smoother_type = 'multicam'
 args = handle_parse_args(smoother_type)
 input_dir = os.path.abspath(args.input_dir)
-data_type = args.data_type  # Note: LP and DLC are .csv, SLP is .slp
 save_dir = handle_io(input_dir, args.save_dir)  # defaults to outputs
 save_filename = args.save_filename
 bodypart_list = args.bodypart_list
@@ -20,7 +19,7 @@ camera_names = args.camera_names
 quantile_keep_pca = args.quantile_keep_pca
 
 # Load and format input files and prepare an empty DataFrame for output.
-input_dfs_list, output_df, keypoint_names = format_data(input_dir, data_type)
+input_dfs_list, output_df, keypoint_names = format_data(input_dir)
 if bodypart_list is None:
     bodypart_list = keypoint_names
 print(f'Input data has been read in for the following keypoints:\n{bodypart_list}')

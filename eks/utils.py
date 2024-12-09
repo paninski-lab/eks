@@ -81,18 +81,18 @@ def convert_slp_dlc(base_dir, slp_file):
     return df
 
 
-def format_data(input_source, data_type):
+def format_data(input_source):
     """
     Load and format input files from a directory or a list of file paths.
 
     Args:
         input_source (str or list): Directory path or list of file paths.
-        data_type (str): Type of data (e.g., 'csv', 'slp').
 
     Returns:
         input_dfs_list (list): List of formatted DataFrames.
         output_df (DataFrame): Empty DataFrame for storing results.
         keypoint_names (list): List of keypoint names.
+
     """
     input_dfs_list = []
     keypoint_names = None
@@ -110,22 +110,16 @@ def format_data(input_source, data_type):
 
     # Process each file based on the data type
     for file_path in file_paths:
-        if data_type == 'slp' and file_path.endswith('.slp'):
+        if file_path.endswith('.slp'):
             markers_curr = convert_slp_dlc(os.path.dirname(file_path), os.path.basename(file_path))
             keypoint_names = [c[1] for c in markers_curr.columns[::3]]
             markers_curr_fmt = markers_curr
 
-        elif data_type in ['lp', 'dlc'] and file_path.endswith('.csv'):
+        elif file_path.endswith('.csv'):
             markers_curr = pd.read_csv(file_path, header=[0, 1, 2], index_col=0)
             keypoint_names = [c[1] for c in markers_curr.columns[::3]]
             model_name = markers_curr.columns[0][0]
-
-            if data_type == 'lp':
-                markers_curr_fmt = convert_lp_dlc(markers_curr, keypoint_names,
-                                                  model_name=model_name)
-            else:
-                markers_curr_fmt = markers_curr
-
+            markers_curr_fmt = convert_lp_dlc(markers_curr, keypoint_names, model_name=model_name)
         else:
             continue
 

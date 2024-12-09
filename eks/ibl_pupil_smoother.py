@@ -79,13 +79,12 @@ def add_mean_to_array(pred_arr, keys, mean_x, mean_y):
     return processed_arr_dict
 
 
-def fit_eks_pupil(input_source, data_type, save_dir, smooth_params, s_frames):
+def fit_eks_pupil(input_source, save_dir, smooth_params, s_frames):
     """
     Wrapper function to fit the Ensemble Kalman Smoother for the ibl-pupil dataset.
 
     Args:
         input_source (str or list): Directory path or list of input CSV files.
-        data_type (str): Type of data (e.g., 'csv', 'slp').
         save_dir (str): Directory to save outputs.
         smooth_params (list): List containing diameter_s and com_s.
         s_frames (list or None): Frames for automatic optimization if needed.
@@ -98,7 +97,7 @@ def fit_eks_pupil(input_source, data_type, save_dir, smooth_params, s_frames):
         nll_values (list): List of NLL values.
     """
     # Load and format input files
-    input_dfs_list, output_df, keypoint_names = format_data(input_source, data_type)
+    input_dfs_list, output_df, keypoint_names = format_data(input_source)
 
     print(f"Input data loaded for keypoints: {keypoint_names}")
 
