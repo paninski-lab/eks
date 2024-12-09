@@ -28,7 +28,7 @@ smoother-dependent. The following are the arguments found in the provided exampl
 ### [Single-Camera](../scripts/singlecam_example.py)
 - `--bodypart-list <bodypart_1> <bodypart_2> ...` List of body parts to be tracked by the EKS. Names must have corresponding csv column names in the input data.
 - `--s <smooth_param>` Float specifying the extent of smoothing to be done. Smoothing increases as param **decreases** (range 0.01-20, 10 by default)
-### [Multi-Camera](../scripts/multicam_example.py)
+### [Multi-Camera](../scripts/mirrored_multicam_example.py)
 - `--bodypart-list <bodypart_1> <bodypart_2> ...` List of body parts to be tracked by the EKS. Names must have corresponding csv column names in the input data.
 - `--camera-names <camera_1> <camera_2> ...` List of camera views.
 - `--s <smooth_param>` Float specifying the extent of smoothing to be done. Smoothing increases as param **decreases** (range 0.01-20, 0.01 by default)
@@ -42,7 +42,7 @@ smoother-dependent. The following are the arguments found in the provided exampl
 
 The following table summarizes the script-specific arguments featured in each of the example scripts.
 
-| Argument\Script       | [Single-Camera](../scripts/singlecam_example.py) | [Multi-Camera](../scripts/multicam_example.py) | [IBL Pupil](../scripts/ibl_pupil_example.py) | [IBL Paw](../scripts/ibl_paw_multiview_example.py) |
+| Argument\Script       | [Single-Camera](../scripts/singlecam_example.py) | [Multi-Camera](../scripts/mirrored_multicam_example.py) | [IBL Pupil](../scripts/ibl_pupil_example.py) | [IBL Paw](../scripts/ibl_paw_multiview_example.py) |
 |-----------------------|---------------|--------------|-----------|---------------------|
 | `--bodypart-list`     | ✓             | ✓            |           |                     |
 | `--camera-names`      |               | ✓            |           |                     |

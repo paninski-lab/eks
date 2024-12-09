@@ -256,7 +256,3 @@ def test_ensemble_kalman_smoother_ibl_pupil(
     assert isinstance(nll_values, list), "Expected nll_values to be a list"
 
     print("All tests passed successfully.")
-
-
-if __name__ == "__main__":
-    pytest.main([__file__])
