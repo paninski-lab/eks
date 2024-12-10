@@ -34,8 +34,7 @@ def fit_eks_singlecam(
     zscore_threshold: float = 2,
     verbose: bool = False,
 ) -> tuple:
-    """
-    Function to fit the Ensemble Kalman Smoother for single-camera data.
+    """Fit the Ensemble Kalman Smoother for single-camera data.
 
     Args:
         input_source: directory path or list of CSV file paths. If a directory path, all files
@@ -122,8 +121,7 @@ def ensemble_kalman_smoother_singlecam(
     zscore_threshold: float = 2,
     verbose: bool = False,
 ) -> tuple:
-    """
-    Perform Ensemble Kalman Smoothing on 3D marker data from a single camera.
+    """Perform Ensemble Kalman Smoothing on marker data from a single camera.
 
     Args:
         markers_3d_array: 3D array of marker data
