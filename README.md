@@ -71,14 +71,12 @@ python3 -m pip install ensemble-kalman-smoother
 Note that you will not have access to the example data or example scripts with the pip install 
 option.
 
--------------------------------
 ### Note: Using GPU for fast parallel-scan
 
 As of now, EKS singlecam features a jitted parallel scan implementation for quickly optimizing the
 smoothing parameter (notably for larger datasets of 10,000+ frames). In order to utilize parallel scan,
 you will need to have a cuda environment with jax enabled. Further instructions can be found in the [jax
 docs](https://jax.readthedocs.io/en/latest/installation.html).
--------------------------------
 
 
 ## Example scripts
