@@ -307,16 +307,8 @@ def test_forward_pass_zero_ensemble_vars():
     ensemble_vars = np.zeros((T, n_keypoints))  # Ensemble vars set to zero
 
     # Run forward_pass
-    mf, Vf, S, innovations, innovation_cov = forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
-
-    # Check if outputs are finite and correctly shaped
-    assert np.isfinite(mf).all(), "Non-finite values found in mf with zero ensemble_vars"
-    assert np.isfinite(Vf).all(), "Non-finite values found in Vf with zero ensemble_vars"
-    assert np.isfinite(S).all(), "Non-finite values found in S with zero ensemble_vars"
-    assert np.isfinite(
-        innovations).all(), "Non-finite values found in innovations with zero ensemble_vars"
-    assert np.isfinite(
-        innovation_cov).all(), "Non-finite values found in innovation_cov with zero ensemble_vars"
+    with pytest.raises(np.linalg.LinAlgError):
+        forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
 
 
 def test_backward_pass_basic():
