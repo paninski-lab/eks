@@ -48,12 +48,6 @@ def handle_parse_args(script_type):
         type=str,
     )
     parser.add_argument(
-        '--data-type',
-        help='format of input data (Lightning Pose = lp, SLEAP = slp), dlc by default.',
-        default='lp',
-        type=str,
-    )
-    parser.add_argument(
         '--s-frames',
         help='frames to be considered for smoothing '
              'parameter optimization, first 2k frames by default. Moot if --s is specified. '

@@ -1,5 +1,7 @@
-from functools import partial
 import os
+from functools import partial
+from typing import Optional, Union
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -17,33 +19,50 @@ from eks.core import (
     jax_forward_pass_nlls,
     pkf_and_loss,
 )
-from eks.utils import crop_frames, make_dlc_pandas_index, format_data, populate_output_dataframe
+from eks.utils import crop_frames, format_data, make_dlc_pandas_index, populate_output_dataframe
 
 
-def fit_eks_singlecam(input_source, data_type, save_dir, save_filename, bodypart_list, s, s_frames,
-                      blocks, verbose):
-    """
-    Function to fit the Ensemble Kalman Smoother for single-camera data.
+def fit_eks_singlecam(
+    input_source: Union[str, list],
+    save_file: str,
+    bodypart_list: list,
+    smooth_param: Optional[Union[float, list]] = None,
+    s_frames: Optional[list] = None,
+    blocks: list = [],
+    ensembling_mode: str = 'median',
+    ensembling_mode_variance: str = 'confidence_weighted_var',
+    zscore_threshold: float = 2,
+    verbose: bool = False,
+) -> tuple:
+    """Fit the Ensemble Kalman Smoother for single-camera data.
 
     Args:
-        input_source (str or list): Directory path or list of CSV file paths.
-        data_type (str): Type of data (e.g., 'csv', 'slp').
-        save_dir (str): Directory to save outputs.
-        save_filename (str): Name of the output file.
-        bodypart_list (list): List of body parts to analyze.
-        s (float or None): Smoothing factor.
-        s_frames (list or None): Frames for automatic optimization if s is not provided.
-        blocks (int): Number of blocks for processing.
-        verbose (bool): If True, enables verbose output.
+        input_source: directory path or list of CSV file paths. If a directory path, all files
+            within this directory will be used.
+        save_file: location to save EKS outputs.
+        bodypart_list: list of body parts to analyze.
+        smooth_param: smoothing factor; smaller values lead to more smoothing
+        s_frames: frames for automatic optimization if s is not provided.
+        blocks: keypoints to be blocked for correlated noise. Generates on smoothing param per
+            block, as opposed to per keypoint.
+            Specified by the form "x1, x2, x3; y1, y2" referring to keypoint indices (start at 0)
+        ensembling_mode: mode for ensembling:
+            'median' | 'mean'
+        ensembling_mode_variance: mode for computing ensemble variance.
+            'var' | 'confidence_weighted_var'
+        zscore_threshold: z-score threshold.
+        verbose: enables verbose output.
 
     Returns:
-        output_df (DataFrame): DataFrame containing the smoothed results.
-        s_finals (list): List of optimized smoothing factors for each keypoint.
-        input_dfs (list): List of input DataFrames for plotting.
-        bodypart_list (list): List of body parts used.
+        tuple:
+            output_df (DataFrame): DataFrame containing the smoothed results.
+            s_finals (list): List of optimized smoothing factors for each keypoint.
+            input_dfs (list): List of input DataFrames for plotting.
+            bodypart_list (list): List of body parts used.
+
     """
     # Load and format input files using the unified format_data function
-    input_dfs, output_df, keypoint_names = format_data(input_source, data_type)
+    input_dfs, output_df, keypoint_names = format_data(input_source)
 
     if bodypart_list is None:
         bodypart_list = keypoint_names
@@ -67,46 +86,59 @@ def fit_eks_singlecam(input_source, data_type, save_dir, save_filename, bodypart
 
     # Call the smoother function
     df_dicts, s_finals = ensemble_kalman_smoother_singlecam(
-        markers_3d_array,
-        bodypart_list,
-        s,
-        s_frames,
-        blocks,
-        verbose=verbose
+        markers_3d_array=markers_3d_array,
+        bodypart_list=bodypart_list,
+        smooth_param=smooth_param,
+        s_frames=s_frames,
+        blocks=blocks,
+        ensembling_mode=ensembling_mode,
+        ensembling_mode_variance=ensembling_mode_variance,
+        zscore_threshold=zscore_threshold,
+        verbose=verbose,
     )
 
-    # Save eks results in new DataFrames and .csv output files
-    keypoint_i = -1  # keypoint to be plotted
+    # Store eks results in new DataFrames
     for k in range(len(bodypart_list)):
         df = df_dicts[k][bodypart_list[k] + '_df']
         output_df = populate_output_dataframe(df, bodypart_list[k], output_df)
 
     # Save the output DataFrame to CSV
-    save_filename = save_filename or f'singlecam_{s_finals[keypoint_i]}.csv'
-    output_df.to_csv(os.path.join(save_dir, save_filename))
+    os.makedirs(os.path.dirname(save_file), exist_ok=True)
+    output_df.to_csv(save_file)
     print("DataFrames successfully converted to CSV")
 
     return output_df, s_finals, input_dfs, bodypart_list
 
 
 def ensemble_kalman_smoother_singlecam(
-        markers_3d_array, bodypart_list, smooth_param, s_frames, blocks=[],
-        ensembling_mode='median',
-        zscore_threshold=2,
-        verbose=False):
-    """
-    Perform Ensemble Kalman Smoothing on 3D marker data from a single camera.
+    markers_3d_array: np.ndarray,
+    bodypart_list: list,
+    smooth_param: Union[float, list],
+    s_frames: list,
+    blocks: list = [],
+    ensembling_mode: str = 'median',
+    ensembling_mode_variance: str = 'confidence_weighted_var',
+    zscore_threshold: float = 2,
+    verbose: bool = False,
+) -> tuple:
+    """Perform Ensemble Kalman Smoothing on marker data from a single camera.
 
-    Parameters:
-    markers_3d_array (np.ndarray): 3D array of marker data.
-    bodypart_list (list): List of body parts.
-    smooth_param (float): Smoothing parameter.
-    s_frames (list): List of frames.
-    ensembling_mode (str): Mode for ensembling ('median' by default).
-    zscore_threshold (float): Z-score threshold.
+    Args:
+        markers_3d_array: 3D array of marker data
+        bodypart_list: List of body parts
+        smooth_param: Smoothing parameter; larger means more smoothing
+        s_frames: List of frames for automatic computation of smoothing parameter
+        blocks: keypoints to be blocked for correlated noise. Generates on smoothing param per
+            block, as opposed to per keypoint.
+            Specified by the form "x1, x2, x3; y1, y2" referring to keypoint indices (start at 0)
+        ensembling_mode: Mode for ensembling
+        ensembling_mode_variance: Mode for computing ensemble variance
+        zscore_threshold: z-score threshold.
+        verbose: True to print out details
 
     Returns:
-    tuple: Dataframes with smoothed predictions, final smoothing parameters, NLL values.
+        tuple: Dataframes with smoothed predictions, final smoothing parameters, NLL values.
+
     """
 
     T = markers_3d_array.shape[1]
@@ -116,7 +148,7 @@ def ensemble_kalman_smoother_singlecam(
     # Compute ensemble statistics
     print("Ensembling models")
     ensemble_preds, ensemble_vars, keypoints_avg_dict = jax_ensemble(
-        markers_3d_array, mode=ensembling_mode)
+        markers_3d_array, avg_mode=ensembling_mode, var_mode=ensembling_mode_variance)
 
     # Calculate mean and adjusted observations
     mean_obs_dict, adjusted_obs_dict, scaled_ensemble_preds = adjust_observations(
@@ -151,13 +183,15 @@ def ensemble_kalman_smoother_singlecam(
             eks_preds_array[k],
             ensemble_preds[:, k, :],
             ensemble_vars[:, k, :],
-            min_ensemble_std=zscore_threshold)
+            min_ensemble_std=zscore_threshold,
+        )
         nll = nlls[k]
 
         # Final Cleanup
-        pdindex = make_dlc_pandas_index([bodypart_list[k]],
-                                        labels=["x", "y", "likelihood", "x_var", "y_var",
-                                                "zscore", "nll", "ensemble_std"])
+        pdindex = make_dlc_pandas_index(
+            [bodypart_list[k]],
+            labels=["x", "y", "likelihood", "x_var", "y_var", "zscore", "nll", "ensemble_std"],
+        )
         var = np.empty(y_m_smooths[k].T[0].shape)
         var[:] = np.nan
         pred_arr = np.vstack([
@@ -168,7 +202,7 @@ def ensemble_kalman_smoother_singlecam(
             y_v_smooths[k][:, 1, 1],
             zscore,
             nll,
-            ensemble_std
+            ensemble_std,
         ]).T
         df = pd.DataFrame(pred_arr, columns=pdindex)
         dfs.append(df)
@@ -177,17 +211,22 @@ def ensemble_kalman_smoother_singlecam(
     return df_dicts, s_finals
 
 
-def adjust_observations(keypoints_avg_dict, n_keypoints, scaled_ensemble_preds):
+def adjust_observations(
+    keypoints_avg_dict: dict,
+    n_keypoints: int,
+    scaled_ensemble_preds: np.ndarray,
+) -> tuple:
     """
     Adjust observations by computing mean and adjusted observations for each keypoint.
 
-    Parameters:
-    keypoints_avg_dict (dict): Dictionary of keypoints averages.
-    n_keypoints (int): Number of keypoints.
-    scaled_ensemble_preds (np.ndarray): Scaled ensemble predictions.
+    Args:
+        keypoints_avg_dict: Dictionary of keypoints averages.
+        n_keypoints: Number of keypoints.
+        scaled_ensemble_preds: Scaled ensemble predictions.
 
     Returns:
-    tuple: Mean observations dictionary, adjusted observations dictionary, scaled ensemble preds.
+        tuple: Mean observations dict, adjusted observations dict, scaled ensemble preds
+
     """
 
     # Convert dictionaries to JAX arrays
@@ -232,17 +271,22 @@ def adjust_observations(keypoints_avg_dict, n_keypoints, scaled_ensemble_preds):
     return mean_obs_dict, adjusted_obs_dict, scaled_ensemble_preds
 
 
-def initialize_kalman_filter(scaled_ensemble_preds, adjusted_obs_dict, n_keypoints):
+def initialize_kalman_filter(
+    scaled_ensemble_preds: np.ndarray,
+    adjusted_obs_dict: dict,
+    n_keypoints: int
+) -> tuple:
     """
     Initialize the Kalman filter values.
 
     Parameters:
-    scaled_ensemble_preds (np.ndarray): Scaled ensemble predictions.
-    adjusted_obs_dict (dict): Adjusted observations dictionary.
-    n_keypoints (int): Number of keypoints.
+        scaled_ensemble_preds: Scaled ensemble predictions.
+        adjusted_obs_dict: Adjusted observations dictionary.
+        n_keypoints: Number of keypoints.
 
     Returns:
-    tuple: Initial Kalman filter values and covariance matrices.
+        tuple: Initial Kalman filter values and covariance matrices.
+
     """
 
     # Convert inputs to JAX arrays
@@ -277,40 +321,52 @@ def initialize_kalman_filter(scaled_ensemble_preds, adjusted_obs_dict, n_keypoin
 
 
 def singlecam_optimize_smooth(
-        cov_mats, ys, m0s, S0s, Cs, As, Rs, ensemble_vars,
-        s_frames, smooth_param, blocks=[], maxiter=1000, verbose=False, inflation_factor=1):
-    """
-    Optimize smoothing parameter, and use the result to run the kalman filter-smoother
+    cov_mats: np.ndarray,
+    ys: np.ndarray,
+    m0s: np.ndarray,
+    S0s: np.ndarray,
+    Cs: np.ndarray,
+    As: np.ndarray,
+    Rs: np.ndarray,
+    ensemble_vars: np.ndarray,
+    s_frames: list,
+    smooth_param: Union[float, list],
+    blocks: list = [],
+    maxiter: int = 1000,
+    verbose: bool = False,
+) -> tuple:
+    """Optimize smoothing parameter, and use the result to run the kalman filter-smoother.
 
     Parameters:
-    cov_mats (np.ndarray): Covariance matrices.
-    ys (np.ndarray): Observations. Shape (keypoints, frames, coordinates). coordinate is usually 2
-    m0s (np.ndarray): Initial mean state.
-    S0s (np.ndarray): Initial state covariance.
-    Cs (np.ndarray): Measurement function.
-    As (np.ndarray): State-transition matrix.
-    Rs (np.ndarray): Measurement noise covariance.
-    ensemble_vars (np.ndarray): Ensemble variances.
-    s_frames (list): List of frames.
-    smooth_param (float): Smoothing parameter.
-    blocks (list): List of blocks.
-    inflation_factor (float): Inflation factor for the covariances (default = 1.1).
+        cov_mats: Covariance matrices.
+        ys: Observations. Shape (keypoints, frames, coordinates). coordinate is usually 2
+        m0s: Initial mean state.
+        S0s: Initial state covariance.
+        Cs: Measurement function.
+        As: State-transition matrix.
+        Rs: Measurement noise covariance.
+        ensemble_vars: Ensemble variances.
+        s_frames: List of frames.
+        smooth_param: Smoothing parameter.
+        blocks: keypoints to be blocked for correlated noise. Generates on smoothing param per
+            block, as opposed to per keypoint.
+            Specified by the form "x1, x2, x3; y1, y2" referring to keypoint indices (start at 0)
+        maxiter
+        verbose
 
     Returns:
-    tuple: Final smoothing parameters, smoothed means, smoothed covariances,
-    negative log-likelihoods, negative log-likelihood values.
+        tuple: Final smoothing parameters, smoothed means, smoothed covariances,
+               negative log-likelihoods, negative log-likelihood values.
+
     """
 
     n_keypoints = ys.shape[0]
     s_finals = []
-    if blocks == []:
+    if len(blocks) == 0:
         for n in range(n_keypoints):
             blocks.append([n])
     if verbose:
         print(f'Correlated keypoint blocks: {blocks}')
-
-    S0s *= inflation_factor  # Inflating the initial state covariance
-    cov_mats *= inflation_factor  # Inflating the process noise covariance matrices
 
     # Depending on whether we use GPU, choose parallel or sequential smoothing param optimization
     try:
@@ -339,7 +395,7 @@ def singlecam_optimize_smooth(
 
     # Optimize smooth_param
     if smooth_param is not None:
-        s_finals = [smooth_param]
+        s_finals = [smooth_param] if isinstance(smooth_param, float) else smooth_param
     else:
         guesses = []
         cropped_ys = []
@@ -369,10 +425,8 @@ def singlecam_optimize_smooth(
             y_subset = cropped_ys[selector]
 
             def step(s, opt_state):
-                loss, grads = jax.value_and_grad(loss_function)(s, cov_mats_sub, y_subset,
-                                                                m0s_crop,
-                                                                S0s_crop, Cs_crop, As_crop,
-                                                                Rs_crop)
+                loss, grads = jax.value_and_grad(loss_function)(
+                    s, cov_mats_sub, y_subset, m0s_crop, S0s_crop, Cs_crop, As_crop, Rs_crop)
                 updates, opt_state = optimizer.update(grads, opt_state)
                 s = optax.apply_updates(s, updates)
                 return s, opt_state, loss
@@ -400,16 +454,16 @@ def singlecam_optimize_smooth(
     s_finals = np.array(s_finals)
     # Final smooth with optimized s
     ms, Vs, nlls = final_forwards_backwards_pass(
-        cov_mats, s_finals,
-        ys, m0s, S0s, Cs, As, Rs, ensemble_vars)
+        cov_mats, s_finals, ys, m0s, S0s, Cs, As, Rs, ensemble_vars,
+    )
 
     return s_finals, ms, Vs, nlls
 
 
-######
-## Routines that use the sequential kalman filter implementation to arrive at the NLL function
-## Note: this code is set up to always run on CPU.
-######
+# ------------------------------------------------------------------------------------------------
+# Routines that use the sequential kalman filter implementation to arrive at the NLL function
+# Note: this code is set up to always run on CPU.
+# ------------------------------------------------------------------------------------------------
 
 def inner_smooth_min_routine(y, m0, S0, A, Q, C, R, ensemble_vars):
     # Run filtering with the current smooth_param
@@ -420,8 +474,7 @@ def inner_smooth_min_routine(y, m0, S0, A, Q, C, R, ensemble_vars):
 inner_smooth_min_routine_vmap = vmap(inner_smooth_min_routine, in_axes=(0, 0, 0, 0, 0, 0, 0))
 
 
-def singlecam_smooth_min(
-        smooth_param, cov_mats, ys, m0s, S0s, Cs, As, Rs, ensemble_vars):
+def singlecam_smooth_min(smooth_param, cov_mats, ys, m0s, S0s, Cs, As, Rs, ensemble_vars):
     """
     Smooths once using the given smooth_param. Returns only the nll, which is the parameter to
     be minimized using the scipy.minimize() function.
@@ -463,7 +516,8 @@ inner_smooth_min_routine_parallel_vmap = jit(
 
 
 def singlecam_smooth_min_parallel(
-        smooth_param, cov_mats, observations, initial_means, initial_covariances, Cs, As, Rs):
+    smooth_param, cov_mats, observations, initial_means, initial_covariances, Cs, As, Rs,
+):
     """
     Computes the maximum likelihood estimator for the process noise variance (smoothness param).
     This function is parallelized to process all keypoints in a given block.

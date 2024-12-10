@@ -260,9 +260,20 @@ def compute_nll(innovations, innovation_covs, epsilon=1e-6):
 
 # ----- Sequential Functions for CPU -----
 
-def jax_ensemble(markers_3d_array, mode='median'):
+def jax_ensemble(
+    markers_3d_array: np.ndarray,
+    avg_mode: str = 'median',
+    var_mode: str = 'confidence_weighted_var',
+):
     """
     Computes ensemble median (or mean) and variance of a 3D array of DLC marker data using JAX.
+
+    Args:
+        markers_3d_array
+        avg_mode
+            'median' | 'mean'
+        var_mode
+            'confidence_weighted_var' | 'var'
 
     Returns:
         ensemble_preds: np.ndarray
@@ -281,32 +292,31 @@ def jax_ensemble(markers_3d_array, mode='median'):
     ensemble_vars = np.zeros((n_frames, n_keypoints, 2))
 
     # Choose the appropriate JAX function based on the mode
-    if mode == 'median':
+    if avg_mode == 'median':
         avg_func = lambda x: jnp.nanmedian(x, axis=0)
-    elif mode == 'mean':
+    elif avg_mode == 'mean':
         avg_func = lambda x: jnp.nanmean(x, axis=0)
-    elif mode == 'confidence_weighted_mean':
-        avg_func = None
     else:
-        raise ValueError(f"{mode} averaging not supported")
+        raise ValueError(f"{avg_mode} averaging not supported")
 
     def compute_stats(i):
         data_x = markers_3d_array[:, :, 3 * i]
         data_y = markers_3d_array[:, :, 3 * i + 1]
         data_likelihood = markers_3d_array[:, :, 3 * i + 2]
 
-        if mode == 'confidence_weighted_mean':
+        avg_x = avg_func(data_x)
+        avg_y = avg_func(data_y)
+
+        if var_mode in ['conf_weighted_var', 'confidence_weighted_var']:
             conf_per_keypoint = jnp.sum(data_likelihood, axis=0)
             mean_conf_per_keypoint = conf_per_keypoint / data_likelihood.shape[0]
-            avg_x = jnp.sum(data_x * data_likelihood, axis=0) / conf_per_keypoint
-            avg_y = jnp.sum(data_y * data_likelihood, axis=0) / conf_per_keypoint
             var_x = jnp.nanvar(data_x, axis=0) / mean_conf_per_keypoint
             var_y = jnp.nanvar(data_y, axis=0) / mean_conf_per_keypoint
-        else:
-            avg_x = avg_func(data_x)
-            avg_y = avg_func(data_y)
+        elif var_mode in ['var', 'variance']:
             var_x = jnp.nanvar(data_x, axis=0)
             var_y = jnp.nanvar(data_y, axis=0)
+        else:
+            raise ValueError(f"{var_mode} for variance computation not supported")
 
         return avg_x, avg_y, var_x, var_y
 

@@ -13,7 +13,6 @@ from eks.utils import convert_lp_dlc
 smoother_type = 'paw'
 args = handle_parse_args(smoother_type)
 input_dir = os.path.abspath(args.input_dir)
-data_type = args.data_type  # Note: LP and DLC are .csv, SLP is .slp
 save_dir = handle_io(input_dir, args.save_dir)  # defaults to outputs\
 save_filename = args.save_filename
 s = args.s

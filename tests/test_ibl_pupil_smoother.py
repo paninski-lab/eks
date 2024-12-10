@@ -233,7 +233,7 @@ def test_ensemble_kalman_smoother_ibl_pupil(
 
     # Run the function with mocked data
     result, smooth_params_out, nll_values = ensemble_kalman_smoother_ibl_pupil(
-        markers_list, keypoint_names, tracker_name, smooth_params, s_frames
+        markers_list, keypoint_names, smooth_params, s_frames
     )
 
     # Assertions
