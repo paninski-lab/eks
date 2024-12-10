@@ -80,7 +80,6 @@ you will need to have a cuda environment with jax enabled. Further instructions 
 docs](https://jax.readthedocs.io/en/latest/installation.html).
 -------------------------------
 
-
 ## Example scripts
 
 We provide several example datasets and fitting scripts to illustrate use of the package. See
