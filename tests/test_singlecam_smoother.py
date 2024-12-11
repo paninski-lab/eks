@@ -1,11 +1,6 @@
-import os
-from unittest.mock import MagicMock, patch
-
-import jax
 import jax.numpy as jnp
 import numpy as np
 import pandas as pd
-import pytest
 
 from eks.singlecam_smoother import (
     adjust_observations,

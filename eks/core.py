@@ -1,5 +1,4 @@
 from functools import partial
-from collections import defaultdict
 
 import jax
 import jax.scipy as jsc
@@ -724,27 +723,26 @@ def eks_zscore(eks_predictions, ensemble_means, ensemble_vars, min_ensemble_std=
 
 
 def compute_covariance_matrix(ensemble_preds):
-    """
-    Compute the covariance matrix E for correlated noise dynamics.
+    """Compute the covariance matrix E for correlated noise dynamics.
 
-    Parameters:
-    ensemble_preds: A 3D array of shape (T, n_keypoints, n_coords)
-                          containing the ensemble predictions.
+    Args:
+        ensemble_preds: shape (T, n_keypoints, n_coords) containing the ensemble predictions.
 
     Returns:
-    E: A 2K x 2K covariance matrix where K is the number of keypoints.
+        E: A 2K x 2K covariance matrix where K is the number of keypoints.
+
     """
     # Get the number of time steps, keypoints, and coordinates
     T, n_keypoints, n_coords = ensemble_preds.shape
 
     # Flatten the ensemble predictions to shape (T, 2K) where K is the number of keypoints
-    flattened_preds = ensemble_preds.reshape(T, -1)
+    # flattened_preds = ensemble_preds.reshape(T, -1)
 
     # Compute the temporal differences
-    temporal_diffs = np.diff(flattened_preds, axis=0)
+    # temporal_diffs = np.diff(flattened_preds, axis=0)
 
     # Compute the covariance matrix of the temporal differences
-    E = np.cov(temporal_diffs, rowvar=False)
+    # E = np.cov(temporal_diffs, rowvar=False)
 
     # Index covariance matrix into blocks for each keypoint
     cov_mats = []

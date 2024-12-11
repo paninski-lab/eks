@@ -164,8 +164,10 @@ def ensemble_kalman_smoother_multicam(
     # --------------------------------------
     # final cleanup
     # --------------------------------------
-    pdindex = make_dlc_pandas_index([keypoint_ensemble],
-                                    labels=["x", "y", "likelihood", "x_var", "y_var", "zscore", "nll", "ensemble_std"])
+    pdindex = make_dlc_pandas_index(
+        [keypoint_ensemble],
+        labels=["x", "y", "likelihood", "x_var", "y_var", "zscore", "nll", "ensemble_std"]
+    )
     camera_indices = []
     for camera in range(num_cameras):
         camera_indices.append([camera * 2, camera * 2 + 1])

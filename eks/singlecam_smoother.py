@@ -19,7 +19,7 @@ from eks.core import (
     jax_forward_pass_nlls,
     pkf_and_loss,
 )
-from eks.utils import crop_frames, format_data, make_dlc_pandas_index, populate_output_dataframe
+from eks.utils import crop_frames, format_data, make_dlc_pandas_index
 
 
 def fit_eks_singlecam(
