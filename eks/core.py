@@ -16,7 +16,6 @@ from jax.lax import associative_scan
 # ------------------------------------------------------------------------------------------
 
 
-# TODO: don't return arrays AND dicts
 def ensemble(
     markers_list: list,
     keys: list,
@@ -43,21 +42,13 @@ def ensemble(
                 shape (samples, n_keypoints)
             ensemble_stacks: np.ndarray
                 shape (n_models, samples, n_keypoints)
-            keypoints_avg_dict: dict
-                keys: marker keypoints, values: shape (samples)
-            keypoints_var_dict: dict
-                keys: marker keypoints, values: shape (samples)
-            keypoints_stack_dict: dict(dict)
-                keys: model_ids, keys: marker keypoints, values: shape (samples)
 
     """
+
     ensemble_preds = []
     ensemble_vars = []
     ensemble_likes = []
     ensemble_stacks = []
-    keypoints_avg_dict = {}
-    keypoints_var_dict = {}
-    keypoints_stack_dict = defaultdict(dict)
 
     if avg_mode == 'median':
         average_func = np.nanmedian
@@ -72,12 +63,9 @@ def ensemble(
         stack = np.zeros((markers_list[0].shape[0], len(markers_list)))
         for k in range(len(markers_list)):
             stack[:, k] = markers_list[k][key]
+        ensemble_stacks.append(stack)
         avg = average_func(stack, axis=1)
         ensemble_preds.append(avg)
-        ensemble_stacks.append(stack)
-        keypoints_avg_dict[key] = avg
-        for i, keypoints in enumerate(stack.T):
-            keypoints_stack_dict[i][key] = stack.T[i]
 
         # collect likelihoods
         likelihood_stack = np.ones((markers_list[0].shape[0], len(markers_list)))
@@ -94,18 +82,14 @@ def ensemble(
             var = var / mean_conf_per_keypoint  # low-confidence --> inflated obs variances
         elif var_mode != 'var':
             raise ValueError(f"var_mode={var_mode} not supported")
-
         ensemble_vars.append(var)
-        keypoints_var_dict[key] = var
 
     ensemble_preds = np.asarray(ensemble_preds).T
     ensemble_vars = np.asarray(ensemble_vars).T
     ensemble_likes = np.asarray(ensemble_likes).T
     ensemble_stacks = np.asarray(ensemble_stacks).T
-    return (
-        ensemble_preds, ensemble_vars, ensemble_likes, ensemble_stacks,
-        keypoints_avg_dict, keypoints_var_dict, keypoints_stack_dict,
-    )
+
+    return ensemble_preds, ensemble_vars, ensemble_likes, ensemble_stacks
 
 
 def forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars):

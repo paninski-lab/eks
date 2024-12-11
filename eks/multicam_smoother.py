@@ -82,20 +82,13 @@ def ensemble_kalman_smoother_multicam(
     cam_ensemble_preds = []
     cam_ensemble_vars = []
     cam_ensemble_stacks = []
-    cam_keypoints_mean_dict = []
-    cam_keypoints_var_dict = []
-    cam_keypoints_stack_dict = []
     for camera in range(num_cameras):
-        cam_ensemble_preds_curr, cam_ensemble_vars_curr, _, cam_ensemble_stacks_curr, \
-            cam_keypoints_mean_dict_curr, cam_keypoints_var_dict_curr, \
-            cam_keypoints_stack_dict_curr = \
-            ensemble(markers_list_cams[camera], keys, avg_mode=ensembling_mode)
+        cam_ensemble_preds_curr, cam_ensemble_vars_curr, _, cam_ensemble_stacks_curr = ensemble(
+            markers_list_cams[camera], keys, avg_mode=ensembling_mode,
+        )
         cam_ensemble_preds.append(cam_ensemble_preds_curr)
         cam_ensemble_vars.append(cam_ensemble_vars_curr)
         cam_ensemble_stacks.append(cam_ensemble_stacks_curr)
-        cam_keypoints_mean_dict.append(cam_keypoints_mean_dict_curr)
-        cam_keypoints_var_dict.append(cam_keypoints_var_dict_curr)
-        cam_keypoints_stack_dict.append(cam_keypoints_stack_dict_curr)
 
     # filter by low ensemble variances
     hstacked_vars = np.hstack(cam_ensemble_vars)

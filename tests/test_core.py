@@ -28,10 +28,9 @@ def test_ensemble():
         markers_list.append(pd.DataFrame(data))
 
     # Run the ensemble function with 'median' mode
-    ensemble_preds, ensemble_vars, ensemble_likes, ensemble_stacks, keypoints_avg_dict, \
-        keypoints_var_dict, keypoints_stack_dict = ensemble(
-            markers_list, keys, avg_mode='median', var_mode='var',
-        )
+    ensemble_preds, ensemble_vars, ensemble_likes, ensemble_stacks = ensemble(
+        markers_list, keys, avg_mode='median', var_mode='var',
+    )
 
     # Verify shapes of output arrays
     assert ensemble_preds.shape == (num_samples, num_keypoints), \
@@ -42,29 +41,33 @@ def test_ensemble():
         f"Likes expected shape {(num_samples, num_keypoints)}, got {ensemble_likes.shape}"
     assert ensemble_stacks.shape == (3, num_samples, num_keypoints), \
         f"Stacks expected shape {(3, num_samples, num_keypoints)}, got {ensemble_stacks.shape}"
-
-    # Verify contents of dictionaries
-    assert set(keypoints_avg_dict.keys()) == set(keys), \
-        f"Expected keys {keys}, got {keypoints_avg_dict.keys()}"
-    assert set(keypoints_var_dict.keys()) == set(keys), \
-        f"Expected keys {keys}, got {keypoints_var_dict.keys()}"
-    assert len(keypoints_stack_dict) == 3, \
-        f"Expected 3 models, got {len(keypoints_stack_dict)}"
+    # Check values for a keypoint (manually compute median and variance)
+    for i, key in enumerate(keys):
+        stack = np.array([df[key].values for df in markers_list]).T
+        expected_mean = np.nanmedian(stack, axis=1)
+        expected_variance = np.nanvar(stack, axis=1)
+        assert np.allclose(ensemble_preds[:, i], expected_mean), \
+            f"Medians not computed correctly in numpy ensemble function"
+        assert np.allclose(ensemble_vars[:, i], expected_variance), \
+            f"Vars not computed correctly in numpy ensemble function"
+        assert np.all(ensemble_likes[:, i] == 0.5), \
+            f"Likelihoods not computed correctly in numpy ensemble function"
 
     # Run the ensemble function with avg_mode='mean' and var_mode='conf_weighted_var'
-    ensemble_preds, ensemble_vars, ensemble_likes, ensemble_stacks, keypoints_avg_dict, \
-        keypoints_var_dict, keypoints_stack_dict = ensemble(
-            markers_list, keys, avg_mode='mean', var_mode='conf_weighted_var',
-        )
+    ensemble_preds, ensemble_vars, ensemble_likes, ensemble_stacks = ensemble(
+        markers_list, keys, avg_mode='mean', var_mode='conf_weighted_var',
+    )
     # Check values for a keypoint (manually compute mean and variance)
-    for key in keys:
+    for i, key in enumerate(keys):
         stack = np.array([df[key].values for df in markers_list]).T
         expected_mean = np.nanmean(stack, axis=1)
         expected_variance = 2.0 * np.nanvar(stack, axis=1)  # 2x since likelihoods all 0.5
-        assert np.allclose(keypoints_avg_dict[key], expected_mean), \
-            f"Means expected {expected_mean} for {key}, got {keypoints_avg_dict[key]}"
-        assert np.allclose(keypoints_var_dict[key], expected_variance), \
-            f"Vars expected {expected_variance} for {key}, got {keypoints_var_dict[key]}"
+        assert np.allclose(ensemble_preds[:, i], expected_mean), \
+            f"Means not computed correctly in numpy ensemble function"
+        assert np.allclose(ensemble_vars[:, i], expected_variance), \
+            f"Conf weighted vars not computed correctly in numpy ensemble function"
+        assert np.all(ensemble_likes[:, i] == 0.5), \
+            f"Likelihoods not computed correctly in numpy ensemble function"
 
 
 def test_kalman_dot_basic():

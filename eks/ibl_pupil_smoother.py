@@ -51,8 +51,10 @@ def get_pupil_diameter(dlc):
     """
     diameters = []
     # Get the x,ys coordinates of the four pupil points
-    top, bottom, left, right = [np.vstack((dlc[f'pupil_{point}_r_x'], dlc[f'pupil_{point}_r_y']))
-                                for point in ['top', 'bottom', 'left', 'right']]
+    top, bottom, left, right = [
+        np.vstack((dlc[f'pupil_{point}_r_x'], dlc[f'pupil_{point}_r_y']))
+        for point in ['top', 'bottom', 'left', 'right']
+    ]
     # First compute direct diameters
     diameters.append(np.linalg.norm(top - bottom, axis=0))
     diameters.append(np.linalg.norm(left - right, axis=0))
@@ -168,28 +170,18 @@ def ensemble_kalman_smoother_ibl_pupil(
         'pupil_top_r_x', 'pupil_top_r_y', 'pupil_bottom_r_x', 'pupil_bottom_r_y',
         'pupil_right_r_x', 'pupil_right_r_y', 'pupil_left_r_x', 'pupil_left_r_y',
     ]
-    (
-        ensemble_preds, ensemble_vars, ensemble_likes, ensemble_stacks,
-        keypoints_mean_dict, keypoints_var_dict, keypoints_stack_dict,
-    ) = ensemble(markers_list, keys, avg_mode=avg_mode, var_mode=var_mode)
+    ensemble_preds, ensemble_vars, ensemble_likes, ensemble_stacks = ensemble(
+        markers_list, keys, avg_mode=avg_mode, var_mode=var_mode,
+    )
 
-    # compute center of mass
-    pupil_locations = get_pupil_location(keypoints_mean_dict)
-    pupil_diameters = get_pupil_diameter(keypoints_mean_dict)
-    diameters = []
-    for i in range(len(markers_list)):
-        keypoints_dict = keypoints_stack_dict[i]
-        diameter = get_pupil_diameter(keypoints_dict)
-        diameters.append(diameter)
-
+    # compute center of mass + diameter
+    pupil_diameters = get_pupil_diameter({key: ensemble_preds[:, i] for i, key in enumerate(keys)})
+    pupil_locations = get_pupil_location({key: ensemble_preds[:, i] for i, key in enumerate(keys)})
     mean_x_obs = np.mean(pupil_locations[:, 0])
     mean_y_obs = np.mean(pupil_locations[:, 1])
+
     # make the mean zero
     x_t_obs, y_t_obs = pupil_locations[:, 0] - mean_x_obs, pupil_locations[:, 1] - mean_y_obs
-
-    # latent variables (observed)
-    # latent variables - diameter, com_x, com_y
-    # z_t_obs = np.vstack((pupil_diameters, x_t_obs, y_t_obs))
 
     # --------------------------------------
     # Set values for kalman filter
