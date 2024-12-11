@@ -25,114 +25,90 @@ from eks.utils import crop_frames, format_data, make_dlc_pandas_index, populate_
 def fit_eks_singlecam(
     input_source: Union[str, list],
     save_file: str,
-    bodypart_list: list,
+    bodypart_list: Optional[list] = None,
     smooth_param: Optional[Union[float, list]] = None,
     s_frames: Optional[list] = None,
     blocks: list = [],
-    ensembling_mode: str = 'median',
-    ensembling_mode_variance: str = 'confidence_weighted_var',
-    zscore_threshold: float = 2,
-    verbose: bool = False,
+    avg_mode: str = 'median',
+    var_mode: str = 'confidence_weighted_var',
 ) -> tuple:
     """Fit the Ensemble Kalman Smoother for single-camera data.
 
     Args:
         input_source: directory path or list of CSV file paths. If a directory path, all files
             within this directory will be used.
-        save_file: location to save EKS outputs.
+        save_file: File to save output dataframe.
         bodypart_list: list of body parts to analyze.
-        smooth_param: smoothing factor; smaller values lead to more smoothing
-        s_frames: frames for automatic optimization if s is not provided.
+        smooth_param: value in (0, Inf); smaller values lead to more smoothing
+        s_frames: Frames for automatic optimization if smooth_param is not provided.
         blocks: keypoints to be blocked for correlated noise. Generates on smoothing param per
             block, as opposed to per keypoint.
             Specified by the form "x1, x2, x3; y1, y2" referring to keypoint indices (start at 0)
-        ensembling_mode: mode for ensembling:
+        avg_mode: mode for averaging across ensemble
             'median' | 'mean'
-        ensembling_mode_variance: mode for computing ensemble variance.
+        var_mode: mode for computing ensemble variance
             'var' | 'confidence_weighted_var'
-        zscore_threshold: z-score threshold.
-        verbose: enables verbose output.
 
     Returns:
         tuple:
-            output_df (DataFrame): DataFrame containing the smoothed results.
+            df_smoothed (pd.DataFrame)
             s_finals (list): List of optimized smoothing factors for each keypoint.
             input_dfs (list): List of input DataFrames for plotting.
             bodypart_list (list): List of body parts used.
 
     """
     # Load and format input files using the unified format_data function
-    input_dfs, output_df, keypoint_names = format_data(input_source)
+    input_dfs_list, _, keypoint_names = format_data(input_source)
 
     if bodypart_list is None:
         bodypart_list = keypoint_names
-    print(f'Input data has been read in for the following keypoints:\n{bodypart_list}')
+    print(f'Input data loaded for keypoints:\n{bodypart_list}')
 
-    # Convert list of DataFrames to a 3D NumPy array
-    data_arrays = [df.to_numpy() for df in input_dfs]
-    markers_3d_array = np.stack(data_arrays, axis=0)
-
-    # Map keypoint names to indices and crop markers_3d_array
-    keypoint_is = {}
-    keys = []
-    for i, col in enumerate(input_dfs[0].columns):
-        keypoint_is[col] = i
-    for part in bodypart_list:
-        keys.append(keypoint_is[part + '_x'])
-        keys.append(keypoint_is[part + '_y'])
-        keys.append(keypoint_is[part + '_likelihood'])
-    key_cols = np.array(keys)
-    markers_3d_array = markers_3d_array[:, :, key_cols]
-
-    # Call the smoother function
-    df_dicts, s_finals = ensemble_kalman_smoother_singlecam(
-        markers_3d_array=markers_3d_array,
-        bodypart_list=bodypart_list,
+    # Run the ensemble Kalman smoother
+    df_smoothed, smooth_params_final = ensemble_kalman_smoother_singlecam(
+        markers_list=input_dfs_list,
+        keypoint_names=bodypart_list,
         smooth_param=smooth_param,
         s_frames=s_frames,
         blocks=blocks,
-        ensembling_mode=ensembling_mode,
-        ensembling_mode_variance=ensembling_mode_variance,
-        zscore_threshold=zscore_threshold,
-        verbose=verbose,
+        avg_mode=avg_mode,
+        var_mode=var_mode,
     )
-
-    # Store eks results in new DataFrames
-    for k in range(len(bodypart_list)):
-        df = df_dicts[k][bodypart_list[k] + '_df']
-        output_df = populate_output_dataframe(df, bodypart_list[k], output_df)
 
     # Save the output DataFrame to CSV
     os.makedirs(os.path.dirname(save_file), exist_ok=True)
-    output_df.to_csv(save_file)
+    df_smoothed.to_csv(save_file)
     print("DataFrames successfully converted to CSV")
 
-    return output_df, s_finals, input_dfs, bodypart_list
+    return df_smoothed, smooth_params_final, input_dfs_list, bodypart_list
 
 
 def ensemble_kalman_smoother_singlecam(
-    markers_3d_array: np.ndarray,
-    bodypart_list: list,
-    smooth_param: Union[float, list],
-    s_frames: list,
+    markers_list: list,
+    keypoint_names: list,
+    smooth_param: Optional[Union[float, list]] = None,
+    s_frames: Optional[list] = None,
     blocks: list = [],
-    ensembling_mode: str = 'median',
-    ensembling_mode_variance: str = 'confidence_weighted_var',
+    avg_mode: str = 'median',
+    var_mode: str = 'confidence_weighted_var',
     zscore_threshold: float = 2,
     verbose: bool = False,
 ) -> tuple:
-    """Perform Ensemble Kalman Smoothing on marker data from a single camera.
+    """Perform Ensemble Kalman Smoothing for single-camera data.
 
     Args:
-        markers_3d_array: 3D array of marker data
-        bodypart_list: List of body parts
-        smooth_param: Smoothing parameter; larger means more smoothing
+        markers_list: pd.DataFrames
+            each list element is a dataframe of predictions from one ensemble member
+        keypoint_names: List of body parts to run smoothing on
+        smooth_param: value in (0, Inf); smaller values lead to more smoothing
         s_frames: List of frames for automatic computation of smoothing parameter
         blocks: keypoints to be blocked for correlated noise. Generates on smoothing param per
             block, as opposed to per keypoint.
             Specified by the form "x1, x2, x3; y1, y2" referring to keypoint indices (start at 0)
-        ensembling_mode: Mode for ensembling
-        ensembling_mode_variance: Mode for computing ensemble variance
+        avg_mode: mode for averaging across ensemble
+            'median' | 'mean'
+        var_mode: mode for computing ensemble variance
+            'var' | 'confidence_weighted_var'
         zscore_threshold: z-score threshold.
         verbose: True to print out details
 
@@ -141,14 +117,30 @@ def ensemble_kalman_smoother_singlecam(
 
     """
 
+    # Convert list of DataFrames to a 3D NumPy array
+    data_arrays = [df.to_numpy() for df in markers_list]
+    markers_3d_array = np.stack(data_arrays, axis=0)
+
+    # Map keypoint names to indices and crop markers_3d_array
+    keypoint_is = {}
+    keys = []
+    for i, col in enumerate(markers_list[0].columns):
+        keypoint_is[col] = i
+    for part in keypoint_names:
+        keys.append(keypoint_is[part + '_x'])
+        keys.append(keypoint_is[part + '_y'])
+        keys.append(keypoint_is[part + '_likelihood'])
+    key_cols = np.array(keys)
+    markers_3d_array = markers_3d_array[:, :, key_cols]
+
     T = markers_3d_array.shape[1]
     n_keypoints = markers_3d_array.shape[2] // 3
     n_coords = 2
 
     # Compute ensemble statistics
     print("Ensembling models")
-    ensemble_preds, ensemble_vars, keypoints_avg_dict = jax_ensemble(
-        markers_3d_array, avg_mode=ensembling_mode, var_mode=ensembling_mode_variance)
+    ensemble_preds, ensemble_vars, ensemble_likes, keypoints_avg_dict = jax_ensemble(
+        markers_3d_array, avg_mode=avg_mode, var_mode=var_mode)
 
     # Calculate mean and adjusted observations
     mean_obs_dict, adjusted_obs_dict, scaled_ensemble_preds = adjust_observations(
@@ -165,8 +157,8 @@ def ensemble_kalman_smoother_singlecam(
     y_m_smooths = np.zeros((n_keypoints, T, n_coords))
     y_v_smooths = np.zeros((n_keypoints, T, n_coords, n_coords))
     eks_preds_array = np.zeros(y_m_smooths.shape)
-    dfs = []
-    df_dicts = []
+
+    data_arr = []
 
     # Process each keypoint
     for k in range(n_keypoints):
@@ -176,39 +168,57 @@ def ensemble_kalman_smoother_singlecam(
         mean_y_obs = mean_obs_dict[3 * k + 1]
 
         # Computing z-score
-        eks_preds_array[k] = y_m_smooths[k].copy()
-        eks_preds_array[k] = np.asarray([eks_preds_array[k].T[0] + mean_x_obs,
-                                         eks_preds_array[k].T[1] + mean_y_obs]).T
-        zscore, ensemble_std = eks_zscore(
-            eks_preds_array[k],
-            ensemble_preds[:, k, :],
-            ensemble_vars[:, k, :],
-            min_ensemble_std=zscore_threshold,
-        )
-        nll = nlls[k]
+        # eks_preds_array[k] = y_m_smooths[k].copy()
+        # eks_preds_array[k] = np.asarray([
+        #     eks_preds_array[k].T[0] + mean_x_obs,
+        #     eks_preds_array[k].T[1] + mean_y_obs,
+        # ]).T
+        # zscore, ensemble_std = eks_zscore(
+        #     eks_preds_array[k],
+        #     ensemble_preds[:, k, :],
+        #     ensemble_vars[:, k, :],
+        #     min_ensemble_std=zscore_threshold,
+        # )
+        # nll = nlls[k]
 
-        # Final Cleanup
-        pdindex = make_dlc_pandas_index(
-            [bodypart_list[k]],
-            labels=["x", "y", "likelihood", "x_var", "y_var", "zscore", "nll", "ensemble_std"],
-        )
-        var = np.empty(y_m_smooths[k].T[0].shape)
-        var[:] = np.nan
-        pred_arr = np.vstack([
-            y_m_smooths[k].T[0] + mean_x_obs,
-            y_m_smooths[k].T[1] + mean_y_obs,
-            var,
-            y_v_smooths[k][:, 0, 0],
-            y_v_smooths[k][:, 1, 1],
-            zscore,
-            nll,
-            ensemble_std,
-        ]).T
-        df = pd.DataFrame(pred_arr, columns=pdindex)
-        dfs.append(df)
-        df_dicts.append({bodypart_list[k] + '_df': df})
+        # keep track of labels for each data entry
+        labels = []
 
-    return df_dicts, s_finals
+        # smoothed x vals
+        data_arr.append(y_m_smooths[k].T[0] + mean_x_obs)
+        labels.append('x')
+        # smoothed y vals
+        data_arr.append(y_m_smooths[k].T[1] + mean_y_obs)
+        labels.append('y')
+        # mean likelihood
+        data_arr.append(ensemble_likes[:, k, 0])
+        labels.append('likelihood')
+        # x vals ensemble median
+        data_arr.append(ensemble_preds[:, k, 0])
+        labels.append('x_ens_median')
+        # y vals ensemble median
+        data_arr.append(ensemble_preds[:, k, 1])
+        labels.append('y_ens_median')
+        # x vals ensemble variance
+        data_arr.append(ensemble_vars[:, k, 0])
+        labels.append('x_ens_var')
+        # y vals ensemble variance
+        data_arr.append(ensemble_vars[:, k, 1])
+        labels.append('y_ens_var')
+        # x vals posterior variance
+        data_arr.append(y_v_smooths[k][:, 0, 0])
+        labels.append('x_posterior_var')
+        # y vals posterior variance
+        data_arr.append(y_v_smooths[k][:, 1, 1])
+        labels.append('y_posterior_var')
+
+    data_arr = np.asarray(data_arr)
+
+    # put data into dataframe
+    pdindex = make_dlc_pandas_index(keypoint_names, labels=labels)
+    markers_df = pd.DataFrame(data_arr.T, columns=pdindex)
+
+    return markers_df, s_finals
 
 
 def adjust_observations(

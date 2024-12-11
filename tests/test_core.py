@@ -534,61 +534,52 @@ def test_compute_nll_random_values():
         np.isfinite(nll_val) for nll_val in nll_values), "Expected all nll_values to be finite"
 
 
-def test_jax_ensemble_basic():
+def test_jax_ensemble():
+
     # Basic test data
     n_models = 4
     n_timepoints = 5
     n_keypoints = 3
     markers_3d_array = np.random.rand(n_models, n_timepoints, n_keypoints * 3)
 
+    # ---------------------------------------------
     # Run jax_ensemble in median mode
-    ensemble_preds, ensemble_vars, keypoints_avg_dict = jax_ensemble(markers_3d_array, avg_mode='median')
-
+    # ---------------------------------------------
+    ensemble_preds, ensemble_vars, ensemble_likes, keypoints_avg_dict = jax_ensemble(
+        markers_3d_array, avg_mode='median')
     # Check output shapes
     assert ensemble_preds.shape == (n_timepoints, n_keypoints, 2), \
         f"Expected shape {(n_timepoints, n_keypoints, 2)}, got {ensemble_preds.shape}"
     assert ensemble_vars.shape == (n_timepoints, n_keypoints, 2), \
         f"Expected shape {(n_timepoints, n_keypoints, 2)}, got {ensemble_vars.shape}"
+    assert ensemble_likes.shape == (n_timepoints, n_keypoints, 1), \
+        f"Expected shape {(n_timepoints, n_keypoints, 1)}, got {ensemble_likes.shape}"
     assert len(keypoints_avg_dict) == n_keypoints * 2, \
         f"Expected {n_keypoints * 2} entries in keypoints_avg_dict, got {len(keypoints_avg_dict)}"
-
-
-def test_jax_ensemble_median_mode():
-    # Test median mode
-    n_models = 4
-    n_timepoints = 5
-    n_keypoints = 3
-    markers_3d_array = np.random.rand(n_models, n_timepoints, n_keypoints * 3)
-
-    # Run jax_ensemble
-    ensemble_preds, ensemble_vars, _ = jax_ensemble(markers_3d_array, avg_mode='median')
-
     # Check that ensemble_preds and ensemble_vars are finite
     assert jnp.isfinite(ensemble_preds).all(), "Expected finite values in ensemble_preds"
     assert jnp.isfinite(ensemble_vars).all(), "Expected finite values in ensemble_vars"
 
-
-def test_jax_ensemble_mean_mode():
-    # Test mean mode
-    n_models = 4
-    n_timepoints = 5
-    n_keypoints = 3
-    markers_3d_array = np.random.rand(n_models, n_timepoints, n_keypoints * 3)
-
+    # ---------------------------------------------
     # Run jax_ensemble in mean mode
-    ensemble_preds, ensemble_vars, _ = jax_ensemble(markers_3d_array, avg_mode='mean')
-
+    # ---------------------------------------------
+    ensemble_preds, ensemble_vars, ensemble_likes, _ = jax_ensemble(
+        markers_3d_array, avg_mode='mean')
+    # Check output shapes
+    assert ensemble_preds.shape == (n_timepoints, n_keypoints, 2), \
+        f"Expected shape {(n_timepoints, n_keypoints, 2)}, got {ensemble_preds.shape}"
+    assert ensemble_vars.shape == (n_timepoints, n_keypoints, 2), \
+        f"Expected shape {(n_timepoints, n_keypoints, 2)}, got {ensemble_vars.shape}"
+    assert ensemble_likes.shape == (n_timepoints, n_keypoints, 1), \
+        f"Expected shape {(n_timepoints, n_keypoints, 1)}, got {ensemble_likes.shape}"
+    assert len(keypoints_avg_dict) == n_keypoints * 2, \
+        f"Expected {n_keypoints * 2} entries in keypoints_avg_dict, got {len(keypoints_avg_dict)}"
     # Check that ensemble_preds and ensemble_vars are finite
     assert jnp.isfinite(ensemble_preds).all(), "Expected finite values in ensemble_preds"
     assert jnp.isfinite(ensemble_vars).all(), "Expected finite values in ensemble_vars"
 
-
-def test_jax_ensemble_unsupported_mode():
+    # ---------------------------------------------
     # Test that unsupported mode raises ValueError
-    n_models = 4
-    n_timepoints = 5
-    n_keypoints = 3
-    markers_3d_array = np.random.rand(n_models, n_timepoints, n_keypoints * 3)
-
+    # ---------------------------------------------
     with pytest.raises(ValueError, match="averaging not supported"):
         jax_ensemble(markers_3d_array, avg_mode='unsupported')

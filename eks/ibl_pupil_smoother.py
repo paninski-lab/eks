@@ -83,26 +83,28 @@ def add_mean_to_array(pred_arr, keys, mean_x, mean_y):
 def fit_eks_pupil(
     input_source: Union[str, list],
     save_file: str,
-    smooth_params: list,
+    smooth_params: Optional[list] = None,
     s_frames: Optional[list] = None,
     avg_mode: str = 'median',
     var_mode: str = 'confidence_weighted_var',
 ) -> tuple:
-    """Function to fit the Ensemble Kalman Smoother for the ibl-pupil dataset.
+    """Fit the Ensemble Kalman Smoother for the ibl-pupil dataset.
 
     Args:
-        input_source: Directory path or list of input CSV files.
-        save_file: File to save outputs.
-        smooth_params: List containing diameter_s and com_s.
+        input_source: directory path or list of CSV file paths. If a directory path, all files
+            within this directory will be used.
+        save_file: File to save output dataframe.
+        smooth_params: [diameter param, center of mass param]
+            each value should be in (0, 1); closer to 1 means more smoothing
         s_frames: Frames for automatic optimization if needed.
-        avg_mode
+        avg_mode: mode for averaging across ensemble
             'median' | 'mean'
-        var_mode
-            'confidence_weighted_var' | 'var'
+        var_mode: mode for computing ensemble variance
+            'var' | 'confidence_weighted_var'
 
     Returns:
         tuple:
-            df_smotthed (pd.DataFrame):
+            df_smoothed (pd.DataFrame)
             smooth_params (list): Final smoothing parameters used.
             input_dfs_list (list): List of input DataFrames.
             keypoint_names (list): List of keypoint names.
@@ -111,14 +113,13 @@ def fit_eks_pupil(
     """
 
     # Load and format input files
-    input_dfs_list, output_df, keypoint_names = format_data(input_source)
+    input_dfs_list, _, keypoint_names = format_data(input_source)
 
     print(f"Input data loaded for keypoints: {keypoint_names}")
 
     # Run the ensemble Kalman smoother
-    df_smoothed, smooth_params, nll_values = ensemble_kalman_smoother_ibl_pupil(
+    df_smoothed, smooth_params_final, nll_values = ensemble_kalman_smoother_ibl_pupil(
         markers_list=input_dfs_list,
-        keypoint_names=keypoint_names,
         smooth_params=smooth_params,
         s_frames=s_frames,
         avg_mode=avg_mode,
@@ -130,13 +131,12 @@ def fit_eks_pupil(
     df_smoothed.to_csv(save_file)
     print("DataFrames successfully converted to CSV")
 
-    return df_smoothed, smooth_params, input_dfs_list, keypoint_names, nll_values
+    return df_smoothed, smooth_params_final, input_dfs_list, keypoint_names, nll_values
 
 
 def ensemble_kalman_smoother_ibl_pupil(
     markers_list: list,
-    keypoint_names: list,
-    smooth_params: list,
+    smooth_params: Optional[list] = None,
     s_frames: Optional[list] = None,
     avg_mode: str = 'median',
     var_mode: str = 'confidence_weighted_var',
@@ -147,7 +147,6 @@ def ensemble_kalman_smoother_ibl_pupil(
     Args:
         markers_list: pd.DataFrames
             each list element is a dataframe of predictions from one ensemble member
-        keypoint_names
         smooth_params: contains smoothing parameters for diameter and center of mass
         s_frames: frames for automatic optimization if s is not provided
         avg_mode
@@ -165,11 +164,11 @@ def ensemble_kalman_smoother_ibl_pupil(
 
     """
 
-    # compute ensemble median
-    keys = [
-        'pupil_top_r_x', 'pupil_top_r_y', 'pupil_bottom_r_x', 'pupil_bottom_r_y',
-        'pupil_right_r_x', 'pupil_right_r_y', 'pupil_left_r_x', 'pupil_left_r_y',
-    ]
+    # pupil smoother only works for a pre-specified set of points
+    keypoint_names = ['pupil_top_r', 'pupil_right_r', 'pupil_bottom_r', 'pupil_left_r']
+    keys = [f'{kp}_{coord}' for kp in keypoint_names for coord in ['x', 'y']]
+
+    # compute ensemble information
     ensemble_preds, ensemble_vars, ensemble_likes, ensemble_stacks = ensemble(
         markers_list, keys, avg_mode=avg_mode, var_mode=var_mode,
     )
@@ -304,12 +303,12 @@ def ensemble_kalman_smoother_ibl_pupil(
 
 def pupil_optimize_smooth(
     y, m0, S0, C, R, ensemble_vars, diameters_var, x_var, y_var,
-    s_frames=[(1, 2000)],
-    smooth_params=[None, None],
+    s_frames: Optional[list] = [(1, 2000)],
+    smooth_params: Optional[list] = [None, None],
 ):
     """Optimize-and-smooth function for the pupil example script."""
     # Optimize smooth_param
-    if smooth_params[0] is None or smooth_params[1] is None:
+    if smooth_params is None or smooth_params[0] is None or smooth_params[1] is None:
 
         # Unpack s_frames
         y_shortened = crop_frames(y, s_frames)

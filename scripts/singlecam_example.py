@@ -34,7 +34,6 @@ output_df, s_finals, input_dfs, bodypart_list = fit_eks_singlecam(
     smooth_param=s,
     s_frames=s_frames,
     blocks=blocks,
-    verbose=verbose,
 )
 
 # Plot results for a specific keypoint (default to last keypoint)

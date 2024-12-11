@@ -257,24 +257,30 @@ def jax_ensemble(
     markers_3d_array: np.ndarray,
     avg_mode: str = 'median',
     var_mode: str = 'confidence_weighted_var',
-):
+) -> tuple:
     """
-    Computes ensemble median (or mean) and variance of a 3D array of DLC marker data using JAX.
+    Compute ensemble mean/median and variance of a 3D marker array using JAX.
 
     Args:
-        markers_3d_array
+        markers_3d_array: shape (n_models, samples, 3 * n_keypoints); "3" is for x, y, likelihood
         avg_mode
             'median' | 'mean'
         var_mode
             'confidence_weighted_var' | 'var'
 
     Returns:
-        ensemble_preds: np.ndarray
-            shape (n_timepoints, n_keypoints, n_coordinates).
-            ensembled predictions for each keypoint for each target
-        ensemble_vars: np.ndarray
-            shape (n_timepoints, n_keypoints, n_coordinates).
-            ensembled variances for each keypoint for each target
+        tuple:
+            ensemble_preds: np.ndarray
+                shape (n_timepoints, n_keypoints, n_coordinates).
+                ensembled predictions for each keypoint
+            ensemble_vars: np.ndarray
+                shape (n_timepoints, n_keypoints, n_coordinates).
+                ensembled variances for each keypoint
+            ensemble_likes: np.ndarray
+                shape (n_timepoints, n_keypoints, 1).
+                mean likelihood for each keypoint
+            keypoints_avg_dict: dict
+
     """
     markers_3d_array = jnp.array(markers_3d_array)  # Convert to JAX array
     n_frames = markers_3d_array.shape[1]
@@ -283,6 +289,7 @@ def jax_ensemble(
     # Initialize output structures
     ensemble_preds = np.zeros((n_frames, n_keypoints, 2))
     ensemble_vars = np.zeros((n_frames, n_keypoints, 2))
+    ensemble_likes = np.zeros((n_frames, n_keypoints, 1))
 
     # Choose the appropriate JAX function based on the mode
     if avg_mode == 'median':
@@ -300,9 +307,10 @@ def jax_ensemble(
         avg_x = avg_func(data_x)
         avg_y = avg_func(data_y)
 
+        conf_per_keypoint = jnp.sum(data_likelihood, axis=0)
+        mean_conf_per_keypoint = conf_per_keypoint / data_likelihood.shape[0]
+
         if var_mode in ['conf_weighted_var', 'confidence_weighted_var']:
-            conf_per_keypoint = jnp.sum(data_likelihood, axis=0)
-            mean_conf_per_keypoint = conf_per_keypoint / data_likelihood.shape[0]
             var_x = jnp.nanvar(data_x, axis=0) / mean_conf_per_keypoint
             var_y = jnp.nanvar(data_y, axis=0) / mean_conf_per_keypoint
         elif var_mode in ['var', 'variance']:
@@ -311,12 +319,12 @@ def jax_ensemble(
         else:
             raise ValueError(f"{var_mode} for variance computation not supported")
 
-        return avg_x, avg_y, var_x, var_y
+        return avg_x, avg_y, var_x, var_y, mean_conf_per_keypoint
 
     compute_stats_jit = jax.jit(compute_stats)
     stats = jax.vmap(compute_stats_jit)(jnp.arange(n_keypoints))
 
-    avg_x, avg_y, var_x, var_y = stats
+    avg_x, avg_y, var_x, var_y, likes = stats
 
     keypoints_avg_dict = {}
     for i in range(n_keypoints):
@@ -324,6 +332,7 @@ def jax_ensemble(
         ensemble_preds[:, i, 1] = avg_y[i]
         ensemble_vars[:, i, 0] = var_x[i]
         ensemble_vars[:, i, 1] = var_y[i]
+        ensemble_likes[:, i, 0] = likes[i]
         keypoints_avg_dict[2 * i] = avg_x[i]
         keypoints_avg_dict[2 * i + 1] = avg_y[i]
 
@@ -332,7 +341,7 @@ def jax_ensemble(
     ensemble_vars = jnp.array(ensemble_vars)
     keypoints_avg_dict = {k: jnp.array(v) for k, v in keypoints_avg_dict.items()}
 
-    return ensemble_preds, ensemble_vars, keypoints_avg_dict
+    return ensemble_preds, ensemble_vars, ensemble_likes, keypoints_avg_dict
 
 
 def kalman_filter_step(carry, curr_y):
