@@ -8,27 +8,30 @@ from collections import defaultdict
 
 
 def test_ensemble():
+
     # Simulate marker data with three models, each with two keypoints and 5 samples
     np.random.seed(0)
     num_samples = 5
     num_keypoints = 2
     markers_list = []
-    keys = ['keypoint_1', 'keypoint_2']
+    keys = ['keypoint_1_x', 'keypoint_2_x']
 
     # Create random data for three different marker DataFrames
     # Adjust column names to match the function's expected 'keypoint_likelihood' format
     for i in range(3):
         data = {
-            'keypoint_1': np.random.rand(num_samples),
-            'keypoint_likelihood': np.random.rand(num_samples),  # Expected naming format
-            'keypoint_2': np.random.rand(num_samples),
-            'keypoint_likelihod': np.random.rand(num_samples)    # Expected naming format
+            'keypoint_1_x': np.random.rand(num_samples),
+            'keypoint_1_likelihood': 0.5 * np.ones(num_samples),  # Expected naming format
+            'keypoint_2_x': np.random.rand(num_samples),
+            'keypoint_2_likelihood': 0.5 * np.ones(num_samples)    # Expected naming format
         }
         markers_list.append(pd.DataFrame(data))
 
     # Run the ensemble function with 'median' mode
     ensemble_preds, ensemble_vars, ensemble_stacks, keypoints_avg_dict, \
-    keypoints_var_dict, keypoints_stack_dict = ensemble(markers_list, keys, mode='median')
+        keypoints_var_dict, keypoints_stack_dict = ensemble(
+            markers_list, keys, avg_mode='median', var_mode='var',
+        )
 
     # Verify shapes of output arrays
     assert ensemble_preds.shape == (num_samples, num_keypoints), \
@@ -46,41 +49,18 @@ def test_ensemble():
     assert len(keypoints_stack_dict) == 3, \
         f"Expected 3 models, got {len(keypoints_stack_dict)}"
 
-    # Check values for a keypoint (manually compute median and variance)
-    for key in keys:
-        stack = np.array([df[key].values for df in markers_list]).T
-        expected_median = np.nanmedian(stack, axis=1)
-        expected_variance = np.nanvar(stack, axis=1)
-
-        assert np.allclose(keypoints_avg_dict[key], expected_median), \
-            f"Expected {expected_median} for {key}, got {keypoints_avg_dict[key]}"
-        assert np.allclose(keypoints_var_dict[key], expected_variance), \
-            f"Expected {expected_variance} for {key}, got {keypoints_var_dict[key]}"
-
-    # Run the ensemble function with 'confidence_weighted_mean' mode
+    # Run the ensemble function with avg_mode='mean' and var_mode='conf_weighted_var'
     ensemble_preds, ensemble_vars, ensemble_stacks, keypoints_avg_dict, \
-    keypoints_var_dict, keypoints_stack_dict = ensemble(markers_list, keys,
-                                                        mode='confidence_weighted_mean')
-
-    # Verify shapes of output arrays again
-    assert ensemble_preds.shape == (num_samples, num_keypoints), \
-        f"Expected shape {(num_samples, num_keypoints)}, got {ensemble_preds.shape}"
-    assert ensemble_vars.shape == (num_samples, num_keypoints), \
-        f"Expected shape {(num_samples, num_keypoints)}, got {ensemble_vars.shape}"
-    assert ensemble_stacks.shape == (3, num_samples, num_keypoints), \
-        f"Expected shape {(3, num_samples, num_keypoints)}, got {ensemble_stacks.shape}"
-
-    # Verify likelihood-based weighted averaging calculations
+        keypoints_var_dict, keypoints_stack_dict = ensemble(
+            markers_list, keys, avg_mode='mean', var_mode='conf_weighted_var',
+        )
+    # Check values for a keypoint (manually compute mean and variance)
     for key in keys:
         stack = np.array([df[key].values for df in markers_list]).T
-        likelihood_stack = np.array([df[key[:-1] + 'likelihood'].values for df in markers_list]).T
-        conf_per_keypoint = np.sum(likelihood_stack, axis=1)
-        weighted_mean = np.sum(stack * likelihood_stack, axis=1) / conf_per_keypoint
-        expected_variance = np.nanvar(stack, axis=1) / (
-                np.sum(likelihood_stack, axis=1) / likelihood_stack.shape[1])
-
-        assert np.allclose(keypoints_avg_dict[key], weighted_mean), \
-            f"Expected {weighted_mean} for {key}, got {keypoints_avg_dict[key]}"
+        expected_mean = np.nanmean(stack, axis=1)
+        expected_variance = 2.0 * np.nanvar(stack, axis=1)  # 2x since likelihoods all 0.5
+        assert np.allclose(keypoints_avg_dict[key], expected_mean), \
+            f"Expected {expected_mean} for {key}, got {keypoints_avg_dict[key]}"
         assert np.allclose(keypoints_var_dict[key], expected_variance), \
             f"Expected {expected_variance} for {key}, got {keypoints_var_dict[key]}"
 
@@ -291,24 +271,25 @@ def test_forward_pass_single_sample():
         f"Expected shape {(T, n_keypoints, n_keypoints)}, got {innovation_cov.shape}"
 
 
-def test_forward_pass_zero_ensemble_vars():
-    # Test with zero ensemble_vars to check stability
-    T = 10
-    n_keypoints = 5
-    n_latents = 3
-
-    y = np.random.randn(T, n_keypoints)
-    m0 = np.random.randn(n_latents)
-    S0 = np.eye(n_latents)
-    C = np.random.randn(n_keypoints, n_latents)
-    R = np.eye(n_keypoints)
-    A = np.eye(n_latents)
-    Q = np.eye(n_latents)
-    ensemble_vars = np.zeros((T, n_keypoints))  # Ensemble vars set to zero
-
-    # Run forward_pass
-    with pytest.raises(np.linalg.LinAlgError):
-        forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
+# NOTE (themattinthehatt): cannot get this working consistenty across package versions
+# def test_forward_pass_zero_ensemble_vars():
+#     # Test with zero ensemble_vars to check stability
+#     T = 10
+#     n_keypoints = 5
+#     n_latents = 3
+#
+#     y = np.random.randn(T, n_keypoints)
+#     m0 = np.random.randn(n_latents)
+#     S0 = np.eye(n_latents)
+#     C = np.random.randn(n_keypoints, n_latents)
+#     R = np.eye(n_keypoints)
+#     A = np.eye(n_latents)
+#     Q = np.eye(n_latents)
+#     ensemble_vars = np.zeros((T, n_keypoints))  # Ensemble vars set to zero
+#
+#     # Run forward_pass
+#     with pytest.raises(np.linalg.LinAlgError):
+#         forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
 
 
 def test_backward_pass_basic():

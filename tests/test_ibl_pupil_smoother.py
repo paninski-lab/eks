@@ -203,9 +203,12 @@ def test_ensemble_kalman_smoother_ibl_pupil(
     ensemble_preds = np.random.randn(100, 8)
     ensemble_vars = np.random.rand(100, 8) * 0.1
     ensemble_stacks = np.random.randn(5, 100, 8)
-    keypoints_mean_dict = {k: np.random.randn(100) for k in [
-        'pupil_top_r_x', 'pupil_top_r_y', 'pupil_bottom_r_x', 'pupil_bottom_r_y',
-        'pupil_right_r_x', 'pupil_right_r_y', 'pupil_left_r_x', 'pupil_left_r_y']}
+    keypoints_mean_dict = {
+        k: np.random.randn(100) for k in [
+            'pupil_top_r_x', 'pupil_top_r_y', 'pupil_bottom_r_x', 'pupil_bottom_r_y',
+            'pupil_right_r_x', 'pupil_right_r_y', 'pupil_left_r_x', 'pupil_left_r_y'
+        ]
+    }
     keypoints_var_dict = keypoints_mean_dict.copy()
     keypoints_stack_dict = {i: keypoints_mean_dict for i in range(5)}
 
@@ -220,8 +223,10 @@ def test_ensemble_kalman_smoother_ibl_pupil(
     mock_smooth.return_value = ([0.5, 0.6], np.random.randn(100, 3), np.random.rand(100, 3, 3), 0.05, [0.1, 0.2])
 
     # Mock the make_dlc_pandas_index function
-    mock_index.return_value = pd.MultiIndex.from_product(
-        [['ensemble-kalman_tracker'], keypoint_names, ['x', 'y', 'likelihood', 'x_var', 'y_var', 'zscore']]
+    mock_index.return_value = pd.MultiIndex.from_product([
+        ['ensemble-kalman_tracker'],
+        keypoint_names,
+        ['x', 'y', 'likelihood', 'x_var', 'y_var', 'zscore']]
     )
 
     # Mock the add_mean_to_array function
@@ -233,7 +238,7 @@ def test_ensemble_kalman_smoother_ibl_pupil(
 
     # Run the function with mocked data
     result, smooth_params_out, nll_values = ensemble_kalman_smoother_ibl_pupil(
-        markers_list, keypoint_names, smooth_params, s_frames
+        markers_list, keypoint_names, smooth_params, s_frames, avg_mode='mean', var_mode='var',
     )
 
     # Assertions

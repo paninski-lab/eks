@@ -83,6 +83,8 @@ def fit_eks_pupil(
     save_file: str,
     smooth_params: list,
     s_frames: Optional[list] = None,
+    avg_mode: str = 'median',
+    var_mode: str = 'confidence_weighted_var',
 ) -> tuple:
     """Function to fit the Ensemble Kalman Smoother for the ibl-pupil dataset.
 
@@ -91,6 +93,10 @@ def fit_eks_pupil(
         save_file: File to save outputs.
         smooth_params: List containing diameter_s and com_s.
         s_frames: Frames for automatic optimization if needed.
+        avg_mode
+            'median' | 'mean'
+        var_mode
+            'confidence_weighted_var' | 'var'
 
     Returns:
         tuple:
@@ -112,7 +118,9 @@ def fit_eks_pupil(
         markers_list=input_dfs_list,
         keypoint_names=keypoint_names,
         smooth_params=smooth_params,
-        s_frames=s_frames
+        s_frames=s_frames,
+        avg_mode=avg_mode,
+        var_mode=var_mode,
     )
 
     # Save the output DataFrame to CSV
@@ -128,16 +136,22 @@ def ensemble_kalman_smoother_ibl_pupil(
     keypoint_names: list,
     smooth_params: list,
     s_frames: Optional[list] = None,
+    avg_mode: str = 'median',
+    var_mode: str = 'confidence_weighted_var',
     zscore_threshold: float = 2,
 ) -> tuple:
     """Perform Ensemble Kalman Smoothing on pupil data.
 
     Args:
         markers_list: pd.DataFrames
-        each list element is a dataframe of predictions from one ensemble member
+            each list element is a dataframe of predictions from one ensemble member
         keypoint_names
         smooth_params: contains smoothing parameters for diameter and center of mass
         s_frames: frames for automatic optimization if s is not provided
+        avg_mode
+            'median' | 'mean'
+        var_mode
+            'confidence_weighted_var' | 'var'
         zscore_threshold: Minimum std threshold to reduce the effect of low ensemble std on a
             zscore metric (default 2).
 
@@ -151,10 +165,12 @@ def ensemble_kalman_smoother_ibl_pupil(
     """
 
     # compute ensemble median
-    keys = ['pupil_top_r_x', 'pupil_top_r_y', 'pupil_bottom_r_x', 'pupil_bottom_r_y',
-            'pupil_right_r_x', 'pupil_right_r_y', 'pupil_left_r_x', 'pupil_left_r_y']
+    keys = [
+        'pupil_top_r_x', 'pupil_top_r_y', 'pupil_bottom_r_x', 'pupil_bottom_r_y',
+        'pupil_right_r_x', 'pupil_right_r_y', 'pupil_left_r_x', 'pupil_left_r_y',
+    ]
     ensemble_preds, ensemble_vars, ensemble_stacks, keypoints_mean_dict, keypoints_var_dict, \
-        keypoints_stack_dict = ensemble(markers_list, keys)
+        keypoints_stack_dict = ensemble(markers_list, keys, avg_mode=avg_mode, var_mode=var_mode)
 
     # compute center of mass
     pupil_locations = get_pupil_location(keypoints_mean_dict)

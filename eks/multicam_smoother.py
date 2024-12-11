@@ -89,7 +89,7 @@ def ensemble_kalman_smoother_multicam(
         cam_ensemble_preds_curr, cam_ensemble_vars_curr, cam_ensemble_stacks_curr, \
             cam_keypoints_mean_dict_curr, cam_keypoints_var_dict_curr, \
             cam_keypoints_stack_dict_curr = \
-            ensemble(markers_list_cams[camera], keys, mode=ensembling_mode)
+            ensemble(markers_list_cams[camera], keys, avg_mode=ensembling_mode)
         cam_ensemble_preds.append(cam_ensemble_preds_curr)
         cam_ensemble_vars.append(cam_ensemble_vars_curr)
         cam_ensemble_stacks.append(cam_ensemble_stacks_curr)

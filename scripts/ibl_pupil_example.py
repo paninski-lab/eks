@@ -6,8 +6,10 @@ from eks.command_line_args import handle_io, handle_parse_args
 from eks.ibl_pupil_smoother import fit_eks_pupil
 from eks.utils import format_data, plot_results
 
+
+smoother_type = 'ibl_pupil'
+
 # Collect User-Provided Arguments
-smoother_type = 'pupil'
 args = handle_parse_args(smoother_type)
 
 # Determine input source (directory or list of files)
@@ -31,7 +33,7 @@ df_dicts, smooth_params, input_dfs_list, keypoint_names, nll_values = fit_eks_pu
     input_source=input_source,
     save_file=os.path.join(save_dir, save_filename or 'eks_pupil.csv'),
     smooth_params=[diameter_s, com_s],
-    s_frames=s_frames
+    s_frames=s_frames,
 )
 
 # Plot results
