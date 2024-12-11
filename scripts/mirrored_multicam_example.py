@@ -5,8 +5,10 @@ from eks.command_line_args import handle_io, handle_parse_args
 from eks.multicam_smoother import ensemble_kalman_smoother_multicam
 from eks.utils import format_data, plot_results, populate_output_dataframe
 
-# Collect User-Provided Args
+
 smoother_type = 'multicam'
+
+# Collect User-Provided Args
 args = handle_parse_args(smoother_type)
 input_dir = os.path.abspath(args.input_dir)
 save_dir = handle_io(input_dir, args.save_dir)  # defaults to outputs

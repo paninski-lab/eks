@@ -9,8 +9,10 @@ from eks.command_line_args import handle_io, handle_parse_args
 from eks.ibl_paw_multiview_smoother import ensemble_kalman_smoother_ibl_paw
 from eks.utils import convert_lp_dlc
 
+
+smoother_type = 'ibl_paw'
+
 # Collect User-Provided Args
-smoother_type = 'paw'
 args = handle_parse_args(smoother_type)
 input_dir = os.path.abspath(args.input_dir)
 save_dir = handle_io(input_dir, args.save_dir)  # defaults to outputs\

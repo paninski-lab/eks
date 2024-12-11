@@ -1,8 +1,15 @@
-import pytest
-import pandas as pd
+from unittest.mock import MagicMock, patch
+
 import numpy as np
-from unittest.mock import patch, MagicMock
-from eks.ibl_pupil_smoother import get_pupil_location, get_pupil_diameter, add_mean_to_array, ensemble_kalman_smoother_ibl_pupil
+import pandas as pd
+import pytest
+
+from eks.ibl_pupil_smoother import (
+    add_mean_to_array,
+    ensemble_kalman_smoother_ibl_pupil,
+    get_pupil_diameter,
+    get_pupil_location,
+)
 
 
 @pytest.fixture
@@ -21,7 +28,7 @@ def mock_dlc_data():
         'pupil_left_r_x': np.random.rand(n_samples),
         'pupil_left_r_y': np.random.rand(n_samples),
         'pupil_right_r_x': np.random.rand(n_samples),
-        'pupil_right_r_y': np.random.rand(n_samples)
+        'pupil_right_r_y': np.random.rand(n_samples),
     }
 
     # Introduce some NaN values randomly
@@ -105,7 +112,7 @@ def test_add_mean_to_array(mock_data_1):
 
     # Assertions to verify the result
     assert isinstance(result, dict), "Expected output to be a dictionary"
-    assert len(result) == len(keys), f"Expected dictionary to have {len(keys)} keys, got {len(result)}"
+    assert len(result) == len(keys), f"Expected dict to have {len(keys)} keys, got {len(result)}"
 
     # Check that the dictionary keys match the input keys
     assert set(result.keys()) == set(keys), "Keys in the output dictionary do not match input keys"
@@ -116,7 +123,9 @@ def test_add_mean_to_array(mock_data_1):
             expected = pred_arr[:, i] + mean_x
         else:
             expected = pred_arr[:, i] + mean_y
-        np.testing.assert_array_almost_equal(result[key], expected, err_msg=f"Mismatch for key '{key}'")
+        np.testing.assert_array_almost_equal(
+            result[key], expected, err_msg=f"Mismatch for key '{key}'"
+        )
 
 
 def test_add_mean_to_array_empty():
@@ -156,7 +165,9 @@ def test_add_mean_to_array_single_row():
 
     # Assertions to verify the result
     for key, expected_value in expected_dict.items():
-        np.testing.assert_array_almost_equal(result[key], expected_value, err_msg=f"Mismatch for key '{key}'")
+        np.testing.assert_array_almost_equal(
+            result[key], expected_value, err_msg=f"Mismatch for key '{key}'"
+        )
 
     print("All tests for add_mean_to_array passed successfully.")
 
@@ -202,15 +213,21 @@ def test_ensemble_kalman_smoother_ibl_pupil(
     # Mock the ensemble function
     ensemble_preds = np.random.randn(100, 8)
     ensemble_vars = np.random.rand(100, 8) * 0.1
+    ensemble_likes = np.ones((100, 8))
     ensemble_stacks = np.random.randn(5, 100, 8)
-    keypoints_mean_dict = {k: np.random.randn(100) for k in [
-        'pupil_top_r_x', 'pupil_top_r_y', 'pupil_bottom_r_x', 'pupil_bottom_r_y',
-        'pupil_right_r_x', 'pupil_right_r_y', 'pupil_left_r_x', 'pupil_left_r_y']}
+    keypoints_mean_dict = {
+        k: np.random.randn(100) for k in [
+            'pupil_top_r_x', 'pupil_top_r_y', 'pupil_bottom_r_x', 'pupil_bottom_r_y',
+            'pupil_right_r_x', 'pupil_right_r_y', 'pupil_left_r_x', 'pupil_left_r_y'
+        ]
+    }
     keypoints_var_dict = keypoints_mean_dict.copy()
     keypoints_stack_dict = {i: keypoints_mean_dict for i in range(5)}
 
-    mock_ensemble.return_value = (ensemble_preds, ensemble_vars, ensemble_stacks,
-                                  keypoints_mean_dict, keypoints_var_dict, keypoints_stack_dict)
+    mock_ensemble.return_value = (
+        ensemble_preds, ensemble_vars, ensemble_likes, ensemble_stacks,
+        keypoints_mean_dict, keypoints_var_dict, keypoints_stack_dict,
+    )
 
     # Mock the get_pupil_location and get_pupil_diameter functions
     mock_get_location.return_value = np.random.randn(100, 2)
@@ -220,8 +237,10 @@ def test_ensemble_kalman_smoother_ibl_pupil(
     mock_smooth.return_value = ([0.5, 0.6], np.random.randn(100, 3), np.random.rand(100, 3, 3), 0.05, [0.1, 0.2])
 
     # Mock the make_dlc_pandas_index function
-    mock_index.return_value = pd.MultiIndex.from_product(
-        [['ensemble-kalman_tracker'], keypoint_names, ['x', 'y', 'likelihood', 'x_var', 'y_var', 'zscore']]
+    mock_index.return_value = pd.MultiIndex.from_product([
+        ['ensemble-kalman_tracker'],
+        keypoint_names,
+        ['x', 'y', 'likelihood', 'x_var', 'y_var', 'zscore']]
     )
 
     # Mock the add_mean_to_array function
@@ -232,24 +251,15 @@ def test_ensemble_kalman_smoother_ibl_pupil(
     mock_zscore.return_value = np.random.randn(100), None
 
     # Run the function with mocked data
-    result, smooth_params_out, nll_values = ensemble_kalman_smoother_ibl_pupil(
-        markers_list, keypoint_names, smooth_params, s_frames
+    smoothed_df, smooth_params_out, nll_values = ensemble_kalman_smoother_ibl_pupil(
+        markers_list, keypoint_names, smooth_params, s_frames, avg_mode='mean', var_mode='var',
     )
 
     # Assertions
-    assert isinstance(result, dict), "Expected result to be a dictionary"
-    assert 'markers_df' in result, "Expected 'markers_df' in result"
-    assert 'latents_df' in result, "Expected 'latents_df' in result"
-
-    markers_df = result['markers_df']
-    latents_df = result['latents_df']
-
-    assert isinstance(markers_df, pd.DataFrame), "markers_df should be a DataFrame"
-    assert isinstance(latents_df, pd.DataFrame), "latents_df should be a DataFrame"
+    assert isinstance(smoothed_df, pd.DataFrame), "first return arg should be a DataFrame"
 
     # Verify the shape of the output DataFrames
-    assert markers_df.shape[0] == 100, "markers_df should have 100 rows"
-    assert latents_df.shape[0] == 100, "latents_df should have 100 rows"
+    assert smoothed_df.shape[0] == 100, "markers_df should have 100 rows"
 
     # Check if the smooth parameters and NLL values are correctly returned
     assert len(smooth_params_out) == 2, "Expected 2 smooth parameters"

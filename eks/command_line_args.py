@@ -79,10 +79,10 @@ def handle_parse_args(script_type):
         add_camera_names(parser)
         add_quantile_keep_pca(parser)
         add_s(parser)
-    elif script_type == 'pupil':
+    elif script_type == 'ibl_pupil':
         add_diameter_s(parser)
         add_com_s(parser)
-    elif script_type == 'paw':
+    elif script_type == 'ibl_paw':
         add_s(parser)
         add_quantile_keep_pca(parser)
     else:
