@@ -203,14 +203,15 @@ def populate_output_dataframe(keypoint_df, keypoint_ensemble, output_df, key_suf
     return output_df
 
 
-def plot_results(output_df, input_dfs_list,
-                 key, s_final, nll_values, idxs, save_dir, smoother_type):
+def plot_results(
+    output_df, input_dfs_list, key, s_final, nll_values, idxs, save_dir, smoother_type,
+):
     if nll_values is None:
-        fig, axes = plt.subplots(4, 1, figsize=(9, 10))
+        fig, axes = plt.subplots(3, 1, figsize=(9, 10))
     else:
-        fig, axes = plt.subplots(5, 1)
+        fig, axes = plt.subplots(4, 1)
 
-    for ax, coord in zip(axes, ['x', 'y', 'likelihood', 'zscore']):
+    for ax, coord in zip(axes, ['x', 'y', 'likelihood']):
         # Rename axes label for likelihood and zscore coordinates
         if coord == 'likelihood':
             ylabel = 'model likelihoods'

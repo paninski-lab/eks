@@ -29,7 +29,7 @@ com_s = args.com_s
 s_frames = args.s_frames
 
 # Run the smoothing function
-df_dicts, smooth_params, input_dfs_list, keypoint_names, nll_values = fit_eks_pupil(
+df_smoothed, smooth_params, input_dfs_list, keypoint_names, nll_values = fit_eks_pupil(
     input_source=input_source,
     save_file=os.path.join(save_dir, save_filename or 'eks_pupil.csv'),
     smooth_params=[diameter_s, com_s],
@@ -38,7 +38,7 @@ df_dicts, smooth_params, input_dfs_list, keypoint_names, nll_values = fit_eks_pu
 
 # Plot results
 plot_results(
-    output_df=df_dicts['markers_df'],
+    output_df=df_smoothed,
     input_dfs_list=input_dfs_list,
     key=f'{keypoint_names[-1]}',
     idxs=(0, 500),

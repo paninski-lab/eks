@@ -16,6 +16,7 @@ from jax.lax import associative_scan
 # ------------------------------------------------------------------------------------------
 
 
+# TODO: don't return arrays AND dicts
 def ensemble(
     markers_list: list,
     keys: list,
@@ -38,6 +39,8 @@ def ensemble(
                 shape (samples, n_keypoints)
             ensemble_vars: np.ndarray
                 shape (samples, n_keypoints)
+            ensemble_likelihoods: np.ndarray
+                shape (samples, n_keypoints)
             ensemble_stacks: np.ndarray
                 shape (n_models, samples, n_keypoints)
             keypoints_avg_dict: dict
@@ -48,9 +51,10 @@ def ensemble(
                 keys: model_ids, keys: marker keypoints, values: shape (samples)
 
     """
-    ensemble_stacks = []
-    ensemble_vars = []
     ensemble_preds = []
+    ensemble_vars = []
+    ensemble_likes = []
+    ensemble_stacks = []
     keypoints_avg_dict = {}
     keypoints_var_dict = {}
     keypoints_stack_dict = defaultdict(dict)
@@ -75,17 +79,18 @@ def ensemble(
         for i, keypoints in enumerate(stack.T):
             keypoints_stack_dict[i][key] = stack.T[i]
 
+        # collect likelihoods
+        likelihood_stack = np.ones((markers_list[0].shape[0], len(markers_list)))
+        likelihood_key = key[:-1] + 'likelihood'
+        if likelihood_key in markers_list[0]:
+            for k in range(len(markers_list)):
+                likelihood_stack[:, k] = markers_list[k][likelihood_key]
+        mean_conf_per_keypoint = np.mean(likelihood_stack, axis=1)
+        ensemble_likes.append(mean_conf_per_keypoint)
+
         # compute variance
         var = np.nanvar(stack, axis=1)
         if var_mode in ['conf_weighted_var', 'confidence_weighted_var']:
-            likelihood_key = key[:-1] + 'likelihood'
-            if likelihood_key not in markers_list[0]:
-                raise ValueError(
-                    f"{likelihood_key} needs to be in your marker_df to use {var_mode}")
-            likelihood_stack = np.zeros((markers_list[0].shape[0], len(markers_list)))
-            for k in range(len(markers_list)):
-                likelihood_stack[:, k] = markers_list[k][likelihood_key]
-            mean_conf_per_keypoint = np.mean(likelihood_stack, axis=1)
             var = var / mean_conf_per_keypoint  # low-confidence --> inflated obs variances
         elif var_mode != 'var':
             raise ValueError(f"var_mode={var_mode} not supported")
@@ -95,9 +100,12 @@ def ensemble(
 
     ensemble_preds = np.asarray(ensemble_preds).T
     ensemble_vars = np.asarray(ensemble_vars).T
+    ensemble_likes = np.asarray(ensemble_likes).T
     ensemble_stacks = np.asarray(ensemble_stacks).T
-    return ensemble_preds, ensemble_vars, ensemble_stacks, \
-        keypoints_avg_dict, keypoints_var_dict, keypoints_stack_dict
+    return (
+        ensemble_preds, ensemble_vars, ensemble_likes, ensemble_stacks,
+        keypoints_avg_dict, keypoints_var_dict, keypoints_stack_dict,
+    )
 
 
 def forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars):

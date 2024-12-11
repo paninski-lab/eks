@@ -12,9 +12,9 @@ def test_ensemble():
     # Simulate marker data with three models, each with two keypoints and 5 samples
     np.random.seed(0)
     num_samples = 5
-    num_keypoints = 2
     markers_list = []
     keys = ['keypoint_1_x', 'keypoint_2_x']
+    num_keypoints = len(keys)
 
     # Create random data for three different marker DataFrames
     # Adjust column names to match the function's expected 'keypoint_likelihood' format
@@ -28,18 +28,20 @@ def test_ensemble():
         markers_list.append(pd.DataFrame(data))
 
     # Run the ensemble function with 'median' mode
-    ensemble_preds, ensemble_vars, ensemble_stacks, keypoints_avg_dict, \
+    ensemble_preds, ensemble_vars, ensemble_likes, ensemble_stacks, keypoints_avg_dict, \
         keypoints_var_dict, keypoints_stack_dict = ensemble(
             markers_list, keys, avg_mode='median', var_mode='var',
         )
 
     # Verify shapes of output arrays
     assert ensemble_preds.shape == (num_samples, num_keypoints), \
-        f"Expected shape {(num_samples, num_keypoints)}, got {ensemble_preds.shape}"
+        f"Means expected shape {(num_samples, num_keypoints)}, got {ensemble_preds.shape}"
     assert ensemble_vars.shape == (num_samples, num_keypoints), \
-        f"Expected shape {(num_samples, num_keypoints)}, got {ensemble_vars.shape}"
+        f"Vars expected shape {(num_samples, num_keypoints)}, got {ensemble_vars.shape}"
+    assert ensemble_likes.shape == (num_samples, num_keypoints), \
+        f"Likes expected shape {(num_samples, num_keypoints)}, got {ensemble_likes.shape}"
     assert ensemble_stacks.shape == (3, num_samples, num_keypoints), \
-        f"Expected shape {(3, num_samples, num_keypoints)}, got {ensemble_stacks.shape}"
+        f"Stacks expected shape {(3, num_samples, num_keypoints)}, got {ensemble_stacks.shape}"
 
     # Verify contents of dictionaries
     assert set(keypoints_avg_dict.keys()) == set(keys), \
@@ -50,7 +52,7 @@ def test_ensemble():
         f"Expected 3 models, got {len(keypoints_stack_dict)}"
 
     # Run the ensemble function with avg_mode='mean' and var_mode='conf_weighted_var'
-    ensemble_preds, ensemble_vars, ensemble_stacks, keypoints_avg_dict, \
+    ensemble_preds, ensemble_vars, ensemble_likes, ensemble_stacks, keypoints_avg_dict, \
         keypoints_var_dict, keypoints_stack_dict = ensemble(
             markers_list, keys, avg_mode='mean', var_mode='conf_weighted_var',
         )
@@ -60,9 +62,9 @@ def test_ensemble():
         expected_mean = np.nanmean(stack, axis=1)
         expected_variance = 2.0 * np.nanvar(stack, axis=1)  # 2x since likelihoods all 0.5
         assert np.allclose(keypoints_avg_dict[key], expected_mean), \
-            f"Expected {expected_mean} for {key}, got {keypoints_avg_dict[key]}"
+            f"Means expected {expected_mean} for {key}, got {keypoints_avg_dict[key]}"
         assert np.allclose(keypoints_var_dict[key], expected_variance), \
-            f"Expected {expected_variance} for {key}, got {keypoints_var_dict[key]}"
+            f"Vars expected {expected_variance} for {key}, got {keypoints_var_dict[key]}"
 
 
 def test_kalman_dot_basic():

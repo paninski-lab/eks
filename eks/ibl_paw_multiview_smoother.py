@@ -132,13 +132,13 @@ def ensemble_kalman_smoother_ibl_paw(
         markers_list_right_cam.append(markers_right_cam)
 
     # compute ensemble median left camera
-    left_cam_ensemble_preds, left_cam_ensemble_vars, left_cam_ensemble_stacks, \
+    left_cam_ensemble_preds, left_cam_ensemble_vars, _, left_cam_ensemble_stacks, \
         left_cam_keypoints_mean_dict, left_cam_keypoints_var_dict, \
         left_cam_keypoints_stack_dict = \
         ensemble(markers_list_left_cam, keys, avg_mode=ensembling_mode, var_mode='var')
 
     # compute ensemble median right camera
-    right_cam_ensemble_preds, right_cam_ensemble_vars, right_cam_ensemble_stacks, \
+    right_cam_ensemble_preds, right_cam_ensemble_vars, _, right_cam_ensemble_stacks, \
         right_cam_keypoints_mean_dict, right_cam_keypoints_var_dict, \
         right_cam_keypoints_stack_dict = \
         ensemble(markers_list_right_cam, keys, avg_mode=ensembling_mode, var_mode='var')

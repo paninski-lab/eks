@@ -100,7 +100,7 @@ def fit_eks_pupil(
 
     Returns:
         tuple:
-            df_dicts (dict): Dictionary containing smoothed DataFrames.
+            df_smotthed (pd.DataFrame):
             smooth_params (list): Final smoothing parameters used.
             input_dfs_list (list): List of input DataFrames.
             keypoint_names (list): List of keypoint names.
@@ -114,7 +114,7 @@ def fit_eks_pupil(
     print(f"Input data loaded for keypoints: {keypoint_names}")
 
     # Run the ensemble Kalman smoother
-    df_dicts, smooth_params, nll_values = ensemble_kalman_smoother_ibl_pupil(
+    df_smoothed, smooth_params, nll_values = ensemble_kalman_smoother_ibl_pupil(
         markers_list=input_dfs_list,
         keypoint_names=keypoint_names,
         smooth_params=smooth_params,
@@ -125,10 +125,10 @@ def fit_eks_pupil(
 
     # Save the output DataFrame to CSV
     os.makedirs(os.path.dirname(save_file), exist_ok=True)
-    df_dicts['markers_df'].to_csv(save_file)
+    df_smoothed.to_csv(save_file)
     print("DataFrames successfully converted to CSV")
 
-    return df_dicts, smooth_params, input_dfs_list, keypoint_names, nll_values
+    return df_smoothed, smooth_params, input_dfs_list, keypoint_names, nll_values
 
 
 def ensemble_kalman_smoother_ibl_pupil(
@@ -156,9 +156,8 @@ def ensemble_kalman_smoother_ibl_pupil(
             zscore metric (default 2).
 
     Returns:
-        tuple
-            dict: markers_df contains smoothed markers; latents_df contains 3d latents: pupil
-                  diameter and pupil center of mass
+        tuple:
+            smoothed markers dataframe
             final smooth params values
             final nll
 
@@ -169,8 +168,10 @@ def ensemble_kalman_smoother_ibl_pupil(
         'pupil_top_r_x', 'pupil_top_r_y', 'pupil_bottom_r_x', 'pupil_bottom_r_y',
         'pupil_right_r_x', 'pupil_right_r_y', 'pupil_left_r_x', 'pupil_left_r_y',
     ]
-    ensemble_preds, ensemble_vars, ensemble_stacks, keypoints_mean_dict, keypoints_var_dict, \
-        keypoints_stack_dict = ensemble(markers_list, keys, avg_mode=avg_mode, var_mode=var_mode)
+    (
+        ensemble_preds, ensemble_vars, ensemble_likes, ensemble_stacks,
+        keypoints_mean_dict, keypoints_var_dict, keypoints_stack_dict,
+    ) = ensemble(markers_list, keys, avg_mode=avg_mode, var_mode=var_mode)
 
     # compute center of mass
     pupil_locations = get_pupil_location(keypoints_mean_dict)
@@ -246,55 +247,67 @@ def ensemble_kalman_smoother_ibl_pupil(
     # cleanup
     # --------------------------------------
 
-    # save out marker info
-    pdindex = make_dlc_pandas_index(
-        keypoint_names,
-        labels=["x", "y", "likelihood", "x_var", "y_var", "zscore"]
-    )
+    # collect data
     processed_arr_dict = add_mean_to_array(y_m_smooth, keys, mean_x_obs, mean_y_obs)
-    key_pair_list = [['pupil_top_r_x', 'pupil_top_r_y'],
-                     ['pupil_right_r_x', 'pupil_right_r_y'],
-                     ['pupil_bottom_r_x', 'pupil_bottom_r_y'],
-                     ['pupil_left_r_x', 'pupil_left_r_y']]
+    key_pair_list = [
+        ['pupil_top_r_x', 'pupil_top_r_y'],
+        ['pupil_right_r_x', 'pupil_right_r_y'],
+        ['pupil_bottom_r_x', 'pupil_bottom_r_y'],
+        ['pupil_left_r_x', 'pupil_left_r_y'],
+    ]
     ensemble_indices = [(0, 1), (4, 5), (2, 3), (6, 7)]
-    pred_arr = []
+    data_arr = []
     for i, key_pair in enumerate(key_pair_list):
-        pred_arr.append(processed_arr_dict[key_pair[0]])
-        pred_arr.append(processed_arr_dict[key_pair[1]])
-        var = np.empty(processed_arr_dict[key_pair[0]].shape)
-        var[:] = 1.0  # TODO: median of observed likelihoods
-        pred_arr.append(var)
-        x_var = y_v_smooth[:, i, i]
-        y_var = y_v_smooth[:, i + 1, i + 1]
-        pred_arr.append(x_var)
-        pred_arr.append(y_var)
+        # keep track of labels for each data entry
+        labels = []
+        # smoothed x vals
+        data_arr.append(processed_arr_dict[key_pair[0]])
+        labels.append('x')
+        # smoothed y vals
+        data_arr.append(processed_arr_dict[key_pair[1]])
+        labels.append('y')
+        # mean likelihood
+        data_arr.append(ensemble_likes[:, ensemble_indices[i][0]])
+        labels.append('likelihood')
+        # x vals ensemble median
+        data_arr.append(ensemble_preds[:, ensemble_indices[i][0]])
+        labels.append('x_ens_median')
+        # y vals ensemble median
+        data_arr.append(ensemble_preds[:, ensemble_indices[i][1]])
+        labels.append('y_ens_median')
+        # x vals ensemble variance
+        data_arr.append(ensemble_vars[:, ensemble_indices[i][0]])
+        labels.append('x_ens_var')
+        # y vals ensemble variance
+        data_arr.append(ensemble_vars[:, ensemble_indices[i][1]])
+        labels.append('y_ens_var')
+        # x vals posterior variance
+        data_arr.append(y_v_smooth[:, i, i])
+        labels.append('x_posterior_var')
+        # y vals posterior variance
+        data_arr.append(y_v_smooth[:, i + 1, i + 1])
+        labels.append('y_posterior_var')
+
         # compute zscore for EKS to see how it deviates from the ensemble
-        eks_predictions = \
-            np.asarray([processed_arr_dict[key_pair[0]], processed_arr_dict[key_pair[1]]]).T
-        ensemble_preds_curr = ensemble_preds[:, ensemble_indices[i][0]: ensemble_indices[i][1] + 1]
-        ensemble_vars_curr = ensemble_vars[:, ensemble_indices[i][0]: ensemble_indices[i][1] + 1]
-        zscore, _ = eks_zscore(
-            eks_predictions,
-            ensemble_preds_curr,
-            ensemble_vars_curr,
-            min_ensemble_std=zscore_threshold,
-        )
-        pred_arr.append(zscore)
-    pred_arr = np.asarray(pred_arr)
-    markers_df = pd.DataFrame(pred_arr.T, columns=pdindex)
+        # eks_predictions = \
+        #     np.asarray([processed_arr_dict[key_pair[0]], processed_arr_dict[key_pair[1]]]).T
+        # ensemble_preds_curr = ensemble_preds[:, ensemble_indices[i][0]: ensemble_indices[i][1] + 1]
+        # ensemble_vars_curr = ensemble_vars[:, ensemble_indices[i][0]: ensemble_indices[i][1] + 1]
+        # zscore, _ = eks_zscore(
+        #     eks_predictions,
+        #     ensemble_preds_curr,
+        #     ensemble_vars_curr,
+        #     min_ensemble_std=zscore_threshold,
+        # )
+        # data_arr.append(zscore)
 
-    # save out latents info: pupil diam, center of mass
-    pred_arr2 = np.asarray([
-        ms[:, 0],
-        ms[:, 1] + mean_x_obs,  # add back x mean of pupil location
-        ms[:, 2] + mean_y_obs,  # add back ys mean of pupil location
-    ])
-    tracker_name = 'ensemble-kalman_tracker'
-    arrays = [[tracker_name, tracker_name, tracker_name], ['diameter', 'com_x', 'com_y']]
-    pd_index2 = pd.MultiIndex.from_arrays(arrays, names=('scorer', 'latent'))
-    latents_df = pd.DataFrame(pred_arr2.T, columns=pd_index2)
+    data_arr = np.asarray(data_arr)
 
-    return {'markers_df': markers_df, 'latents_df': latents_df}, smooth_params, nll_values
+    # put data in dataframe
+    pdindex = make_dlc_pandas_index(keypoint_names, labels=labels)
+    markers_df = pd.DataFrame(data_arr.T, columns=pdindex)
+
+    return markers_df, smooth_params, nll_values
 
 
 def pupil_optimize_smooth(
