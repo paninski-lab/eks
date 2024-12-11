@@ -2,10 +2,16 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
 
-from eks.core import ensemble, eks_zscore, compute_initial_guesses, forward_pass, backward_pass, \
-    compute_nll
-from eks.ibl_paw_multiview_smoother import remove_camera_means, pca
-from eks.utils import make_dlc_pandas_index, crop_frames
+from eks.core import (
+    backward_pass,
+    compute_initial_guesses,
+    compute_nll,
+    eks_zscore,
+    ensemble,
+    forward_pass,
+)
+from eks.ibl_paw_multiview_smoother import pca, remove_camera_means
+from eks.utils import crop_frames, make_dlc_pandas_index
 
 
 def ensemble_kalman_smoother_multicam(
@@ -158,8 +164,10 @@ def ensemble_kalman_smoother_multicam(
     # --------------------------------------
     # final cleanup
     # --------------------------------------
-    pdindex = make_dlc_pandas_index([keypoint_ensemble],
-                                    labels=["x", "y", "likelihood", "x_var", "y_var", "zscore", "nll", "ensemble_std"])
+    pdindex = make_dlc_pandas_index(
+        [keypoint_ensemble],
+        labels=["x", "y", "likelihood", "x_var", "y_var", "zscore", "nll", "ensemble_std"]
+    )
     camera_indices = []
     for camera in range(num_cameras):
         camera_indices.append([camera * 2, camera * 2 + 1])

@@ -1,5 +1,4 @@
 from functools import partial
-from collections import defaultdict
 
 import jax
 import jax.scipy as jsc
@@ -257,24 +256,29 @@ def jax_ensemble(
     markers_3d_array: np.ndarray,
     avg_mode: str = 'median',
     var_mode: str = 'confidence_weighted_var',
-):
+) -> tuple:
     """
-    Computes ensemble median (or mean) and variance of a 3D array of DLC marker data using JAX.
+    Compute ensemble mean/median and variance of a 3D marker array using JAX.
 
     Args:
-        markers_3d_array
+        markers_3d_array: shape (n_models, samples, 3 * n_keypoints); "3" is for x, y, likelihood
         avg_mode
             'median' | 'mean'
         var_mode
             'confidence_weighted_var' | 'var'
 
     Returns:
-        ensemble_preds: np.ndarray
-            shape (n_timepoints, n_keypoints, n_coordinates).
-            ensembled predictions for each keypoint for each target
-        ensemble_vars: np.ndarray
-            shape (n_timepoints, n_keypoints, n_coordinates).
-            ensembled variances for each keypoint for each target
+        tuple:
+            ensemble_preds: np.ndarray
+                shape (n_timepoints, n_keypoints, n_coordinates).
+                ensembled predictions for each keypoint
+            ensemble_vars: np.ndarray
+                shape (n_timepoints, n_keypoints, n_coordinates).
+                ensembled variances for each keypoint
+            ensemble_likes: np.ndarray
+                shape (n_timepoints, n_keypoints, 1).
+                mean likelihood for each keypoint
+
     """
     markers_3d_array = jnp.array(markers_3d_array)  # Convert to JAX array
     n_frames = markers_3d_array.shape[1]
@@ -283,6 +287,7 @@ def jax_ensemble(
     # Initialize output structures
     ensemble_preds = np.zeros((n_frames, n_keypoints, 2))
     ensemble_vars = np.zeros((n_frames, n_keypoints, 2))
+    ensemble_likes = np.zeros((n_frames, n_keypoints, 1))
 
     # Choose the appropriate JAX function based on the mode
     if avg_mode == 'median':
@@ -300,9 +305,10 @@ def jax_ensemble(
         avg_x = avg_func(data_x)
         avg_y = avg_func(data_y)
 
+        conf_per_keypoint = jnp.sum(data_likelihood, axis=0)
+        mean_conf_per_keypoint = conf_per_keypoint / data_likelihood.shape[0]
+
         if var_mode in ['conf_weighted_var', 'confidence_weighted_var']:
-            conf_per_keypoint = jnp.sum(data_likelihood, axis=0)
-            mean_conf_per_keypoint = conf_per_keypoint / data_likelihood.shape[0]
             var_x = jnp.nanvar(data_x, axis=0) / mean_conf_per_keypoint
             var_y = jnp.nanvar(data_y, axis=0) / mean_conf_per_keypoint
         elif var_mode in ['var', 'variance']:
@@ -311,28 +317,25 @@ def jax_ensemble(
         else:
             raise ValueError(f"{var_mode} for variance computation not supported")
 
-        return avg_x, avg_y, var_x, var_y
+        return avg_x, avg_y, var_x, var_y, mean_conf_per_keypoint
 
     compute_stats_jit = jax.jit(compute_stats)
     stats = jax.vmap(compute_stats_jit)(jnp.arange(n_keypoints))
 
-    avg_x, avg_y, var_x, var_y = stats
+    avg_x, avg_y, var_x, var_y, likes = stats
 
-    keypoints_avg_dict = {}
     for i in range(n_keypoints):
         ensemble_preds[:, i, 0] = avg_x[i]
         ensemble_preds[:, i, 1] = avg_y[i]
         ensemble_vars[:, i, 0] = var_x[i]
         ensemble_vars[:, i, 1] = var_y[i]
-        keypoints_avg_dict[2 * i] = avg_x[i]
-        keypoints_avg_dict[2 * i + 1] = avg_y[i]
+        ensemble_likes[:, i, 0] = likes[i]
 
     # Convert outputs to JAX arrays
     ensemble_preds = jnp.array(ensemble_preds)
     ensemble_vars = jnp.array(ensemble_vars)
-    keypoints_avg_dict = {k: jnp.array(v) for k, v in keypoints_avg_dict.items()}
 
-    return ensemble_preds, ensemble_vars, keypoints_avg_dict
+    return ensemble_preds, ensemble_vars, ensemble_likes
 
 
 def kalman_filter_step(carry, curr_y):
@@ -720,27 +723,26 @@ def eks_zscore(eks_predictions, ensemble_means, ensemble_vars, min_ensemble_std=
 
 
 def compute_covariance_matrix(ensemble_preds):
-    """
-    Compute the covariance matrix E for correlated noise dynamics.
+    """Compute the covariance matrix E for correlated noise dynamics.
 
-    Parameters:
-    ensemble_preds: A 3D array of shape (T, n_keypoints, n_coords)
-                          containing the ensemble predictions.
+    Args:
+        ensemble_preds: shape (T, n_keypoints, n_coords) containing the ensemble predictions.
 
     Returns:
-    E: A 2K x 2K covariance matrix where K is the number of keypoints.
+        E: A 2K x 2K covariance matrix where K is the number of keypoints.
+
     """
     # Get the number of time steps, keypoints, and coordinates
     T, n_keypoints, n_coords = ensemble_preds.shape
 
     # Flatten the ensemble predictions to shape (T, 2K) where K is the number of keypoints
-    flattened_preds = ensemble_preds.reshape(T, -1)
+    # flattened_preds = ensemble_preds.reshape(T, -1)
 
     # Compute the temporal differences
-    temporal_diffs = np.diff(flattened_preds, axis=0)
+    # temporal_diffs = np.diff(flattened_preds, axis=0)
 
     # Compute the covariance matrix of the temporal differences
-    E = np.cov(temporal_diffs, rowvar=False)
+    # E = np.cov(temporal_diffs, rowvar=False)
 
     # Index covariance matrix into blocks for each keypoint
     cov_mats = []

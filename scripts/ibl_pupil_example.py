@@ -4,7 +4,7 @@ import os
 
 from eks.command_line_args import handle_io, handle_parse_args
 from eks.ibl_pupil_smoother import fit_eks_pupil
-from eks.utils import format_data, plot_results
+from eks.utils import plot_results
 
 
 smoother_type = 'ibl_pupil'

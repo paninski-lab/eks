@@ -1,10 +1,8 @@
 import pytest
 import numpy as np
 import jax.numpy as jnp
-import jax
 import pandas as pd
 from eks.core import ensemble, kalman_dot, forward_pass, backward_pass, compute_nll, jax_ensemble
-from collections import defaultdict
 
 
 def test_ensemble():
@@ -47,11 +45,11 @@ def test_ensemble():
         expected_mean = np.nanmedian(stack, axis=1)
         expected_variance = np.nanvar(stack, axis=1)
         assert np.allclose(ensemble_preds[:, i], expected_mean), \
-            f"Medians not computed correctly in numpy ensemble function"
+            "Medians not computed correctly in numpy ensemble function"
         assert np.allclose(ensemble_vars[:, i], expected_variance), \
-            f"Vars not computed correctly in numpy ensemble function"
+            "Vars not computed correctly in numpy ensemble function"
         assert np.all(ensemble_likes[:, i] == 0.5), \
-            f"Likelihoods not computed correctly in numpy ensemble function"
+            "Likelihoods not computed correctly in numpy ensemble function"
 
     # Run the ensemble function with avg_mode='mean' and var_mode='conf_weighted_var'
     ensemble_preds, ensemble_vars, ensemble_likes, ensemble_stacks = ensemble(
@@ -63,11 +61,11 @@ def test_ensemble():
         expected_mean = np.nanmean(stack, axis=1)
         expected_variance = 2.0 * np.nanvar(stack, axis=1)  # 2x since likelihoods all 0.5
         assert np.allclose(ensemble_preds[:, i], expected_mean), \
-            f"Means not computed correctly in numpy ensemble function"
+            "Means not computed correctly in numpy ensemble function"
         assert np.allclose(ensemble_vars[:, i], expected_variance), \
-            f"Conf weighted vars not computed correctly in numpy ensemble function"
+            "Conf weighted vars not computed correctly in numpy ensemble function"
         assert np.all(ensemble_likes[:, i] == 0.5), \
-            f"Likelihoods not computed correctly in numpy ensemble function"
+            "Likelihoods not computed correctly in numpy ensemble function"
 
 
 def test_kalman_dot_basic():
@@ -166,7 +164,8 @@ def test_kalman_dot_random_values():
     # Run kalman_dot
     Ks, innovation_cov = kalman_dot(innovation, V, C, R)
 
-    # Check if innovation_cov is positive semi-definite (eigenvalues should be non-negative or close to zero)
+    # Check if innovation_cov is positive semi-definite
+    # (eigenvalues should be non-negative or close to zero)
     eigvals = np.linalg.eigvalsh(innovation_cov)
     assert np.all(eigvals >= -1e-8), "Expected innovation_cov to be positive semi-definite"
     assert Ks.shape == (n_latents,), f"Expected shape {(n_latents,)}, got {Ks.shape}"
@@ -197,15 +196,16 @@ def test_forward_pass_basic():
     mf, Vf, S, innovations, innovation_cov = forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
 
     # Check output shapes
-    assert mf.shape == (T, n_latents), f"Expected shape {(T, n_latents)}, got {mf.shape}"
-    assert Vf.shape == (
-    T, n_latents, n_latents), f"Expected shape {(T, n_latents, n_latents)}, got {Vf.shape}"
-    assert S.shape == (
-    T, n_latents, n_latents), f"Expected shape {(T, n_latents, n_latents)}, got {S.shape}"
-    assert innovations.shape == (
-    T, n_keypoints), f"Expected shape {(T, n_keypoints)}, got {innovations.shape}"
-    assert innovation_cov.shape == (T, n_keypoints,
-                                    n_keypoints), f"Expected shape {(T, n_keypoints, n_keypoints)}, got {innovation_cov.shape}"
+    assert mf.shape == (T, n_latents), \
+        f"Expected shape {(T, n_latents)}, got {mf.shape}"
+    assert Vf.shape == (T, n_latents, n_latents), \
+        f"Expected shape {(T, n_latents, n_latents)}, got {Vf.shape}"
+    assert S.shape == (T, n_latents, n_latents), \
+        f"Expected shape {(T, n_latents, n_latents)}, got {S.shape}"
+    assert innovations.shape == (T, n_keypoints), \
+        f"Expected shape {(T, n_keypoints)}, got {innovations.shape}"
+    assert innovation_cov.shape == (T, n_keypoints, n_keypoints), \
+        f"Expected shape {(T, n_keypoints, n_keypoints)}, got {innovation_cov.shape}"
 
 
 def test_forward_pass_with_nan_values():
@@ -236,10 +236,12 @@ def test_forward_pass_with_nan_values():
         else:
             if found_nan_propagation:
                 # Once NaNs are expected, allow them to propagate
-                assert np.isnan(mf[t]).all(), f"Expected NaNs in mf at time {t} due to propagation, found finite values"
+                assert np.isnan(mf[t]).all(), \
+                    f"Expected NaNs in mf at time {t} due to propagation, found finite values"
             else:
                 # Check for finite values up until the first NaN propagation
-                assert np.isfinite(mf[t]).all(), f"Expected finite values in mf at time {t}, found NaNs"
+                assert np.isfinite(mf[t]).all(), \
+                    f"Expected finite values in mf at time {t}, found NaNs"
 
     # Ensure Vf and innovation_cov have finite values where possible
     assert np.isfinite(Vf).all(), "Non-finite values found in Vf"
@@ -265,13 +267,14 @@ def test_forward_pass_single_sample():
     mf, Vf, S, innovations, innovation_cov = forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
 
     # Check output shapes with a single sample
-    assert mf.shape == (T, n_latents), f"Expected shape {(T, n_latents)}, got {mf.shape}"
-    assert Vf.shape == (
-    T, n_latents, n_latents), f"Expected shape {(T, n_latents, n_latents)}, got {Vf.shape}"
-    assert S.shape == (
-    T, n_latents, n_latents), f"Expected shape {(T, n_latents, n_latents)}, got {S.shape}"
-    assert innovations.shape == (
-    T, n_keypoints), f"Expected shape {(T, n_keypoints)}, got {innovations.shape}"
+    assert mf.shape == (T, n_latents), \
+        f"Expected shape {(T, n_latents)}, got {mf.shape}"
+    assert Vf.shape == (T, n_latents, n_latents), \
+        f"Expected shape {(T, n_latents, n_latents)}, got {Vf.shape}"
+    assert S.shape == (T, n_latents, n_latents), \
+        f"Expected shape {(T, n_latents, n_latents)}, got {S.shape}"
+    assert innovations.shape == (T, n_keypoints), \
+        f"Expected shape {(T, n_keypoints)}, got {innovations.shape}"
     assert innovation_cov.shape == (T, n_keypoints, n_keypoints), \
         f"Expected shape {(T, n_keypoints, n_keypoints)}, got {innovation_cov.shape}"
 
@@ -314,9 +317,12 @@ def test_backward_pass_basic():
     ms, Vs, CV = backward_pass(y, mf, Vf, S, A)
 
     # Verify shapes of output arrays
-    assert ms.shape == (T, n_latents), f"Expected shape {(T, n_latents)}, got {ms.shape}"
-    assert Vs.shape == (T, n_latents, n_latents), f"Expected shape {(T, n_latents, n_latents)}, got {Vs.shape}"
-    assert CV.shape == (T - 1, n_latents, n_latents), f"Expected shape {(T - 1, n_latents, n_latents)}, got {CV.shape}"
+    assert ms.shape == (T, n_latents), \
+        f"Expected shape {(T, n_latents)}, got {ms.shape}"
+    assert Vs.shape == (T, n_latents, n_latents), \
+        f"Expected shape {(T, n_latents, n_latents)}, got {Vs.shape}"
+    assert CV.shape == (T - 1, n_latents, n_latents), \
+        f"Expected shape {(T - 1, n_latents, n_latents)}, got {CV.shape}"
 
     # Check that ms, Vs, and CV contain finite values
     assert np.isfinite(ms).all(), "Non-finite values found in ms"
@@ -342,9 +348,12 @@ def test_backward_pass_with_nan_values():
     ms, Vs, CV = backward_pass(y, mf, Vf, S, A)
 
     # Verify shapes of output arrays
-    assert ms.shape == (T, n_latents), f"Expected shape {(T, n_latents)}, got {ms.shape}"
-    assert Vs.shape == (T, n_latents, n_latents), f"Expected shape {(T, n_latents, n_latents)}, got {Vs.shape}"
-    assert CV.shape == (T - 1, n_latents, n_latents), f"Expected shape {(T - 1, n_latents, n_latents)}, got {CV.shape}"
+    assert ms.shape == (T, n_latents), \
+        f"Expected shape {(T, n_latents)}, got {ms.shape}"
+    assert Vs.shape == (T, n_latents, n_latents), \
+        f"Expected shape {(T, n_latents, n_latents)}, got {Vs.shape}"
+    assert CV.shape == (T - 1, n_latents, n_latents), \
+        f"Expected shape {(T - 1, n_latents, n_latents)}, got {CV.shape}"
 
     # Check that ms, Vs, and CV contain finite values
     assert np.isfinite(ms).all(), "Non-finite values found in ms"
@@ -368,9 +377,12 @@ def test_backward_pass_single_timestep():
     ms, Vs, CV = backward_pass(y, mf, Vf, S, A)
 
     # Verify shapes of output arrays
-    assert ms.shape == (T, n_latents), f"Expected shape {(T, n_latents)}, got {ms.shape}"
-    assert Vs.shape == (T, n_latents, n_latents), f"Expected shape {(T, n_latents, n_latents)}, got {Vs.shape}"
-    assert CV.shape == (T - 1, n_latents, n_latents), f"Expected shape {(T - 1, n_latents, n_latents)}, got {CV.shape}"
+    assert ms.shape == (T, n_latents), \
+        f"Expected shape {(T, n_latents)}, got {ms.shape}"
+    assert Vs.shape == (T, n_latents, n_latents), \
+        f"Expected shape {(T, n_latents, n_latents)}, got {Vs.shape}"
+    assert CV.shape == (T - 1, n_latents, n_latents), \
+        f"Expected shape {(T - 1, n_latents, n_latents)}, got {CV.shape}"
 
     # Check that ms and Vs contain finite values
     assert np.isfinite(ms).all(), "Non-finite values found in ms"
@@ -395,11 +407,12 @@ def test_backward_pass_singular_S_matrix():
         ms, Vs, CV = backward_pass(y, mf, Vf, S, A)
 
         # Verify shapes of output arrays
-        assert ms.shape == (T, n_latents), f"Expected shape {(T, n_latents)}, got {ms.shape}"
-        assert Vs.shape == (
-        T, n_latents, n_latents), f"Expected shape {(T, n_latents, n_latents)}, got {Vs.shape}"
-        assert CV.shape == (T - 1, n_latents,
-                            n_latents), f"Expected shape {(T - 1, n_latents, n_latents)}, got {CV.shape}"
+        assert ms.shape == (T, n_latents), \
+            f"Expected shape {(T, n_latents)}, got {ms.shape}"
+        assert Vs.shape == (T, n_latents, n_latents), \
+            f"Expected shape {(T, n_latents, n_latents)}, got {Vs.shape}"
+        assert CV.shape == (T - 1, n_latents, n_latents), \
+            f"Expected shape {(T - 1, n_latents, n_latents)}, got {CV.shape}"
 
         # Check for finite values in outputs, expecting NaNs or Infs due to singular S
         assert np.all(np.isfinite(ms)), "Non-finite values found in ms"
@@ -427,9 +440,12 @@ def test_backward_pass_random_values():
     ms, Vs, CV = backward_pass(y, mf, Vf, S, A)
 
     # Verify shapes of output arrays
-    assert ms.shape == (T, n_latents), f"Expected shape {(T, n_latents)}, got {ms.shape}"
-    assert Vs.shape == (T, n_latents, n_latents), f"Expected shape {(T, n_latents, n_latents)}, got {Vs.shape}"
-    assert CV.shape == (T - 1, n_latents, n_latents), f"Expected shape {(T - 1, n_latents, n_latents)}, got {CV.shape}"
+    assert ms.shape == (T, n_latents), \
+        f"Expected shape {(T, n_latents)}, got {ms.shape}"
+    assert Vs.shape == (T, n_latents, n_latents), \
+        f"Expected shape {(T, n_latents, n_latents)}, got {Vs.shape}"
+    assert CV.shape == (T - 1, n_latents, n_latents), \
+        f"Expected shape {(T - 1, n_latents, n_latents)}, got {CV.shape}"
 
     # Check that ms, Vs, and CV contain finite values
     assert np.isfinite(ms).all(), "Non-finite values found in ms"
@@ -534,61 +550,48 @@ def test_compute_nll_random_values():
         np.isfinite(nll_val) for nll_val in nll_values), "Expected all nll_values to be finite"
 
 
-def test_jax_ensemble_basic():
+def test_jax_ensemble():
+
     # Basic test data
     n_models = 4
     n_timepoints = 5
     n_keypoints = 3
     markers_3d_array = np.random.rand(n_models, n_timepoints, n_keypoints * 3)
 
+    # ---------------------------------------------
     # Run jax_ensemble in median mode
-    ensemble_preds, ensemble_vars, keypoints_avg_dict = jax_ensemble(markers_3d_array, avg_mode='median')
-
+    # ---------------------------------------------
+    ensemble_preds, ensemble_vars, ensemble_likes = jax_ensemble(
+        markers_3d_array, avg_mode='median')
     # Check output shapes
     assert ensemble_preds.shape == (n_timepoints, n_keypoints, 2), \
         f"Expected shape {(n_timepoints, n_keypoints, 2)}, got {ensemble_preds.shape}"
     assert ensemble_vars.shape == (n_timepoints, n_keypoints, 2), \
         f"Expected shape {(n_timepoints, n_keypoints, 2)}, got {ensemble_vars.shape}"
-    assert len(keypoints_avg_dict) == n_keypoints * 2, \
-        f"Expected {n_keypoints * 2} entries in keypoints_avg_dict, got {len(keypoints_avg_dict)}"
-
-
-def test_jax_ensemble_median_mode():
-    # Test median mode
-    n_models = 4
-    n_timepoints = 5
-    n_keypoints = 3
-    markers_3d_array = np.random.rand(n_models, n_timepoints, n_keypoints * 3)
-
-    # Run jax_ensemble
-    ensemble_preds, ensemble_vars, _ = jax_ensemble(markers_3d_array, avg_mode='median')
-
+    assert ensemble_likes.shape == (n_timepoints, n_keypoints, 1), \
+        f"Expected shape {(n_timepoints, n_keypoints, 1)}, got {ensemble_likes.shape}"
     # Check that ensemble_preds and ensemble_vars are finite
     assert jnp.isfinite(ensemble_preds).all(), "Expected finite values in ensemble_preds"
     assert jnp.isfinite(ensemble_vars).all(), "Expected finite values in ensemble_vars"
 
-
-def test_jax_ensemble_mean_mode():
-    # Test mean mode
-    n_models = 4
-    n_timepoints = 5
-    n_keypoints = 3
-    markers_3d_array = np.random.rand(n_models, n_timepoints, n_keypoints * 3)
-
+    # ---------------------------------------------
     # Run jax_ensemble in mean mode
-    ensemble_preds, ensemble_vars, _ = jax_ensemble(markers_3d_array, avg_mode='mean')
-
+    # ---------------------------------------------
+    ensemble_preds, ensemble_vars, ensemble_likes = jax_ensemble(
+        markers_3d_array, avg_mode='mean')
+    # Check output shapes
+    assert ensemble_preds.shape == (n_timepoints, n_keypoints, 2), \
+        f"Expected shape {(n_timepoints, n_keypoints, 2)}, got {ensemble_preds.shape}"
+    assert ensemble_vars.shape == (n_timepoints, n_keypoints, 2), \
+        f"Expected shape {(n_timepoints, n_keypoints, 2)}, got {ensemble_vars.shape}"
+    assert ensemble_likes.shape == (n_timepoints, n_keypoints, 1), \
+        f"Expected shape {(n_timepoints, n_keypoints, 1)}, got {ensemble_likes.shape}"
     # Check that ensemble_preds and ensemble_vars are finite
     assert jnp.isfinite(ensemble_preds).all(), "Expected finite values in ensemble_preds"
     assert jnp.isfinite(ensemble_vars).all(), "Expected finite values in ensemble_vars"
 
-
-def test_jax_ensemble_unsupported_mode():
+    # ---------------------------------------------
     # Test that unsupported mode raises ValueError
-    n_models = 4
-    n_timepoints = 5
-    n_keypoints = 3
-    markers_3d_array = np.random.rand(n_models, n_timepoints, n_keypoints * 3)
-
+    # ---------------------------------------------
     with pytest.raises(ValueError, match="averaging not supported"):
         jax_ensemble(markers_3d_array, avg_mode='unsupported')
