@@ -545,7 +545,7 @@ def test_jax_ensemble():
     # ---------------------------------------------
     # Run jax_ensemble in median mode
     # ---------------------------------------------
-    ensemble_preds, ensemble_vars, ensemble_likes, keypoints_avg_dict = jax_ensemble(
+    ensemble_preds, ensemble_vars, ensemble_likes = jax_ensemble(
         markers_3d_array, avg_mode='median')
     # Check output shapes
     assert ensemble_preds.shape == (n_timepoints, n_keypoints, 2), \
@@ -554,8 +554,6 @@ def test_jax_ensemble():
         f"Expected shape {(n_timepoints, n_keypoints, 2)}, got {ensemble_vars.shape}"
     assert ensemble_likes.shape == (n_timepoints, n_keypoints, 1), \
         f"Expected shape {(n_timepoints, n_keypoints, 1)}, got {ensemble_likes.shape}"
-    assert len(keypoints_avg_dict) == n_keypoints * 2, \
-        f"Expected {n_keypoints * 2} entries in keypoints_avg_dict, got {len(keypoints_avg_dict)}"
     # Check that ensemble_preds and ensemble_vars are finite
     assert jnp.isfinite(ensemble_preds).all(), "Expected finite values in ensemble_preds"
     assert jnp.isfinite(ensemble_vars).all(), "Expected finite values in ensemble_vars"
@@ -563,7 +561,7 @@ def test_jax_ensemble():
     # ---------------------------------------------
     # Run jax_ensemble in mean mode
     # ---------------------------------------------
-    ensemble_preds, ensemble_vars, ensemble_likes, _ = jax_ensemble(
+    ensemble_preds, ensemble_vars, ensemble_likes = jax_ensemble(
         markers_3d_array, avg_mode='mean')
     # Check output shapes
     assert ensemble_preds.shape == (n_timepoints, n_keypoints, 2), \
@@ -572,8 +570,6 @@ def test_jax_ensemble():
         f"Expected shape {(n_timepoints, n_keypoints, 2)}, got {ensemble_vars.shape}"
     assert ensemble_likes.shape == (n_timepoints, n_keypoints, 1), \
         f"Expected shape {(n_timepoints, n_keypoints, 1)}, got {ensemble_likes.shape}"
-    assert len(keypoints_avg_dict) == n_keypoints * 2, \
-        f"Expected {n_keypoints * 2} entries in keypoints_avg_dict, got {len(keypoints_avg_dict)}"
     # Check that ensemble_preds and ensemble_vars are finite
     assert jnp.isfinite(ensemble_preds).all(), "Expected finite values in ensemble_preds"
     assert jnp.isfinite(ensemble_vars).all(), "Expected finite values in ensemble_vars"

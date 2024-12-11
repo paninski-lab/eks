@@ -139,12 +139,14 @@ def ensemble_kalman_smoother_singlecam(
 
     # Compute ensemble statistics
     print("Ensembling models")
-    ensemble_preds, ensemble_vars, ensemble_likes, keypoints_avg_dict = jax_ensemble(
-        markers_3d_array, avg_mode=avg_mode, var_mode=var_mode)
+    ensemble_preds, ensemble_vars, ensemble_likes = jax_ensemble(
+        markers_3d_array, avg_mode=avg_mode, var_mode=var_mode,
+    )
 
     # Calculate mean and adjusted observations
     mean_obs_dict, adjusted_obs_dict, scaled_ensemble_preds = adjust_observations(
-        keypoints_avg_dict, n_keypoints, ensemble_preds.copy())
+        ensemble_preds.copy(), n_keypoints,
+    )
 
     # Initialize Kalman filter values
     m0s, S0s, As, cov_mats, Cs, Rs, ys = initialize_kalman_filter(
@@ -222,25 +224,26 @@ def ensemble_kalman_smoother_singlecam(
 
 
 def adjust_observations(
-    keypoints_avg_dict: dict,
-    n_keypoints: int,
     scaled_ensemble_preds: np.ndarray,
+    n_keypoints: int,
 ) -> tuple:
     """
     Adjust observations by computing mean and adjusted observations for each keypoint.
 
     Args:
-        keypoints_avg_dict: Dictionary of keypoints averages.
+        scaled_ensemble_preds: shape (n_timepoints, n_keypoints, n_coordinates)
         n_keypoints: Number of keypoints.
-        scaled_ensemble_preds: Scaled ensemble predictions.
 
     Returns:
         tuple: Mean observations dict, adjusted observations dict, scaled ensemble preds
 
     """
 
+    # Ensure scaled_ensemble_preds is a JAX array
+    scaled_ensemble_preds = jnp.array(scaled_ensemble_preds)
+
     # Convert dictionaries to JAX arrays
-    keypoints_avg_array = jnp.array([keypoints_avg_dict[k] for k in keypoints_avg_dict.keys()])
+    keypoints_avg_array = scaled_ensemble_preds.reshape((scaled_ensemble_preds.shape[0], -1)).T
     x_keys = jnp.array([3 * i for i in range(n_keypoints)])
     y_keys = jnp.array([3 * i + 1 for i in range(n_keypoints)])
 
@@ -264,9 +267,6 @@ def adjust_observations(
 
     adjusted_obs_dict = {x_keys_np[i]: adjusted_x_obs[i] for i in range(n_keypoints)}
     adjusted_obs_dict.update({y_keys_np[i]: adjusted_y_obs[i] for i in range(n_keypoints)})
-
-    # Ensure scaled_ensemble_preds is a JAX array
-    scaled_ensemble_preds = jnp.array(scaled_ensemble_preds)
 
     def scale_ensemble_preds(mean_x_obs, mean_y_obs, scaled_ensemble_preds, i):
         scaled_ensemble_preds = scaled_ensemble_preds.at[:, i, 0].add(-mean_x_obs)

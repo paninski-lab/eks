@@ -165,11 +165,12 @@ def ensemble_kalman_smoother_ibl_pupil(
     """
 
     # pupil smoother only works for a pre-specified set of points
-    keypoint_names = ['pupil_top_r', 'pupil_right_r', 'pupil_bottom_r', 'pupil_left_r']
+    # NOTE: this order MUST be kept
+    keypoint_names = ['pupil_top_r', 'pupil_bottom_r', 'pupil_right_r', 'pupil_left_r']
     keys = [f'{kp}_{coord}' for kp in keypoint_names for coord in ['x', 'y']]
 
     # compute ensemble information
-    ensemble_preds, ensemble_vars, ensemble_likes, ensemble_stacks = ensemble(
+    ensemble_preds, ensemble_vars, ensemble_likes, _ = ensemble(
         markers_list, keys, avg_mode=avg_mode, var_mode=var_mode,
     )
 
@@ -207,19 +208,12 @@ def ensemble_kalman_smoother_ibl_pupil(
     R = np.eye(8)
 
     scaled_ensemble_preds = ensemble_preds.copy()
-    scaled_ensemble_stacks = ensemble_stacks.copy()
     # subtract COM means from the ensemble predictions
     for i in range(ensemble_preds.shape[1]):
         if i % 2 == 0:
             scaled_ensemble_preds[:, i] -= mean_x_obs
         else:
             scaled_ensemble_preds[:, i] -= mean_y_obs
-    # subtract COM means from all the predictions
-    for i in range(ensemble_preds.shape[1]):
-        if i % 2 == 0:
-            scaled_ensemble_stacks[:, :, i] -= mean_x_obs
-        else:
-            scaled_ensemble_stacks[:, :, i] -= mean_y_obs
     y_obs = scaled_ensemble_preds
 
     # --------------------------------------

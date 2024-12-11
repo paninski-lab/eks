@@ -57,18 +57,22 @@ def test_adjust_observations():
         2: np.array([0.5, 1.5, 2.5]),     # x-coordinates for keypoint 2
         3: np.array([3.5, 4.5, 5.5]),     # y-coordinates for keypoint 2
         4: np.array([2.0, 2.5, 3.0]),     # x-coordinates for keypoint 3
-        5: np.array([6.0, 7.0, 8.0])      # y-coordinates for keypoint 3
+        5: np.array([6.0, 7.0, 8.0]),     # y-coordinates for keypoint 3
     }
 
     # Create a mock scaled_ensemble_preds array (shape: [timepoints, n_keypoints, coordinates])
-    num_samples = 3
-    scaled_ensemble_preds = np.random.randn(num_samples, n_keypoints, 2)
+    scaled_ensemble_preds = np.zeros((3, 3, 2))
+    scaled_ensemble_preds[:, 0, 0] = keypoints_avg_dict[0]
+    scaled_ensemble_preds[:, 0, 1] = keypoints_avg_dict[1]
+    scaled_ensemble_preds[:, 1, 0] = keypoints_avg_dict[2]
+    scaled_ensemble_preds[:, 1, 1] = keypoints_avg_dict[3]
+    scaled_ensemble_preds[:, 2, 0] = keypoints_avg_dict[4]
+    scaled_ensemble_preds[:, 2, 1] = keypoints_avg_dict[5]
 
     # Call the function
     mean_obs_dict, adjusted_obs_dict, adjusted_scaled_preds = adjust_observations(
-        keypoints_avg_dict,
+        scaled_ensemble_preds,
         n_keypoints,
-        scaled_ensemble_preds
     )
 
     # Assertions for mean observations dictionary

@@ -279,7 +279,6 @@ def jax_ensemble(
             ensemble_likes: np.ndarray
                 shape (n_timepoints, n_keypoints, 1).
                 mean likelihood for each keypoint
-            keypoints_avg_dict: dict
 
     """
     markers_3d_array = jnp.array(markers_3d_array)  # Convert to JAX array
@@ -326,22 +325,18 @@ def jax_ensemble(
 
     avg_x, avg_y, var_x, var_y, likes = stats
 
-    keypoints_avg_dict = {}
     for i in range(n_keypoints):
         ensemble_preds[:, i, 0] = avg_x[i]
         ensemble_preds[:, i, 1] = avg_y[i]
         ensemble_vars[:, i, 0] = var_x[i]
         ensemble_vars[:, i, 1] = var_y[i]
         ensemble_likes[:, i, 0] = likes[i]
-        keypoints_avg_dict[2 * i] = avg_x[i]
-        keypoints_avg_dict[2 * i + 1] = avg_y[i]
 
     # Convert outputs to JAX arrays
     ensemble_preds = jnp.array(ensemble_preds)
     ensemble_vars = jnp.array(ensemble_vars)
-    keypoints_avg_dict = {k: jnp.array(v) for k, v in keypoints_avg_dict.items()}
 
-    return ensemble_preds, ensemble_vars, ensemble_likes, keypoints_avg_dict
+    return ensemble_preds, ensemble_vars, ensemble_likes
 
 
 def kalman_filter_step(carry, curr_y):
