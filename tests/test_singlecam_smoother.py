@@ -11,6 +11,18 @@ from eks.singlecam_smoother import (
 
 def test_ensemble_kalman_smoother_singlecam():
 
+    def _check_outputs(df, params):
+        # Basic checks to ensure the function runs and returns expected types
+        assert isinstance(df_smoothed, pd.DataFrame), \
+            f"Expected first return value to be a pd.DataFrame, got {type(df_smoothed)}"
+        assert isinstance(s_finals, (list, np.ndarray)), \
+            "Expected s_finals to be a list or an ndarray"
+
+        # Check for different return values in the correct level of the columns
+        for v in ['x', 'y', 'likelihood']:
+            assert v in df_smoothed.columns.get_level_values('coords'), \
+                "Expected 'likelihood' in DataFrame columns at the 'coords' level"
+
     # Create mock data
     keypoint_names = ['kp1', 'kp2']
     columns = [f'{kp}_{coord}' for kp in keypoint_names for coord in ['x', 'y', 'likelihood']]
@@ -18,11 +30,11 @@ def test_ensemble_kalman_smoother_singlecam():
         pd.DataFrame(np.random.randn(100, len(columns)), columns=columns),
         pd.DataFrame(np.random.randn(100, len(columns)), columns=columns),
     ]
-    smooth_param = 0.1
     s_frames = None
     blocks = []
 
-    # Call the smoother function
+    # run with fixed smooth param (float)
+    smooth_param = 0.1
     df_smoothed, s_finals = ensemble_kalman_smoother_singlecam(
         markers_list=markers_list,
         keypoint_names=keypoint_names,
@@ -30,17 +42,55 @@ def test_ensemble_kalman_smoother_singlecam():
         s_frames=s_frames,
         blocks=blocks,
     )
+    _check_outputs(df_smoothed, s_finals)
+    assert s_finals == [smooth_param]
 
-    # Basic checks to ensure the function runs and returns expected types
-    assert isinstance(df_smoothed, pd.DataFrame), \
-        f"Expected first return value to be a pd.DataFrame, got {type(df_smoothed)}"
-    assert isinstance(s_finals, (list, np.ndarray)), \
-        "Expected s_finals to be a list or an ndarray"
+    # run with fixed smooth param (int)
+    smooth_param = 5
+    df_smoothed, s_finals = ensemble_kalman_smoother_singlecam(
+        markers_list=markers_list,
+        keypoint_names=keypoint_names,
+        smooth_param=smooth_param,
+        s_frames=s_frames,
+        blocks=blocks,
+    )
+    _check_outputs(df_smoothed, s_finals)
+    assert s_finals == [smooth_param]
 
-    # Check for different return values in the correct level of the columns
-    for v in ['x', 'y', 'likelihood']:
-        assert v in df_smoothed.columns.get_level_values('coords'), \
-            "Expected 'likelihood' in DataFrame columns at the 'coords' level"
+    # run with fixed smooth param (single-entry list)
+    smooth_param = [0.1]
+    df_smoothed, s_finals = ensemble_kalman_smoother_singlecam(
+        markers_list=markers_list,
+        keypoint_names=keypoint_names,
+        smooth_param=smooth_param,
+        s_frames=s_frames,
+        blocks=blocks,
+    )
+    _check_outputs(df_smoothed, s_finals)
+    assert s_finals == smooth_param
+
+    # run with fixed smooth param (list)
+    smooth_param = [0.1, 0.4]
+    df_smoothed, s_finals = ensemble_kalman_smoother_singlecam(
+        markers_list=markers_list,
+        keypoint_names=keypoint_names,
+        smooth_param=smooth_param,
+        s_frames=s_frames,
+        blocks=blocks,
+    )
+    _check_outputs(df_smoothed, s_finals)
+    assert np.all(s_finals == smooth_param)
+
+    # run with None smooth param
+    smooth_param = None
+    df_smoothed, s_finals = ensemble_kalman_smoother_singlecam(
+        markers_list=markers_list,
+        keypoint_names=keypoint_names,
+        smooth_param=smooth_param,
+        s_frames=s_frames,
+        blocks=blocks,
+    )
+    _check_outputs(df_smoothed, s_finals)
 
 
 def test_adjust_observations():

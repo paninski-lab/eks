@@ -172,6 +172,14 @@ def test_add_mean_to_array_single_row():
 
 def test_ensemble_kalman_smoother_ibl_pupil():
 
+    def _check_outputs(df, params, nlls):
+        assert isinstance(df, pd.DataFrame), "first return arg should be a DataFrame"
+        assert df.shape[0] == 100, "markers_df should have 100 rows"
+        assert len(params) == 2, "Expected 2 smooth parameters"
+        assert params[0] < 1, "Expected diameter smoothing parameter to be less than 1"
+        assert params[1] < 1, "Expected COM smoothing parameter to be less than 1"
+        assert isinstance(nlls, list), "Expected nll_values to be a list"
+
     # Create mock data
     columns = [
         'pupil_top_r_x', 'pupil_top_r_y', 'pupil_bottom_r_x', 'pupil_bottom_r_y',
@@ -181,22 +189,41 @@ def test_ensemble_kalman_smoother_ibl_pupil():
         pd.DataFrame(np.random.randn(100, 8), columns=columns),
         pd.DataFrame(np.random.randn(100, 8), columns=columns),
     ]
-    smooth_params = [0.5, 0.5]
     s_frames = [(1, 20)]
 
-    # Run the function with mocked data
+    # Run with fixed smooth params
+    smooth_params = [0.5, 0.5]
     smoothed_df, smooth_params_out, nll_values = ensemble_kalman_smoother_ibl_pupil(
         markers_list, smooth_params, s_frames, avg_mode='mean', var_mode='var',
     )
+    _check_outputs(smoothed_df, smooth_params_out, nll_values)
+    assert smooth_params == smooth_params_out
 
-    # Assertions
-    assert isinstance(smoothed_df, pd.DataFrame), "first return arg should be a DataFrame"
+    # Run with [None, None] smooth params
+    smoothed_df, smooth_params_out, nll_values = ensemble_kalman_smoother_ibl_pupil(
+        markers_list, [None, None], s_frames, avg_mode='mean', var_mode='var',
+    )
+    _check_outputs(smoothed_df, smooth_params_out, nll_values)
 
-    # Verify the shape of the output DataFrames
-    assert smoothed_df.shape[0] == 100, "markers_df should have 100 rows"
+    # Run with None smooth params
+    smoothed_df, smooth_params_out, nll_values = ensemble_kalman_smoother_ibl_pupil(
+        markers_list, None, s_frames, avg_mode='mean', var_mode='var',
+    )
+    _check_outputs(smoothed_df, smooth_params_out, nll_values)
 
-    # Check if the smooth parameters and NLL values are correctly returned
-    assert len(smooth_params_out) == 2, "Expected 2 smooth parameters"
-    assert isinstance(nll_values, list), "Expected nll_values to be a list"
+    # CURRENTLY NOT SUPPORTED: fix one smooth param
 
-    print("All tests passed successfully.")
+    # Run with diameter smooth param
+    # smooth_params = [0.9, None]
+    # smoothed_df, smooth_params_out, nll_values = ensemble_kalman_smoother_ibl_pupil(
+    #     markers_list, [0.9, None], s_frames, avg_mode='mean', var_mode='var',
+    # )
+    # _check_outputs(smoothed_df, smooth_params_out, nll_values)
+    # assert smooth_params[0] == smooth_params_out[0]
+
+    # Run with COM smooth param
+    # smoothed_df, smooth_params_out, nll_values = ensemble_kalman_smoother_ibl_pupil(
+    #     markers_list, [None, 0.9], s_frames, avg_mode='mean', var_mode='var',
+    # )
+    # _check_outputs(smoothed_df, smooth_params_out, nll_values)
+    # assert smooth_params[1] == smooth_params_out[1]

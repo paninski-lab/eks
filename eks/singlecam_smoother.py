@@ -405,14 +405,22 @@ def singlecam_optimize_smooth(
 
     # Optimize smooth_param
     if smooth_param is not None:
-        s_finals = [smooth_param] if isinstance(smooth_param, float) else smooth_param
+        if isinstance(smooth_param, float):
+            s_finals = [smooth_param]
+        elif isinstance(smooth_param, int):
+            s_finals = [float(smooth_param)]
+        else:
+            s_finals = smooth_param
     else:
         guesses = []
         cropped_ys = []
         for k in range(n_keypoints):
             current_guess = compute_initial_guesses(ensemble_vars[:, k, :])
             guesses.append(current_guess)
-            cropped_ys.append(crop_frames(ys[k], s_frames))
+            if s_frames is None or len(s_frames) == 0:
+                cropped_ys.append(ys[k])
+            else:
+                cropped_ys.append(crop_frames(ys[k], s_frames))
 
         cropped_ys = np.array(cropped_ys)  # Concatenation of this list along dimension 0
 
