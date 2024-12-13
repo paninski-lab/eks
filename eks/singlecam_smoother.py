@@ -532,7 +532,6 @@ inner_smooth_min_routine_parallel_vmap = jit(
 # Note: This should only be run on GPUs
 # ------------------------------------------------------------------------------------------------
 
-
 def singlecam_smooth_min_parallel(
     smooth_param, cov_mats, observations, initial_means, initial_covariances, Cs, As, Rs,
 ):
