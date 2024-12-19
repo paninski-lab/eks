@@ -1,5 +1,4 @@
 from functools import partial
-from collections import defaultdict
 
 import jax
 import jax.scipy as jsc
@@ -16,87 +15,80 @@ from jax.lax import associative_scan
 # ------------------------------------------------------------------------------------------
 
 
-def ensemble(markers_list, keys, mode='median'):
-    """Computes ensemble median (or mean) and variance of list of DLC marker dataframes
+def ensemble(
+    markers_list: list,
+    keys: list,
+    avg_mode: str = 'median',
+    var_mode: str = 'confidence_weighted_var',
+) -> tuple:
+    """Compute ensemble mean/median and variance of marker dataframes.
+
     Args:
-        markers_list: list
-            List of DLC marker dataframes`
-        keys: list
-            List of keys in each marker dataframe
-        mode: string
-            Averaging mode which includes 'median', 'mean', or 'confidence_weighted_mean'.
+        markers_list: List of DLC marker dataframes
+        keys: List of keys in each marker dataframe
+        avg_mode
+            'median' | 'mean'
+        var_mode
+            'confidence_weighted_var' | 'var'
 
     Returns:
-        ensemble_preds: np.ndarray
-            shape (samples, n_keypoints)
-        ensemble_vars: np.ndarray
-            shape (samples, n_keypoints)
-        ensemble_stacks: np.ndarray
-            shape (n_models, samples, n_keypoints)
-        keypoints_avg_dict: dict
-            keys: marker keypoints, values: shape (samples)
-        keypoints_var_dict: dict
-            keys: marker keypoints, values: shape (samples)
-        keypoints_stack_dict: dict(dict)
-            keys: model_ids, keys: marker keypoints, values: shape (samples)
+        tuple:
+            ensemble_preds: np.ndarray
+                shape (samples, n_keypoints)
+            ensemble_vars: np.ndarray
+                shape (samples, n_keypoints)
+            ensemble_likelihoods: np.ndarray
+                shape (samples, n_keypoints)
+            ensemble_stacks: np.ndarray
+                shape (n_models, samples, n_keypoints)
+
     """
-    ensemble_stacks = []
-    ensemble_vars = []
+
     ensemble_preds = []
-    keypoints_avg_dict = {}
-    keypoints_var_dict = {}
-    keypoints_stack_dict = defaultdict(dict)
-    if mode != 'confidence_weighted_mean':
-        if mode == 'median':
-            average_func = np.nanmedian
-        elif mode == 'mean':
-            average_func = np.nanmean
-        else:
-            raise ValueError(f"{mode} averaging not supported")
+    ensemble_vars = []
+    ensemble_likes = []
+    ensemble_stacks = []
+
+    if avg_mode == 'median':
+        average_func = np.nanmedian
+    elif avg_mode == 'mean':
+        average_func = np.nanmean
+    else:
+        raise ValueError(f"avg_mode={avg_mode} not supported")
+
     for key in keys:
-        if mode != 'confidence_weighted_mean':
-            stack = np.zeros((len(markers_list), markers_list[0].shape[0]))
+
+        # compute mean/median
+        stack = np.zeros((markers_list[0].shape[0], len(markers_list)))
+        for k in range(len(markers_list)):
+            stack[:, k] = markers_list[k][key]
+        ensemble_stacks.append(stack)
+        avg = average_func(stack, axis=1)
+        ensemble_preds.append(avg)
+
+        # collect likelihoods
+        likelihood_stack = np.ones((markers_list[0].shape[0], len(markers_list)))
+        likelihood_key = key[:-1] + 'likelihood'
+        if likelihood_key in markers_list[0]:
             for k in range(len(markers_list)):
-                stack[k] = markers_list[k][key]
-            stack = stack.T
-            avg = average_func(stack, 1)
-            var = np.nanvar(stack, 1)
-            ensemble_preds.append(avg)
-            ensemble_vars.append(var)
-            ensemble_stacks.append(stack)
-            keypoints_avg_dict[key] = avg
-            keypoints_var_dict[key] = var
-            for i, keypoints in enumerate(stack.T):
-                keypoints_stack_dict[i][key] = stack.T[i]
-        else:
-            likelihood_key = key[:-1] + 'likelihood'
-            if likelihood_key not in markers_list[0]:
-                raise ValueError(f"{likelihood_key} needs to be in your marker_df to use {mode}")
-            stack = np.zeros((len(markers_list), markers_list[0].shape[0]))
-            likelihood_stack = np.zeros((len(markers_list), markers_list[0].shape[0]))
-            for k in range(len(markers_list)):
-                stack[k] = markers_list[k][key]
-                likelihood_stack[k] = markers_list[k][likelihood_key]
-            stack = stack.T
-            likelihood_stack = likelihood_stack.T
-            conf_per_keypoint = np.sum(likelihood_stack, 1)
-            mean_conf_per_keypoint = np.sum(likelihood_stack, 1) / likelihood_stack.shape[1]
-            avg = np.sum(stack * likelihood_stack, 1) / conf_per_keypoint
-            var = np.nanvar(stack, 1)
+                likelihood_stack[:, k] = markers_list[k][likelihood_key]
+        mean_conf_per_keypoint = np.mean(likelihood_stack, axis=1)
+        ensemble_likes.append(mean_conf_per_keypoint)
+
+        # compute variance
+        var = np.nanvar(stack, axis=1)
+        if var_mode in ['conf_weighted_var', 'confidence_weighted_var']:
             var = var / mean_conf_per_keypoint  # low-confidence --> inflated obs variances
-            ensemble_preds.append(avg)
-            ensemble_vars.append(var)
-            ensemble_stacks.append(stack)
-            keypoints_avg_dict[key] = avg
-            keypoints_var_dict[key] = var
-            for i, keypoints in enumerate(stack.T):
-                keypoints_stack_dict[i][key] = stack.T[i]
+        elif var_mode != 'var':
+            raise ValueError(f"var_mode={var_mode} not supported")
+        ensemble_vars.append(var)
 
     ensemble_preds = np.asarray(ensemble_preds).T
     ensemble_vars = np.asarray(ensemble_vars).T
+    ensemble_likes = np.asarray(ensemble_likes).T
     ensemble_stacks = np.asarray(ensemble_stacks).T
-    return ensemble_preds, ensemble_vars, ensemble_stacks, \
-        keypoints_avg_dict, keypoints_var_dict, keypoints_stack_dict
+
+    return ensemble_preds, ensemble_vars, ensemble_likes, ensemble_stacks
 
 
 def forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars):
@@ -260,17 +252,33 @@ def compute_nll(innovations, innovation_covs, epsilon=1e-6):
 
 # ----- Sequential Functions for CPU -----
 
-def jax_ensemble(markers_3d_array, mode='median'):
+def jax_ensemble(
+    markers_3d_array: np.ndarray,
+    avg_mode: str = 'median',
+    var_mode: str = 'confidence_weighted_var',
+) -> tuple:
     """
-    Computes ensemble median (or mean) and variance of a 3D array of DLC marker data using JAX.
+    Compute ensemble mean/median and variance of a 3D marker array using JAX.
+
+    Args:
+        markers_3d_array: shape (n_models, samples, 3 * n_keypoints); "3" is for x, y, likelihood
+        avg_mode
+            'median' | 'mean'
+        var_mode
+            'confidence_weighted_var' | 'var'
 
     Returns:
-        ensemble_preds: np.ndarray
-            shape (n_timepoints, n_keypoints, n_coordinates).
-            ensembled predictions for each keypoint for each target
-        ensemble_vars: np.ndarray
-            shape (n_timepoints, n_keypoints, n_coordinates).
-            ensembled variances for each keypoint for each target
+        tuple:
+            ensemble_preds: np.ndarray
+                shape (n_timepoints, n_keypoints, n_coordinates).
+                ensembled predictions for each keypoint
+            ensemble_vars: np.ndarray
+                shape (n_timepoints, n_keypoints, n_coordinates).
+                ensembled variances for each keypoint
+            ensemble_likes: np.ndarray
+                shape (n_timepoints, n_keypoints, 1).
+                mean likelihood for each keypoint
+
     """
     markers_3d_array = jnp.array(markers_3d_array)  # Convert to JAX array
     n_frames = markers_3d_array.shape[1]
@@ -279,57 +287,55 @@ def jax_ensemble(markers_3d_array, mode='median'):
     # Initialize output structures
     ensemble_preds = np.zeros((n_frames, n_keypoints, 2))
     ensemble_vars = np.zeros((n_frames, n_keypoints, 2))
+    ensemble_likes = np.zeros((n_frames, n_keypoints, 1))
 
     # Choose the appropriate JAX function based on the mode
-    if mode == 'median':
+    if avg_mode == 'median':
         avg_func = lambda x: jnp.nanmedian(x, axis=0)
-    elif mode == 'mean':
+    elif avg_mode == 'mean':
         avg_func = lambda x: jnp.nanmean(x, axis=0)
-    elif mode == 'confidence_weighted_mean':
-        avg_func = None
     else:
-        raise ValueError(f"{mode} averaging not supported")
+        raise ValueError(f"{avg_mode} averaging not supported")
 
     def compute_stats(i):
         data_x = markers_3d_array[:, :, 3 * i]
         data_y = markers_3d_array[:, :, 3 * i + 1]
         data_likelihood = markers_3d_array[:, :, 3 * i + 2]
 
-        if mode == 'confidence_weighted_mean':
-            conf_per_keypoint = jnp.sum(data_likelihood, axis=0)
-            mean_conf_per_keypoint = conf_per_keypoint / data_likelihood.shape[0]
-            avg_x = jnp.sum(data_x * data_likelihood, axis=0) / conf_per_keypoint
-            avg_y = jnp.sum(data_y * data_likelihood, axis=0) / conf_per_keypoint
+        avg_x = avg_func(data_x)
+        avg_y = avg_func(data_y)
+
+        conf_per_keypoint = jnp.sum(data_likelihood, axis=0)
+        mean_conf_per_keypoint = conf_per_keypoint / data_likelihood.shape[0]
+
+        if var_mode in ['conf_weighted_var', 'confidence_weighted_var']:
             var_x = jnp.nanvar(data_x, axis=0) / mean_conf_per_keypoint
             var_y = jnp.nanvar(data_y, axis=0) / mean_conf_per_keypoint
-        else:
-            avg_x = avg_func(data_x)
-            avg_y = avg_func(data_y)
+        elif var_mode in ['var', 'variance']:
             var_x = jnp.nanvar(data_x, axis=0)
             var_y = jnp.nanvar(data_y, axis=0)
+        else:
+            raise ValueError(f"{var_mode} for variance computation not supported")
 
-        return avg_x, avg_y, var_x, var_y
+        return avg_x, avg_y, var_x, var_y, mean_conf_per_keypoint
 
     compute_stats_jit = jax.jit(compute_stats)
     stats = jax.vmap(compute_stats_jit)(jnp.arange(n_keypoints))
 
-    avg_x, avg_y, var_x, var_y = stats
+    avg_x, avg_y, var_x, var_y, likes = stats
 
-    keypoints_avg_dict = {}
     for i in range(n_keypoints):
         ensemble_preds[:, i, 0] = avg_x[i]
         ensemble_preds[:, i, 1] = avg_y[i]
         ensemble_vars[:, i, 0] = var_x[i]
         ensemble_vars[:, i, 1] = var_y[i]
-        keypoints_avg_dict[2 * i] = avg_x[i]
-        keypoints_avg_dict[2 * i + 1] = avg_y[i]
+        ensemble_likes[:, i, 0] = likes[i]
 
     # Convert outputs to JAX arrays
     ensemble_preds = jnp.array(ensemble_preds)
     ensemble_vars = jnp.array(ensemble_vars)
-    keypoints_avg_dict = {k: jnp.array(v) for k, v in keypoints_avg_dict.items()}
 
-    return ensemble_preds, ensemble_vars, keypoints_avg_dict
+    return ensemble_preds, ensemble_vars, ensemble_likes
 
 
 def kalman_filter_step(carry, curr_y):
@@ -717,27 +723,26 @@ def eks_zscore(eks_predictions, ensemble_means, ensemble_vars, min_ensemble_std=
 
 
 def compute_covariance_matrix(ensemble_preds):
-    """
-    Compute the covariance matrix E for correlated noise dynamics.
+    """Compute the covariance matrix E for correlated noise dynamics.
 
-    Parameters:
-    ensemble_preds: A 3D array of shape (T, n_keypoints, n_coords)
-                          containing the ensemble predictions.
+    Args:
+        ensemble_preds: shape (T, n_keypoints, n_coords) containing the ensemble predictions.
 
     Returns:
-    E: A 2K x 2K covariance matrix where K is the number of keypoints.
+        E: A 2K x 2K covariance matrix where K is the number of keypoints.
+
     """
     # Get the number of time steps, keypoints, and coordinates
     T, n_keypoints, n_coords = ensemble_preds.shape
 
     # Flatten the ensemble predictions to shape (T, 2K) where K is the number of keypoints
-    flattened_preds = ensemble_preds.reshape(T, -1)
+    # flattened_preds = ensemble_preds.reshape(T, -1)
 
     # Compute the temporal differences
-    temporal_diffs = np.diff(flattened_preds, axis=0)
+    # temporal_diffs = np.diff(flattened_preds, axis=0)
 
     # Compute the covariance matrix of the temporal differences
-    E = np.cov(temporal_diffs, rowvar=False)
+    # E = np.cov(temporal_diffs, rowvar=False)
 
     # Index covariance matrix into blocks for each keypoint
     cov_mats = []

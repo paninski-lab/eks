@@ -2,10 +2,16 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
 
-from eks.core import ensemble, eks_zscore, compute_initial_guesses, forward_pass, backward_pass, \
-    compute_nll
-from eks.ibl_paw_multiview_smoother import remove_camera_means, pca
-from eks.utils import make_dlc_pandas_index, crop_frames
+from eks.core import (
+    backward_pass,
+    compute_initial_guesses,
+    compute_nll,
+    eks_zscore,
+    ensemble,
+    forward_pass,
+)
+from eks.ibl_paw_multiview_smoother import pca, remove_camera_means
+from eks.utils import crop_frames, make_dlc_pandas_index
 
 
 def ensemble_kalman_smoother_multicam(
@@ -82,20 +88,13 @@ def ensemble_kalman_smoother_multicam(
     cam_ensemble_preds = []
     cam_ensemble_vars = []
     cam_ensemble_stacks = []
-    cam_keypoints_mean_dict = []
-    cam_keypoints_var_dict = []
-    cam_keypoints_stack_dict = []
     for camera in range(num_cameras):
-        cam_ensemble_preds_curr, cam_ensemble_vars_curr, cam_ensemble_stacks_curr, \
-            cam_keypoints_mean_dict_curr, cam_keypoints_var_dict_curr, \
-            cam_keypoints_stack_dict_curr = \
-            ensemble(markers_list_cams[camera], keys, mode=ensembling_mode)
+        cam_ensemble_preds_curr, cam_ensemble_vars_curr, _, cam_ensemble_stacks_curr = ensemble(
+            markers_list_cams[camera], keys, avg_mode=ensembling_mode,
+        )
         cam_ensemble_preds.append(cam_ensemble_preds_curr)
         cam_ensemble_vars.append(cam_ensemble_vars_curr)
         cam_ensemble_stacks.append(cam_ensemble_stacks_curr)
-        cam_keypoints_mean_dict.append(cam_keypoints_mean_dict_curr)
-        cam_keypoints_var_dict.append(cam_keypoints_var_dict_curr)
-        cam_keypoints_stack_dict.append(cam_keypoints_stack_dict_curr)
 
     # filter by low ensemble variances
     hstacked_vars = np.hstack(cam_ensemble_vars)
@@ -165,8 +164,10 @@ def ensemble_kalman_smoother_multicam(
     # --------------------------------------
     # final cleanup
     # --------------------------------------
-    pdindex = make_dlc_pandas_index([keypoint_ensemble],
-                                    labels=["x", "y", "likelihood", "x_var", "y_var", "zscore", "nll", "ensemble_std"])
+    pdindex = make_dlc_pandas_index(
+        [keypoint_ensemble],
+        labels=["x", "y", "likelihood", "x_var", "y_var", "zscore", "nll", "ensemble_std"]
+    )
     camera_indices = []
     for camera in range(num_cameras):
         camera_indices.append([camera * 2, camera * 2 + 1])

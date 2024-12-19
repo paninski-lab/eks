@@ -5,12 +5,13 @@ from eks.command_line_args import handle_io, handle_parse_args
 from eks.multicam_smoother import ensemble_kalman_smoother_multicam
 from eks.utils import format_data, plot_results, populate_output_dataframe
 
-# Collect User-Provided Args
+
 smoother_type = 'multicam'
+
+# Collect User-Provided Args
 args = handle_parse_args(smoother_type)
 input_dir = os.path.abspath(args.input_dir)
-data_type = args.data_type  # Note: LP and DLC are .csv, SLP is .slp
-save_dir = handle_io(input_dir, args.save_dir)  # defaults to outputs\
+save_dir = handle_io(input_dir, args.save_dir)  # defaults to outputs
 save_filename = args.save_filename
 bodypart_list = args.bodypart_list
 s = args.s  # defaults to automatic optimization
@@ -20,7 +21,7 @@ camera_names = args.camera_names
 quantile_keep_pca = args.quantile_keep_pca
 
 # Load and format input files and prepare an empty DataFrame for output.
-input_dfs_list, output_df, keypoint_names = format_data(input_dir, data_type)
+input_dfs_list, output_df, keypoint_names = format_data(input_dir)
 if bodypart_list is None:
     bodypart_list = keypoint_names
 print(f'Input data has been read in for the following keypoints:\n{bodypart_list}')
@@ -46,26 +47,31 @@ for keypoint_ensemble in bodypart_list:
         smooth_param=s,
         quantile_keep_pca=quantile_keep_pca,
         camera_names=camera_names,
-        s_frames=s_frames
+        s_frames=s_frames,
     )
 
     # put results into new dataframe
     for camera in camera_names:
         cameras_df = cameras_df_dict[f'{camera}_df']
-        output_df = populate_output_dataframe(cameras_df, keypoint_ensemble, output_df,
-                                  key_suffix=f'_{camera}')
+        output_df = populate_output_dataframe(
+            cameras_df,
+            keypoint_ensemble,
+            output_df,
+            key_suffix=f'_{camera}',
+        )
 
 # save eks results
 save_filename = save_filename or f'{smoother_type}_{s_final}.csv'
 output_df.to_csv(os.path.join(save_dir, save_filename))
 
 # plot results
-plot_results(output_df=output_df,
-             input_dfs_list=input_dfs_list,
-             key=f'{bodypart_list[-1]}_{camera_names[0]}',
-             idxs=(0, 500),
-             s_final=s_final,
-             nll_values=nll_values,
-             save_dir=save_dir,
-             smoother_type=smoother_type
-             )
+plot_results(
+    output_df=output_df,
+    input_dfs_list=input_dfs_list,
+    key=f'{bodypart_list[-1]}_{camera_names[0]}',
+    idxs=(0, 500),
+    s_final=s_final,
+    nll_values=nll_values,
+    save_dir=save_dir,
+    smoother_type=smoother_type,
+)

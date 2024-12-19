@@ -7,6 +7,10 @@ from eks.core import backward_pass, eks_zscore, ensemble, forward_pass
 from eks.utils import make_dlc_pandas_index
 
 
+# TODO:
+# - allow conf_weighted_mean for ensemble variance computation
+
+
 def remove_camera_means(ensemble_stacks, camera_means):
     scaled_ensemble_stacks = ensemble_stacks.copy()
     for k in range(len(ensemble_stacks)):
@@ -31,10 +35,15 @@ def pca(S, n_comps):
 
 
 def ensemble_kalman_smoother_ibl_paw(
-        markers_list_left_cam, markers_list_right_cam, timestamps_left_cam,
-        timestamps_right_cam, keypoint_names, smooth_param, quantile_keep_pca,
-        ensembling_mode='median',
-        zscore_threshold=2, img_width=128):
+    markers_list_left_cam, markers_list_right_cam,
+    timestamps_left_cam, timestamps_right_cam,
+    keypoint_names,
+    smooth_param,
+    quantile_keep_pca,
+    ensembling_mode='median',
+    zscore_threshold=2,
+    img_width=128,
+):
     """
     --(IBL-specific)-
     -Use multi-view constraints to fit a 3d latent subspace for each body part with 2
@@ -63,8 +72,6 @@ def ensemble_kalman_smoother_ibl_paw(
         (default 2).
     img_width
         The width of the image being smoothed (128 default, IBL-specific).
-    Returns
-    -------
 
     Returns
     -------
@@ -125,16 +132,14 @@ def ensemble_kalman_smoother_ibl_paw(
         markers_list_right_cam.append(markers_right_cam)
 
     # compute ensemble median left camera
-    left_cam_ensemble_preds, left_cam_ensemble_vars, left_cam_ensemble_stacks, \
-        left_cam_keypoints_mean_dict, left_cam_keypoints_var_dict, \
-        left_cam_keypoints_stack_dict = \
-        ensemble(markers_list_left_cam, keys, mode=ensembling_mode)
+    left_cam_ensemble_preds, left_cam_ensemble_vars, _, left_cam_ensemble_stacks = ensemble(
+        markers_list_left_cam, keys, avg_mode=ensembling_mode, var_mode='var',
+    )
 
     # compute ensemble median right camera
-    right_cam_ensemble_preds, right_cam_ensemble_vars, right_cam_ensemble_stacks, \
-        right_cam_keypoints_mean_dict, right_cam_keypoints_var_dict, \
-        right_cam_keypoints_stack_dict = \
-        ensemble(markers_list_right_cam, keys, mode=ensembling_mode)
+    right_cam_ensemble_preds, right_cam_ensemble_vars, _, right_cam_ensemble_stacks = ensemble(
+        markers_list_right_cam, keys, avg_mode=ensembling_mode, var_mode='var',
+    )
 
     # keep percentage of the points for multi-view PCA based lowest ensemble variance
     hstacked_vars = np.hstack((left_cam_ensemble_vars, right_cam_ensemble_vars))

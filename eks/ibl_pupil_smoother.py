@@ -1,4 +1,6 @@
+import os
 import warnings
+from typing import Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -8,9 +10,6 @@ from eks.core import backward_pass, compute_nll, eks_zscore, ensemble, forward_p
 from eks.utils import crop_frames, make_dlc_pandas_index, format_data
 
 
-# -----------------------
-# funcs for kalman pupil
-# -----------------------
 def get_pupil_location(dlc):
     """get mean of both pupil diameters
     d1 = top - bottom, d2 = left - right
@@ -52,8 +51,10 @@ def get_pupil_diameter(dlc):
     """
     diameters = []
     # Get the x,ys coordinates of the four pupil points
-    top, bottom, left, right = [np.vstack((dlc[f'pupil_{point}_r_x'], dlc[f'pupil_{point}_r_y']))
-                                for point in ['top', 'bottom', 'left', 'right']]
+    top, bottom, left, right = [
+        np.vstack((dlc[f'pupil_{point}_r_x'], dlc[f'pupil_{point}_r_y']))
+        for point in ['top', 'bottom', 'left', 'right']
+    ]
     # First compute direct diameters
     diameters.append(np.linalg.norm(top - bottom, axis=0))
     diameters.append(np.linalg.norm(left - right, axis=0))
@@ -79,98 +80,109 @@ def add_mean_to_array(pred_arr, keys, mean_x, mean_y):
     return processed_arr_dict
 
 
-def fit_eks_pupil(input_source, data_type, save_dir, smooth_params, s_frames):
-    """
-    Wrapper function to fit the Ensemble Kalman Smoother for the ibl-pupil dataset.
+        smooth_params (list): List containing diameter_s and com_s.
+def fit_eks_pupil(
+    input_source: Union[str, list],
+    save_file: str,
+    smooth_params: Optional[list] = None,
+    s_frames: Optional[list] = None,
+    avg_mode: str = 'median',
+    var_mode: str = 'confidence_weighted_var',
+) -> tuple:
+    """Fit the Ensemble Kalman Smoother for the ibl-pupil dataset.
 
     Args:
-        input_source (str or list): Directory path or list of input CSV files.
-        data_type (str): Type of data (e.g., 'csv', 'slp').
-        save_dir (str): Directory to save outputs.
-        smooth_params (list): List containing diameter_s and com_s.
-        s_frames (list or None): Frames for automatic optimization if needed.
+        input_source: directory path or list of CSV file paths. If a directory path, all files
+            within this directory will be used.
+        save_file: File to save output dataframe.
+        smooth_params: [diameter param, center of mass param]
+            each value should be in (0, 1); closer to 1 means more smoothing
+        s_frames: Frames for automatic optimization if needed.
+        avg_mode: mode for averaging across ensemble
+            'median' | 'mean'
+        var_mode: mode for computing ensemble variance
+            'var' | 'confidence_weighted_var'
 
     Returns:
-        df_dicts (dict): Dictionary containing smoothed DataFrames.
-        smooth_params (list): Final smoothing parameters used.
-        input_dfs_list (list): List of input DataFrames.
-        keypoint_names (list): List of keypoint names.
-        nll_values (list): List of NLL values.
+        tuple:
+            df_smoothed (pd.DataFrame)
+            smooth_params (list): Final smoothing parameters used.
+            input_dfs_list (list): List of input DataFrames.
+            keypoint_names (list): List of keypoint names.
+            nll_values (list): List of NLL values.
+
     """
+
     # Load and format input files
-    input_dfs_list, output_df, keypoint_names = format_data(input_source, data_type)
+    input_dfs_list, _, keypoint_names = format_data(input_source)
 
     print(f"Input data loaded for keypoints: {keypoint_names}")
 
     # Run the ensemble Kalman smoother
-    df_dicts, smooth_params, nll_values = ensemble_kalman_smoother_ibl_pupil(
+    df_smoothed, smooth_params_final, nll_values = ensemble_kalman_smoother_ibl_pupil(
         markers_list=input_dfs_list,
-        keypoint_names=keypoint_names,
-        tracker_name='ensemble-kalman_tracker',
         smooth_params=smooth_params,
-        s_frames=s_frames
+        s_frames=s_frames,
+        avg_mode=avg_mode,
+        var_mode=var_mode,
     )
 
-    return df_dicts, smooth_params, input_dfs_list, keypoint_names, nll_values
+    # Save the output DataFrame to CSV
+    os.makedirs(os.path.dirname(save_file), exist_ok=True)
+    df_smoothed.to_csv(save_file)
+    print("DataFrames successfully converted to CSV")
+
+    return df_smoothed, smooth_params_final, input_dfs_list, keypoint_names, nll_values
 
 
 def ensemble_kalman_smoother_ibl_pupil(
-    markers_list,
-    keypoint_names,
-    tracker_name,
-    smooth_params,
-    s_frames,
-    likelihood_default=np.nan,
-    zscore_threshold=2,
-):
-    """
+    markers_list: list,
+    smooth_params: Optional[list] = None,
+    s_frames: Optional[list] = None,
+    avg_mode: str = 'median',
+    var_mode: str = 'confidence_weighted_var',
+    zscore_threshold: float = 2,
+) -> tuple:
+    """Perform Ensemble Kalman Smoothing on pupil data.
 
-    Parameters
-    ----------
-    markers_list : list of pd.DataFrames
-        each list element is a dataframe of predictions from one ensemble member
-    keypoint_names: list
-    tracker_name : str
-        tracker name for constructing final dataframe
-    smooth_params : [float, float]
-        contains smoothing parameters for diameter and center of mass
-    likelihood_default
-        value to store in likelihood column; should be np.nan or int in [0, 1]
-    zscore_threshold:
-        Minimum std threshold to reduce the effect of low ensemble std on a zscore metric
-        (default 2).
+    Args:
+        markers_list: pd.DataFrames
+            each list element is a dataframe of predictions from one ensemble member
+        smooth_params: contains smoothing parameters for diameter and center of mass
+        s_frames: frames for automatic optimization if s is not provided
+        avg_mode
+            'median' | 'mean'
+        var_mode
+            'confidence_weighted_var' | 'var'
+        zscore_threshold: Minimum std threshold to reduce the effect of low ensemble std on a
+            zscore metric (default 2).
 
-    Returns
-    -------
-    dict
-        markers_df: dataframe containing smoothed markers; same format as input dataframes
-        latents_df: dataframe containing 3d latents: pupil diameter and pupil center of mass
+    Returns:
+        tuple:
+            smoothed markers dataframe
+            final smooth params values
+            final nll
 
     """
 
-    # compute ensemble median
-    keys = ['pupil_top_r_x', 'pupil_top_r_y', 'pupil_bottom_r_x', 'pupil_bottom_r_y',
-            'pupil_right_r_x', 'pupil_right_r_y', 'pupil_left_r_x', 'pupil_left_r_y']
-    ensemble_preds, ensemble_vars, ensemble_stacks, keypoints_mean_dict, keypoints_var_dict, \
-        keypoints_stack_dict = ensemble(markers_list, keys)
-    # ## Set parameters
-    # compute center of mass
-    pupil_locations = get_pupil_location(keypoints_mean_dict)
-    pupil_diameters = get_pupil_diameter(keypoints_mean_dict)
-    diameters = []
-    for i in range(len(markers_list)):
-        keypoints_dict = keypoints_stack_dict[i]
-        diameter = get_pupil_diameter(keypoints_dict)
-        diameters.append(diameter)
+    # pupil smoother only works for a pre-specified set of points
+    # NOTE: this order MUST be kept
+    keypoint_names = ['pupil_top_r', 'pupil_bottom_r', 'pupil_right_r', 'pupil_left_r']
+    keys = [f'{kp}_{coord}' for kp in keypoint_names for coord in ['x', 'y']]
 
+    # compute ensemble information
+    ensemble_preds, ensemble_vars, ensemble_likes, _ = ensemble(
+        markers_list, keys, avg_mode=avg_mode, var_mode=var_mode,
+    )
+
+    # compute center of mass + diameter
+    pupil_diameters = get_pupil_diameter({key: ensemble_preds[:, i] for i, key in enumerate(keys)})
+    pupil_locations = get_pupil_location({key: ensemble_preds[:, i] for i, key in enumerate(keys)})
     mean_x_obs = np.mean(pupil_locations[:, 0])
     mean_y_obs = np.mean(pupil_locations[:, 1])
+
     # make the mean zero
     x_t_obs, y_t_obs = pupil_locations[:, 0] - mean_x_obs, pupil_locations[:, 1] - mean_y_obs
-
-    # latent variables (observed)
-    # latent variables - diameter, com_x, com_y
-    # z_t_obs = np.vstack((pupil_diameters, x_t_obs, y_t_obs))
 
     # --------------------------------------
     # Set values for kalman filter
@@ -186,27 +198,23 @@ def ensemble_kalman_smoother_ibl_pupil(
     ])
 
     # Measurement function
-    C = np.asarray(
-        [[0, 1, 0], [-.5, 0, 1], [0, 1, 0], [.5, 0, 1], [.5, 1, 0], [0, 0, 1], [-.5, 1, 0],
-         [0, 0, 1]])
+    C = np.asarray([
+        [0, 1, 0], [-.5, 0, 1],
+        [0, 1, 0], [.5, 0, 1],
+        [.5, 1, 0], [0, 0, 1],
+        [-.5, 1, 0], [0, 0, 1]
+    ])
 
     # placeholder diagonal matrix for ensemble variance
     R = np.eye(8)
 
     scaled_ensemble_preds = ensemble_preds.copy()
-    scaled_ensemble_stacks = ensemble_stacks.copy()
     # subtract COM means from the ensemble predictions
     for i in range(ensemble_preds.shape[1]):
         if i % 2 == 0:
             scaled_ensemble_preds[:, i] -= mean_x_obs
         else:
             scaled_ensemble_preds[:, i] -= mean_y_obs
-    # subtract COM means from all the predictions
-    for i in range(ensemble_preds.shape[1]):
-        if i % 2 == 0:
-            scaled_ensemble_stacks[:, :, i] -= mean_x_obs
-        else:
-            scaled_ensemble_stacks[:, :, i] -= mean_y_obs
     y_obs = scaled_ensemble_preds
 
     # --------------------------------------
@@ -224,60 +232,78 @@ def ensemble_kalman_smoother_ibl_pupil(
     # --------------------------------------
     # cleanup
     # --------------------------------------
-    # save out marker info
-    pdindex = make_dlc_pandas_index(keypoint_names,
-                                    labels=["x", "y", "likelihood", "x_var", "y_var", "zscore"])
+
+    # collect data
     processed_arr_dict = add_mean_to_array(y_m_smooth, keys, mean_x_obs, mean_y_obs)
-    key_pair_list = [['pupil_top_r_x', 'pupil_top_r_y'],
-                     ['pupil_right_r_x', 'pupil_right_r_y'],
-                     ['pupil_bottom_r_x', 'pupil_bottom_r_y'],
-                     ['pupil_left_r_x', 'pupil_left_r_y']]
+    key_pair_list = [
+        ['pupil_top_r_x', 'pupil_top_r_y'],
+        ['pupil_right_r_x', 'pupil_right_r_y'],
+        ['pupil_bottom_r_x', 'pupil_bottom_r_y'],
+        ['pupil_left_r_x', 'pupil_left_r_y'],
+    ]
     ensemble_indices = [(0, 1), (4, 5), (2, 3), (6, 7)]
-    pred_arr = []
+    data_arr = []
     for i, key_pair in enumerate(key_pair_list):
-        pred_arr.append(processed_arr_dict[key_pair[0]])
-        pred_arr.append(processed_arr_dict[key_pair[1]])
-        var = np.empty(processed_arr_dict[key_pair[0]].shape)
-        var[:] = likelihood_default
-        pred_arr.append(var)
-        x_var = y_v_smooth[:, i, i]
-        y_var = y_v_smooth[:, i + 1, i + 1]
-        pred_arr.append(x_var)
-        pred_arr.append(y_var)
+        # keep track of labels for each data entry
+        labels = []
+        # smoothed x vals
+        data_arr.append(processed_arr_dict[key_pair[0]])
+        labels.append('x')
+        # smoothed y vals
+        data_arr.append(processed_arr_dict[key_pair[1]])
+        labels.append('y')
+        # mean likelihood
+        data_arr.append(ensemble_likes[:, ensemble_indices[i][0]])
+        labels.append('likelihood')
+        # x vals ensemble median
+        data_arr.append(ensemble_preds[:, ensemble_indices[i][0]])
+        labels.append('x_ens_median')
+        # y vals ensemble median
+        data_arr.append(ensemble_preds[:, ensemble_indices[i][1]])
+        labels.append('y_ens_median')
+        # x vals ensemble variance
+        data_arr.append(ensemble_vars[:, ensemble_indices[i][0]])
+        labels.append('x_ens_var')
+        # y vals ensemble variance
+        data_arr.append(ensemble_vars[:, ensemble_indices[i][1]])
+        labels.append('y_ens_var')
+        # x vals posterior variance
+        data_arr.append(y_v_smooth[:, i, i])
+        labels.append('x_posterior_var')
+        # y vals posterior variance
+        data_arr.append(y_v_smooth[:, i + 1, i + 1])
+        labels.append('y_posterior_var')
+
         # compute zscore for EKS to see how it deviates from the ensemble
-        eks_predictions = \
-            np.asarray([processed_arr_dict[key_pair[0]], processed_arr_dict[key_pair[1]]]).T
-        ensemble_preds_curr = ensemble_preds[:, ensemble_indices[i][0]: ensemble_indices[i][1] + 1]
-        ensemble_vars_curr = ensemble_vars[:, ensemble_indices[i][0]: ensemble_indices[i][1] + 1]
-        zscore, _ = eks_zscore(
-            eks_predictions,
-            ensemble_preds_curr,
-            ensemble_vars_curr,
-            min_ensemble_std=zscore_threshold)
-        pred_arr.append(zscore)
+        # eks_predictions = \
+        #     np.asarray([processed_arr_dict[key_pair[0]], processed_arr_dict[key_pair[1]]]).T
+        # ensemble_preds_curr = ensemble_preds[:, ensemble_indices[i][0]: ensemble_indices[i][1] + 1]
+        # ensemble_vars_curr = ensemble_vars[:, ensemble_indices[i][0]: ensemble_indices[i][1] + 1]
+        # zscore, _ = eks_zscore(
+        #     eks_predictions,
+        #     ensemble_preds_curr,
+        #     ensemble_vars_curr,
+        #     min_ensemble_std=zscore_threshold,
+        # )
+        # data_arr.append(zscore)
 
-    pred_arr = np.asarray(pred_arr)
-    markers_df = pd.DataFrame(pred_arr.T, columns=pdindex)
-    # save out latents info: pupil diam, center of mass
-    pred_arr2 = []
-    pred_arr2.append(ms[:, 0])
-    pred_arr2.append(ms[:, 1] + mean_x_obs)  # add back x mean of pupil location
-    pred_arr2.append(ms[:, 2] + mean_y_obs)  # add back ys mean of pupil location
-    pred_arr2 = np.asarray(pred_arr2)
-    arrays = [[tracker_name, tracker_name, tracker_name], ['diameter', 'com_x', 'com_y']]
-    pd_index2 = pd.MultiIndex.from_arrays(arrays, names=('scorer', 'latent'))
-    latents_df = pd.DataFrame(pred_arr2.T, columns=pd_index2)
+    data_arr = np.asarray(data_arr)
 
-    return {'markers_df': markers_df, 'latents_df': latents_df}, smooth_params, nll_values
+    # put data in dataframe
+    pdindex = make_dlc_pandas_index(keypoint_names, labels=labels)
+    markers_df = pd.DataFrame(data_arr.T, columns=pdindex)
+
+    return markers_df, smooth_params, nll_values
 
 
 def pupil_optimize_smooth(
-        y, m0, S0, C, R, ensemble_vars, diameters_var, x_var, y_var,
-        s_frames=[(1, 2000)],
-        smooth_params=[None, None]):
+    y, m0, S0, C, R, ensemble_vars, diameters_var, x_var, y_var,
+    s_frames: Optional[list] = [(1, 2000)],
+    smooth_params: Optional[list] = [None, None],
+):
     """Optimize-and-smooth function for the pupil example script."""
     # Optimize smooth_param
-    if smooth_params[0] is None or smooth_params[1] is None:
+    if smooth_params is None or smooth_params[0] is None or smooth_params[1] is None:
 
         # Unpack s_frames
         y_shortened = crop_frames(y, s_frames)

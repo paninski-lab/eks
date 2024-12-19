@@ -47,6 +47,7 @@ extras_require = {
     'dev': {
         'flake8',
         'isort',
+        'pytest',
         'Sphinx',
         'sphinx_rtd_theme',
         'sphinx-rtd-dark-mode',

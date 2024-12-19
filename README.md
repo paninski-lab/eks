@@ -1,4 +1,9 @@
 # EKS
+
+![GitHub](https://img.shields.io/github/license/paninski-lab/eks)
+![PyPI](https://img.shields.io/pypi/v/ensemble-kalman-smoother)
+![PyPI Downloads](https://static.pepy.tech/badge/ensemble-kalman-smoother/week)
+
 This repo contains code to run an Ensemble Kalman Smoother (EKS) for improving pose estimation outputs.
 
 The EKS uses a Kalman smoother to ensemble and smooth pose estimation outputs as a post-processing
@@ -39,7 +44,7 @@ for your specific OS.
 Then, in the command line, navigate to where you'd like to install the `eks` package and move 
 into that directory:
 ```
-git clone https://github.com/colehurwitz/eks
+git clone https://github.com/paninski-lab/eks
 cd eks
 ```
 
@@ -55,7 +60,7 @@ If you wish to install the developer version of the package, run installation li
 pip install -e ".[dev]"
 ```
 
-For more information on individual modules and their usage, see [Requirements](docs/requirements.md)
+For more information on individual modules and their usage, see [Requirements](docs/requirements.md).
 
 ### Method 2: pip
 
@@ -67,11 +72,12 @@ Note that you will not have access to the example data or example scripts with t
 option.
 
 ### Note: Using GPU for fast parallel-scan
+
 As of now, EKS singlecam features a jitted parallel scan implementation for quickly optimizing the
 smoothing parameter (notably for larger datasets of 10,000+ frames). In order to utilize parallel scan,
 you will need to have a cuda environment with jax enabled. Further instructions can be found in the [jax
 docs](https://jax.readthedocs.io/en/latest/installation.html).
--------------------------------
+
 
 ## Example scripts
 
@@ -95,9 +101,13 @@ python scripts/singlecam_example.py --input-dir ./data/ibl-pupil
 The singlecam script is currently the most up-to-date script with the greatest number of feature
 implementations, including fast smoothing parameter auto-tuning using GPU-driven parallelization.
 [Here](docs/singlecam_overview.md) is a detailed overview of the workflow.
- 
+
 ### Multi-camera datasets
-The `multicam_example.py` script demonstrates how to run the EKS code for multi-camera
+Coming soon!
+
+ 
+### Mirrored multi-camera datasets
+The `mirrored_multicam_example.py` script demonstrates how to run the EKS code for multi-camera
 setups where the pose predictions for a given model are all stored in a single csv file. 
 For example, if there is a body part names `nose_tip` and three cameras named 
 `top`, `bottom`, and `side`, then the csv file should have columns named
@@ -107,11 +117,11 @@ for a two-view video of a mouse with cameras named `top` and `bot`.
 To run the EKS on the example data provided, execute the following command from inside this repo:
 
 ```console 
-python scripts/multicam_example.py --input-dir ./data/mirror-mouse --bodypart-list paw1LH paw2LF paw3RF paw4RH --camera-names top bot
+python scripts/mirrored_multicam_example.py --input-dir ./data/mirror-mouse --bodypart-list paw1LH paw2LF paw3RF paw4RH --camera-names top bot
 ```
 
 ### IBL pupil dataset
-The `pupil_example.py` script requires a `input-dir` which contains lightning-pose or DLC 
+The `ibl_pupil_example.py` script requires a `input-dir` which contains lightning-pose or DLC 
 model predictions. 
 To run this script on the example data provided, execute the following command from inside this repo:
 
@@ -120,7 +130,7 @@ python scripts/ibl_pupil_example.py --input-dir ./data/ibl-pupil
 ```
 
 ### IBL paw dataset (multiple asynchronous views)
-The `multiview_paw_example.py` script requires a `input-dir` which contains lightning-pose 
+The `ibl_paw_multiview_example.py` script requires a `input-dir` which contains lightning-pose 
 or DLC model predictions for the left and right camera views, as well as timestamp files to align 
 the two cameras. 
 To run this script on the example data provided, execute the following command from inside this repo:
@@ -138,4 +148,3 @@ Keemin Lee
 Amol Pasarkar
 
 Matt Whiteway
-
