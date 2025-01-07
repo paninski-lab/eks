@@ -82,8 +82,8 @@ def fit_eks_mirrored_multicam(
                 output_df,
                 key_suffix=f'_{camera_name}'
             )
-        # Save the output DataFrames to CSV file
-        output_df.to_csv(save_file)
+    # Save the output DataFrames to CSV file
+    output_df.to_csv(save_file)
     return output_df, smooth_params_final, input_dfs_list, nll_values
 
 
