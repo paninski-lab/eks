@@ -1,7 +1,5 @@
 import jax.numpy as jnp
 import numpy as np
-import jax
-import jax.numpy as jnp
 import pandas as pd
 
 from eks.singlecam_smoother import (

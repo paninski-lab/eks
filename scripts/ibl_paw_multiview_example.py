@@ -9,7 +9,6 @@ from eks.command_line_args import handle_io, handle_parse_args
 from eks.ibl_paw_multiview_smoother import ensemble_kalman_smoother_ibl_paw
 from eks.utils import convert_lp_dlc
 
-
 smoother_type = 'ibl_paw'
 
 # Collect User-Provided Args

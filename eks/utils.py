@@ -81,15 +81,17 @@ def convert_slp_dlc(base_dir, slp_file):
     return df
 
 
-def format_data(input_source):
+def format_data(input_source, camera_names=None):
     """
     Load and format input files from a directory or a list of file paths.
 
     Args:
         input_source (str or list): Directory path or list of file paths.
+        camera_names (None or list): List of multiple camera/view names. None = single camera
+            *** data with mirrored naming schemes (e.g. paw1LH_top), keep camera_names as None
 
     Returns:
-        input_dfs_list (list): List of formatted DataFrames.
+        input_dfs_list (list): List of formatted DataFrames (List of Lists for un-mirrored sets).
         output_df (DataFrame): Empty DataFrame for storing results.
         keypoint_names (list): List of keypoint names.
 
@@ -109,28 +111,58 @@ def format_data(input_source):
         raise ValueError("input_source must be a directory path or a list of file paths")
 
     # Process each file based on the data type
-    for file_path in file_paths:
-        if file_path.endswith('.slp'):
-            markers_curr = convert_slp_dlc(os.path.dirname(file_path), os.path.basename(file_path))
-            keypoint_names = [c[1] for c in markers_curr.columns[::3]]
-            markers_curr_fmt = markers_curr
+    if camera_names is None:
+        for file_path in file_paths:
+            if file_path.endswith('.slp'):
+                markers_curr = convert_slp_dlc(os.path.dirname(file_path),
+                                               os.path.basename(file_path))
+                keypoint_names = [c[1] for c in markers_curr.columns[::3]]
+                markers_curr_fmt = markers_curr
+            elif file_path.endswith('.csv'):
+                markers_curr = pd.read_csv(file_path, header=[0, 1, 2], index_col=0)
+                keypoint_names = [c[1] for c in markers_curr.columns[::3]]
+                model_name = markers_curr.columns[0][0]
+                markers_curr_fmt = convert_lp_dlc(markers_curr,
+                                                  keypoint_names,
+                                                  model_name=model_name)
+            else:
+                continue
+            input_dfs_list.append(markers_curr_fmt)
+    else:
+        for camera in camera_names:
+            markers_for_this_camera = []  # inner list of markers for specific camera view
+            for file_path in file_paths:
+                if camera not in file_path:
+                    continue
+                else:  # file_path matches the camera name, proceed with processing
+                    if file_path.endswith('.slp'):
+                        markers_curr = convert_slp_dlc(os.path.dirname(file_path),
+                                                       os.path.basename(file_path))
+                        keypoint_names = [c[1] for c in markers_curr.columns[::3]]
+                        markers_curr_fmt = markers_curr
+                    elif file_path.endswith('.csv'):
+                        markers_curr = pd.read_csv(file_path, header=[0, 1, 2], index_col=0)
+                        keypoint_names = [c[1] for c in markers_curr.columns[::3]]
+                        model_name = markers_curr.columns[0][0]
+                        markers_curr_fmt = convert_lp_dlc(markers_curr,
+                                                          keypoint_names,
+                                                          model_name=model_name)
+                    else:
+                        continue
+                markers_for_this_camera.append(markers_curr_fmt)
+            input_dfs_list.append(markers_for_this_camera) # list of lists of markers
 
-        elif file_path.endswith('.csv'):
-            markers_curr = pd.read_csv(file_path, header=[0, 1, 2], index_col=0)
-            keypoint_names = [c[1] for c in markers_curr.columns[::3]]
-            model_name = markers_curr.columns[0][0]
-            markers_curr_fmt = convert_lp_dlc(markers_curr, keypoint_names, model_name=model_name)
-        else:
-            continue
-
-        input_dfs_list.append(markers_curr_fmt)
 
     # Check if we found any valid input files
     if len(input_dfs_list) == 0:
         raise FileNotFoundError(f'No valid marker input files found in {input_source}')
 
     # Create an empty output DataFrame using the last processed DataFrame as a template
-    output_df = make_output_dataframe(input_dfs_list[0])
+    if camera_names is None:
+        last_df = input_dfs_list[0]
+    else:  # multicam
+        last_df = input_dfs_list[0][0]
+    output_df = make_output_dataframe(last_df)
 
     return input_dfs_list, output_df, keypoint_names
 
@@ -152,11 +184,13 @@ def make_output_dataframe(markers_curr):
             parts = col.split('_')
             instance_num = parts[0]
             keypoint_name = '_'.join(parts[1:-1])  # Combine parts for keypoint name
+            if keypoint_name != '':
+                keypoint_name = f'_{keypoint_name}'
             feature = parts[-1]
 
             # Construct new column names with desired MultiIndex structure
             new_columns.append(
-                ('ensemble-kalman_tracker', f'{instance_num}_{keypoint_name}', feature))
+                ('ensemble-kalman_tracker', f'{instance_num}{keypoint_name}', feature))
 
         # Convert the columns Index to a MultiIndex with three levels
         markers_eks.columns = pd.MultiIndex.from_tuples(new_columns,

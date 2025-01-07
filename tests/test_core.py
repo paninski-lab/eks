@@ -1,8 +1,9 @@
-import pytest
-import numpy as np
 import jax.numpy as jnp
+import numpy as np
 import pandas as pd
-from eks.core import ensemble, kalman_dot, forward_pass, backward_pass, compute_nll, jax_ensemble
+import pytest
+
+from eks.core import backward_pass, compute_nll, ensemble, forward_pass, jax_ensemble, kalman_dot
 
 
 def test_ensemble():
