@@ -300,7 +300,7 @@ def ensemble_kalman_smoother_multicam(
     # Call functions from ensemble_kalman to optimize smooth_param before filtering and smoothing
     smooth_param, ms, Vs, nll, nll_values = multicam_optimize_smooth(
         cov_matrix, y_obs, m0, S0, C, A, R, ensemble_vars, s_frames, smooth_param)
-    print(f"Smoothed {keypoint_ensemble} at smooth_param={smooth_param:.3f}")
+    print(f"Smoothed {keypoint_ensemble} at smooth_param={smooth_param}")
     smooth_param_final = smooth_param
 
     # Smoothed posterior over ys
