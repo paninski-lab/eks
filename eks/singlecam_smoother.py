@@ -12,7 +12,6 @@ from jax import jit, vmap
 from eks.core import (
     compute_covariance_matrix,
     compute_initial_guesses,
-    eks_zscore,
     jax_backward_pass,
     jax_ensemble,
     jax_forward_pass,
@@ -158,7 +157,6 @@ def ensemble_kalman_smoother_singlecam(
 
     y_m_smooths = np.zeros((n_keypoints, T, n_coords))
     y_v_smooths = np.zeros((n_keypoints, T, n_coords, n_coords))
-    eks_preds_array = np.zeros(y_m_smooths.shape)
 
     data_arr = []
 
@@ -170,6 +168,7 @@ def ensemble_kalman_smoother_singlecam(
         mean_y_obs = mean_obs_dict[3 * k + 1]
 
         # Computing z-score
+        # eks_preds_array = np.zeros(y_m_smooths.shape)
         # eks_preds_array[k] = y_m_smooths[k].copy()
         # eks_preds_array[k] = np.asarray([
         #     eks_preds_array[k].T[0] + mean_x_obs,

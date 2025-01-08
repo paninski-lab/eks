@@ -1,7 +1,7 @@
 import subprocess
+from typing import Callable
 
 import pytest
-from typing import Callable
 
 
 @pytest.fixture

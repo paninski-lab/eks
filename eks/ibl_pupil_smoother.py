@@ -6,8 +6,8 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
 
-from eks.core import backward_pass, compute_nll, eks_zscore, ensemble, forward_pass
-from eks.utils import crop_frames, make_dlc_pandas_index, format_data
+from eks.core import backward_pass, compute_nll, ensemble, forward_pass
+from eks.utils import crop_frames, format_data, make_dlc_pandas_index
 
 
 def get_pupil_location(dlc):
@@ -276,7 +276,8 @@ def ensemble_kalman_smoother_ibl_pupil(
         # compute zscore for EKS to see how it deviates from the ensemble
         # eks_predictions = \
         #     np.asarray([processed_arr_dict[key_pair[0]], processed_arr_dict[key_pair[1]]]).T
-        # ensemble_preds_curr = ensemble_preds[:, ensemble_indices[i][0]: ensemble_indices[i][1] + 1]
+        # ensemble_preds_curr = ensemble_preds
+        #                                   [:, ensemble_indices[i][0]: ensemble_indices[i][1] + 1]
         # ensemble_vars_curr = ensemble_vars[:, ensemble_indices[i][0]: ensemble_indices[i][1] + 1]
         # zscore, _ = eks_zscore(
         #     eks_predictions,

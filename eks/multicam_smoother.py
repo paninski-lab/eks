@@ -1,3 +1,6 @@
+import os
+from typing import Optional, Union
+
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
@@ -11,39 +14,182 @@ from eks.core import (
     forward_pass,
 )
 from eks.ibl_paw_multiview_smoother import pca, remove_camera_means
-from eks.utils import crop_frames, make_dlc_pandas_index
+from eks.utils import crop_frames, format_data, make_dlc_pandas_index, populate_output_dataframe
+
+
+def fit_eks_mirrored_multicam(
+    input_source: Union[str, list],
+    save_file: str,
+    bodypart_list: Optional[list] = None,
+    smooth_param: Optional[Union[float, list]] = None,
+    s_frames: Optional[list] = None,
+    camera_names: Optional[list] = None,
+    quantile_keep_pca: float = 95,
+    avg_mode: str = 'median',
+    zscore_threshold: float = 2,
+) -> tuple:
+    """
+    Fit the Ensemble Kalman Smoother for mirrored multi-camera data.
+
+    Args:
+        input_source: Directory path or list of CSV file paths with columns for all cameras.
+        save_file: File to save output DataFrame.
+        bodypart_list: List of body parts.
+        smooth_param: Value in (0, Inf); smaller values lead to more smoothing.
+        s_frames: Frames for automatic optimization if smooth_param is not provided.
+        camera_names: List of camera names corresponding to the input data.
+        quantile_keep_pca: Percentage of points kept for PCA (default: 95).
+        avg_mode: Mode for averaging across ensemble ('median', 'mean').
+        zscore_threshold: Z-score threshold for filtering low ensemble std.
+        save_dir: The directory path to save output files to.
+
+    Returns:
+        tuple: Smoothed DataFrames for each camera, final smoothing parameters, and NLL values.
+    """
+    # Load and format input files
+    input_dfs_list, output_df, keypoint_names = format_data(input_source)
+    if bodypart_list is None:
+        bodypart_list = keypoint_names
+
+    # loop over keypoints; apply eks to each individually
+    for keypoint_ensemble in bodypart_list:
+        # Separate body part predictions by camera view
+        marker_list_by_cam = [[] for _ in range(len(camera_names))]
+        for markers_curr in input_dfs_list:
+            for c, camera_name in enumerate(camera_names):
+                non_likelihood_keys = [
+                    key for key in markers_curr.keys()
+                    if camera_names[c] in key and keypoint_ensemble in key
+                ]
+                marker_list_by_cam[c].append(markers_curr[non_likelihood_keys])
+
+        # Run the ensemble Kalman smoother for multi-camera data
+        camera_dfs, smooth_params_final, nll_values = ensemble_kalman_smoother_multicam(
+            markers_list_cameras=marker_list_by_cam,
+            keypoint_ensemble=keypoint_ensemble,
+            smooth_param=smooth_param,
+            quantile_keep_pca=quantile_keep_pca,
+            camera_names=camera_names,
+            s_frames=s_frames,
+            ensembling_mode=avg_mode,
+            zscore_threshold=zscore_threshold,
+        )
+        # Put results in new dataframe
+        for camera_name in camera_names:
+            output_df = populate_output_dataframe(
+                camera_dfs[camera_name],
+                keypoint_ensemble,
+                output_df,
+                key_suffix=f'_{camera_name}'
+            )
+    # Save the output DataFrames to CSV file
+    output_df.to_csv(save_file)
+    return output_df, smooth_params_final, input_dfs_list, nll_values
+
+
+def fit_eks_multicam(
+    input_source: Union[str, list],
+    save_dir: str,
+    bodypart_list: Optional[list] = None,
+    smooth_param: Optional[Union[float, list]] = None,
+    s_frames: Optional[list] = None,
+    camera_names: Optional[list] = None,
+    quantile_keep_pca: float = 95,
+    avg_mode: str = 'median',
+    zscore_threshold: float = 2,
+) -> tuple:
+    """
+    Fit the Ensemble Kalman Smoother for un-mirrored multi-camera data.
+
+    Args:
+        input_source: Directory path or list of CSV file paths with columns for all cameras.
+        save_dir: Directory to save output DataFrame.
+        bodypart_list: List of body parts.
+        smooth_param: Value in (0, Inf); smaller values lead to more smoothing.
+        s_frames: Frames for automatic optimization if smooth_param is not provided.
+        camera_names: List of camera names corresponding to the input data.
+        quantile_keep_pca: Percentage of points kept for PCA (default: 95).
+        avg_mode: Mode for averaging across ensemble ('median', 'mean').
+        zscore_threshold: Z-score threshold for filtering low ensemble std.
+
+    Returns:
+        tuple: Smoothed DataFrames for each camera, final smoothing parameters, and NLL values.
+    """
+    # Load and format input files
+    # NOTE: input_dfs_list is a list of camera-specific lists of marker Dataframes
+    input_dfs_list, output_df, keypoint_names = format_data(input_source,
+                                                            camera_names=camera_names)
+    if bodypart_list is None:
+        bodypart_list = keypoint_names
+
+    output_dfs = []  # Stores output dataframes (by camera)
+    for _ in camera_names:
+        output_dfs.append(output_df.copy())
+
+    # loop over keypoints; apply eks to each individually
+    for keypoint_ensemble in bodypart_list:
+        # Separate body part predictions by camera view
+        marker_list_by_cam = [[] for _ in range(len(camera_names))]
+        for c, camera_name in enumerate(camera_names):
+            ensemble_members = input_dfs_list[c]
+            for markers_curr in ensemble_members:
+                non_likelihood_keys = [
+                    key for key in markers_curr.keys()
+                    if keypoint_ensemble in key
+                ]
+                marker_list_by_cam[c].append(markers_curr[non_likelihood_keys])
+
+        # Run the ensemble Kalman smoother for multi-camera data
+        camera_dfs, smooth_params_final, nll_values = ensemble_kalman_smoother_multicam(
+            markers_list_cameras=marker_list_by_cam,
+            keypoint_ensemble=keypoint_ensemble,
+            smooth_param=smooth_param,
+            quantile_keep_pca=quantile_keep_pca,
+            camera_names=camera_names,
+            s_frames=s_frames,
+            ensembling_mode=avg_mode,
+            zscore_threshold=zscore_threshold,
+        )
+        # Save the output DataFrames to CSV files and populate output_dfs
+        for c, (camera_name, camera_df) in enumerate(camera_dfs.items()):
+            populate_output_dataframe(camera_df,
+                                      keypoint_ensemble,
+                                      output_dfs[c],
+                                      )
+
+    # Save output files (one per view)
+    for c, camera in enumerate(camera_names):
+        save_filename = f'multicam_{camera}_results.csv'
+        output_dfs[c].to_csv(os.path.join(save_dir, save_filename))
+    return output_dfs, smooth_params_final, input_dfs_list, nll_values
 
 
 def ensemble_kalman_smoother_multicam(
-    markers_list_cameras, keypoint_ensemble, smooth_param, quantile_keep_pca, camera_names,
-        s_frames, ensembling_mode='median', zscore_threshold=2):
-    """Use multi-view constraints to fit a 3d latent subspace for each body part.
+    markers_list_cameras: list,
+    keypoint_ensemble: str,
+    smooth_param: Optional[float] = None,
+    quantile_keep_pca: float = 95,
+    camera_names: Optional[list] = None,
+    s_frames: Optional[list] = None,
+    ensembling_mode: str = 'median',
+    zscore_threshold: float = 2,
+) -> dict:
+    """
+    Use multi-view constraints to fit a 3D latent subspace for each body part.
 
-    Parameters
-    ----------
-    markers_list_cameras : list of list of pd.DataFrames
-        each list element is a list of dataframe predictions from one ensemble member for each
-        camera.
-    keypoint_ensemble : str
-        the name of the keypoint to be ensembled and smoothed
-    smooth_param : float
-        ranges from .01-2 (smaller values = more smoothing)
-    quantile_keep_pca
-        percentage of the points are kept for multi-view PCA (lowest ensemble variance)
-    camera_names: list
-        the camera names (should be the same length as markers_list_cameras).
-    s_frames : list of tuples or int
-        specifies frames to be used for smoothing parameter auto-tuning
-        the function used for ensembling ('mean', 'median', or 'confidence_weighted_mean')
-    zscore_threshold:
-        Minimum std threshold to reduce the effect of low ensemble std on a zscore metric
-        (default 2).
+    Args:
+        markers_list_cameras: List of lists of pd.DataFrames, where each inner list contains
+            DataFrame predictions from one ensemble member for each camera.
+        keypoint_ensemble: The name of the keypoint to be ensembled and smoothed.
+        smooth_param: Value in (0, Inf); smaller values lead to more smoothing (default: None).
+        quantile_keep_pca: Percentage of points kept for PCA (default: 95).
+        camera_names: List of camera names corresponding to the input data (default: None).
+        s_frames: Frames for auto-optimization if smooth_param is not provided (default: None).
+        ensembling_mode: Mode for averaging across ensemble.
+        zscore_threshold: Minimum std threshold for z-score calculation (default: 2).
 
-    Returns
-    -------
-    dict
-        camera_dfs: dataframe containing smoothed markers for each camera; same format as input
-        dataframes
+    Returns:
+        dict: A dictionary containing smoothed DataFrames for each camera.
     """
 
     # --------------------------------------------------------------
@@ -154,7 +300,7 @@ def ensemble_kalman_smoother_multicam(
     # Call functions from ensemble_kalman to optimize smooth_param before filtering and smoothing
     smooth_param, ms, Vs, nll, nll_values = multicam_optimize_smooth(
         cov_matrix, y_obs, m0, S0, C, A, R, ensemble_vars, s_frames, smooth_param)
-    print(f"NLL is {nll} for {keypoint_ensemble}, smooth_param={smooth_param}")
+    print(f"Smoothed {keypoint_ensemble} at smooth_param={smooth_param}")
     smooth_param_final = smooth_param
 
     # Smoothed posterior over ys
@@ -194,7 +340,7 @@ def ensemble_kalman_smoother_multicam(
             nll_values,
             ensemble_std
         ]).T
-        camera_dfs[camera_name + '_df'] = pd.DataFrame(pred_arr, columns=pdindex)
+        camera_dfs[camera_name] = pd.DataFrame(pred_arr, columns=pdindex)
     return camera_dfs, smooth_param_final, nll_values
 
 
@@ -235,7 +381,6 @@ def multicam_optimize_smooth(
             bounds=[(0, None)]
         )
         smooth_param = sol.x[0]
-        print(f'Optimal at s={smooth_param}')
 
     # Final smooth with optimized s
     ms, Vs, nll, nll_values = multicam_smooth_final(
