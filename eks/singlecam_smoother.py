@@ -16,7 +16,6 @@ from eks.core import (
     jax_ensemble,
     jax_forward_pass,
     jax_forward_pass_nlls,
-    pkf_and_loss,
 )
 from eks.utils import crop_frames, format_data, make_dlc_pandas_index
 
