@@ -193,12 +193,13 @@ def ensemble_kalman_smoother_multicam(
     """
 
     # --------------------------------------------------------------
-    # interpolate right cam markers to left cam timestamps
+    # Setup: Interpolate right cam markers to left cam timestamps
     # --------------------------------------------------------------
     num_cameras = len(camera_names)
     markers_list_stacked_interp = []
     markers_list_interp = [[] for i in range(num_cameras)]
     camera_likelihoods_stacked = []
+
     for model_id in range(len(markers_list_cameras[0])):
         bl_markers_curr = []
         camera_markers_curr = [[] for i in range(num_cameras)]
@@ -219,21 +220,24 @@ def ensemble_kalman_smoother_multicam(
         for camera in range(num_cameras):
             markers_list_interp[camera].append(camera_markers_curr[camera])
             camera_likelihoods[camera] = np.asarray(camera_likelihoods[camera])
+
     markers_list_stacked_interp = np.asarray(markers_list_stacked_interp)
     markers_list_interp = np.asarray(markers_list_interp)
     camera_likelihoods_stacked = np.asarray(camera_likelihoods_stacked)
-
     keys = [keypoint_ensemble + '_x', keypoint_ensemble + '_y']
     markers_list_cams = [[] for i in range(num_cameras)]
+
     for k in range(len(markers_list_interp[0])):
         for camera in range(num_cameras):
             markers_cam = pd.DataFrame(markers_list_interp[camera][k], columns=keys)
             markers_cam[f'{keypoint_ensemble}_likelihood'] = camera_likelihoods_stacked[k][camera]
             markers_list_cams[camera].append(markers_cam)
+
     # compute ensemble median for each camera
     cam_ensemble_preds = []
     cam_ensemble_vars = []
     cam_ensemble_stacks = []
+
     for camera in range(num_cameras):
         cam_ensemble_preds_curr, cam_ensemble_vars_curr, _, cam_ensemble_stacks_curr = ensemble(
             markers_list_cams[camera], keys, avg_mode=ensembling_mode,
@@ -250,13 +254,14 @@ def ensemble_kalman_smoother_multicam(
 
     good_cam_ensemble_preds = []
     good_cam_ensemble_vars = []
+
     for camera in range(num_cameras):
         good_cam_ensemble_preds.append(cam_ensemble_preds[camera][good_frames])
         good_cam_ensemble_vars.append(cam_ensemble_vars[camera][good_frames])
 
     good_ensemble_preds = np.hstack(good_cam_ensemble_preds)
-    # good_ensemble_vars = np.hstack(good_cam_ensemble_vars)
     means_camera = []
+
     for i in range(good_ensemble_preds.shape[1]):
         means_camera.append(good_ensemble_preds[:, i].mean())
 
@@ -280,21 +285,17 @@ def ensemble_kalman_smoother_multicam(
     # latent variables (observed)
     good_z_t_obs = good_ensemble_pcs  # latent variables - true 3D pca
 
-    # ------ Set values for kalman filter ------
+    # --------------------------------------------------------------
+    # Kalman Filter
+    # --------------------------------------------------------------
     m0 = np.asarray([0.0, 0.0, 0.0])  # initial state: mean
     S0 = np.asarray([[np.var(good_z_t_obs[:, 0]), 0.0, 0.0],
                      [0.0, np.var(good_z_t_obs[:, 1]), 0.0],
                      [0.0, 0.0, np.var(good_z_t_obs[:, 2])]])  # diagonal: var
-
     A = np.asarray([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])  # state-transition matrix,
-
-    # Q = np.asarray([[10.0, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 10.0]]) <-- state-cov matrix?
-
     d_t = good_z_t_obs[1:] - good_z_t_obs[:-1]
-
     C = ensemble_pca.components_.T  # Measurement function is inverse transform of PCA
     R = np.eye(ensemble_pca.components_.shape[1])  # placeholder diagonal matrix for ensemble var
-
     cov_matrix = np.cov(d_t.T)
 
     # Call functions from ensemble_kalman to optimize smooth_param before filtering and smoothing
