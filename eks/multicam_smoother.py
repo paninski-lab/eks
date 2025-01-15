@@ -26,7 +26,8 @@ def fit_eks_mirrored_multicam(
     camera_names: Optional[list] = None,
     quantile_keep_pca: float = 95,
     avg_mode: str = 'median',
-    var_mode: str = 'confidence_weighted_var'
+    var_mode: str = 'confidence_weighted_var',
+    verbose: bool = False
 ) -> tuple:
     """
     Fit the Ensemble Kalman Smoother for mirrored multi-camera data.
@@ -47,11 +48,11 @@ def fit_eks_mirrored_multicam(
         tuple: Smoothed DataFrames for each camera, final smoothing parameters, and NLL values.
     """
     # Load and format input files
-    input_dfs_list, output_df, keypoint_names = format_data(input_source)
+    input_dfs_list, _, keypoint_names = format_data(input_source)
     if bodypart_list is None:
         bodypart_list = keypoint_names
 
-    # loop over keypoints; apply eks to each individually
+    markers_list = []
     for keypoint_ensemble in bodypart_list:
         # Separate body part predictions by camera view
         marker_list_by_cam = [[] for _ in range(len(camera_names))]
@@ -62,29 +63,33 @@ def fit_eks_mirrored_multicam(
                     if camera_names[c] in key and keypoint_ensemble in key
                 ]
                 marker_list_by_cam[c].append(markers_curr[non_likelihood_keys])
+        markers_list.append(marker_list_by_cam)
 
-        # Run the ensemble Kalman smoother for multi-camera data
-        camera_dfs, smooth_params_final, nll_values = ensemble_kalman_smoother_multicam(
-            markers_list=marker_list_by_cam,
-            keypoint_ensemble=keypoint_ensemble,
-            smooth_param=smooth_param,
-            quantile_keep_pca=quantile_keep_pca,
-            camera_names=camera_names,
-            s_frames=s_frames,
-            avg_mode=avg_mode,
-            var_mode=var_mode
-        )
-        # Put results in new dataframe
-        for camera_name in camera_names:
-            output_df = populate_output_dataframe(
-                camera_dfs[camera_name],
-                keypoint_ensemble,
-                output_df,
-                key_suffix=f'_{camera_name}'
-            )
+    # Run the ensemble Kalman smoother for multi-camera data
+    camera_dfs, smooth_params_final = ensemble_kalman_smoother_multicam(
+        markers_list=markers_list,
+        keypoint_names=bodypart_list,
+        smooth_param=smooth_param,
+        quantile_keep_pca=quantile_keep_pca,
+        camera_names=camera_names,
+        s_frames=s_frames,
+        avg_mode=avg_mode,
+        var_mode=var_mode,
+        verbose=verbose
+    )
+    final_df = None
+    for c, camera_df in enumerate(camera_dfs):
+        suffix = f'{camera_names[c]}'
+        new_columns = \
+            [(scorer, f"{keypoint}_{suffix}", attr) for scorer, keypoint, attr in camera_df.columns]
+        camera_df.columns = pd.MultiIndex.from_tuples(new_columns, names=camera_df.columns.names)
+        if final_df is None:
+            final_df = camera_df
+        else:
+            pd.concat([final_df, camera_df],axis=1)
     # Save the output DataFrames to CSV file
-    output_df.to_csv(save_file)
-    return output_df, smooth_params_final, input_dfs_list, nll_values
+    final_df.to_csv(f"{save_file}")
+    return camera_dfs[0], smooth_params_final, input_dfs_list, bodypart_list
 
 
 def fit_eks_multicam(
@@ -96,7 +101,8 @@ def fit_eks_multicam(
     camera_names: Optional[list] = None,
     quantile_keep_pca: float = 95,
     avg_mode: str = 'median',
-    var_mode: str = 'confidence_weighted_var'
+    var_mode: str = 'confidence_weighted_var',
+    verbose: bool = False
 ) -> tuple:
     """
     Fit the Ensemble Kalman Smoother for un-mirrored multi-camera data.
@@ -122,22 +128,37 @@ def fit_eks_multicam(
 """
     # Load and format input files
     # NOTE: input_dfs_list is a list of camera-specific lists of Dataframes
-    input_dfs_list, output_df, keypoint_names = format_data(input_source,
+    input_dfs_list, _, keypoint_names = format_data(input_source,
                                                             camera_names=camera_names)
     if bodypart_list is None:
         bodypart_list = keypoint_names
         print(f'Input data loaded for keypoints:\n{bodypart_list}')
 
+    markers_list = []
+    for keypoint in bodypart_list:
+        # Separate body part predictions by camera view
+        markers_list_cameras = [[] for _ in range(len(camera_names))]
+        for c, camera_name in enumerate(camera_names):
+            ensemble_members = input_dfs_list[c]
+            for markers_curr in ensemble_members:
+                non_likelihood_keys = [
+                    key for key in markers_curr.keys()
+                    if keypoint in key
+                ]
+                markers_list_cameras[c].append(markers_curr[non_likelihood_keys])
+        markers_list.append(markers_list_cameras)
+
     # Run the ensemble Kalman smoother for multi-camera data
     camera_dfs, smooth_params_final = ensemble_kalman_smoother_multicam(
-        markers_list=input_dfs_list,
+        markers_list=markers_list,
         keypoint_names=bodypart_list,
         smooth_param=smooth_param,
         quantile_keep_pca=quantile_keep_pca,
         camera_names=camera_names,
         s_frames=s_frames,
         avg_mode=avg_mode,
-        var_mode='confidence_weighted_mean'
+        var_mode=var_mode,
+        verbose=verbose
     )
 
     # Save output DataFrames to CSVs (one per camera view)
@@ -179,22 +200,18 @@ def ensemble_kalman_smoother_multicam(
     Returns:
         tuple: Dataframes with smoothed predictions, final smoothing parameters.
     """
-    data_arr = []
+
+    # Collection array for marker output by camera view
+    camera_arrs = []
+    for _ in camera_names:
+        camera_arrs.append([])
+
     # loop over keypoints; apply eks to each individually
-    for keypoint in keypoint_names:
-        # Separate body part predictions by camera view
-        markers_list_cameras = [[] for _ in range(len(camera_names))]
-        for c, camera_name in enumerate(camera_names):
-            ensemble_members = markers_list[c]
-            for markers_curr in ensemble_members:
-                non_likelihood_keys = [
-                    key for key in markers_curr.keys()
-                    if keypoint in key
-                ]
-                markers_list_cameras[c].append(markers_curr[non_likelihood_keys])
+    for k, keypoint in enumerate(keypoint_names):
         # --------------------------------------------------------------
         # Setup: Interpolate right cam markers to left cam timestamps
         # --------------------------------------------------------------
+        markers_list_cameras = markers_list[k]
         num_cameras = len(camera_names)
         markers_list_stacked_interp = []
         markers_list_interp = [[] for i in range(num_cameras)]
@@ -299,10 +316,10 @@ def ensemble_kalman_smoother_multicam(
         cov_matrix = np.cov(d_t.T)
 
         # Call functions from ensemble_kalman to optimize smooth_param before filtering and smoothing
-        smooth_param, ms, Vs, nll, nll_values = multicam_optimize_smooth(
-            cov_matrix, y_obs, m0, S0, C, A, R, ensemble_vars, s_frames, smooth_param=None)
-        print(f"Smoothed {keypoint} at smooth_param={smooth_param}")
-        smooth_param_final = smooth_param
+        smooth_param_final, ms, Vs, nll, nll_values = multicam_optimize_smooth(
+            cov_matrix, y_obs, m0, S0, C, A, R, ensemble_vars, s_frames, smooth_param=smooth_param)
+        if verbose:
+            print(f"Smoothed {keypoint} at smooth_param={smooth_param_final}")
 
         # Smoothed posterior over ys
         y_m_smooth = np.dot(C, ms.T).T
@@ -312,35 +329,33 @@ def ensemble_kalman_smoother_multicam(
         # final cleanup -- should be migrated out of keypoint for-loop eventually
         # --------------------------------------
 
-        camera_indices = []
+        c_i = []  # camera indices
         for camera in range(num_cameras):
-            camera_indices.append([camera * 2, camera * 2 + 1])
-        for camera, camera_name in enumerate(camera_names):
-            camera_data_arr = []
-            data_arr.append(camera_data_arr)
-            mean_x_obs = means_camera[camera_indices[camera][0]]
-            mean_y_obs = means_camera[camera_indices[camera][1]]
+            c_i.append([camera * 2, camera * 2 + 1])
+        for c, camera in enumerate(camera_names):
+            data_arr = camera_arrs[c]  # location of this camera view in camera_arrs
+            x_i = c_i[c][0]
+            y_i = c_i[c][1]
 
             # smoothed x vals
-            camera_data_arr.append(y_m_smooth.T[0] + mean_x_obs)
+            data_arr.append(y_m_smooth.T[x_i] + means_camera[x_i])
             # smoothed y vals
-            data_arr.append(y_m_smooth.T[1] + mean_y_obs)
+            data_arr.append(y_m_smooth.T[y_i] + means_camera[y_i])
             # mean likelihood
-            data_arr.append(ensemble_likes[camera])
+            data_arr.append(ensemble_likes[:, x_i])
             # x vals ensemble median
-            data_arr.append(ensemble_preds[camera, 0])
+            data_arr.append(ensemble_preds[:, x_i])
             # y vals ensemble median
-            data_arr.append(ensemble_preds[camera, 0])
+            data_arr.append(ensemble_preds[:, y_i])
             # x vals ensemble variance
-            data_arr.append(ensemble_vars[camera, 0])
+            data_arr.append(ensemble_vars[:, x_i])
             # y vals ensemble variance
-            data_arr.append(ensemble_vars[camera, 1])
+            data_arr.append(ensemble_vars[:, y_i])
             # x vals posterior variance
-            data_arr.append(y_v_smooth[:, camera_indices[camera][0], camera_indices[camera][0]])
+            data_arr.append(y_v_smooth[:, x_i, x_i])
             # y vals posterior variance
-            data_arr.append(y_v_smooth[:, camera_indices[camera][1], camera_indices[camera][1]])
+            data_arr.append(y_v_smooth[:, y_i, y_i])
 
-    data_arr = np.asarray(data_arr)
     labels = ['x',
               'y',
               'likelihood',
@@ -350,11 +365,15 @@ def ensemble_kalman_smoother_multicam(
               'y_ens_var',
               'x_posterior_var',
               'y_posterior_var']
+
+    pdindex = make_dlc_pandas_index(keypoint_names, labels=labels)
     camera_dfs = []
-    for camera, camera_name in enumerate(camera_names):
+    for c, camera in enumerate(camera_names):
         # put data into dataframe
-        pdindex = make_dlc_pandas_index(keypoint_names, labels=labels)
-        camera_dfs.append(pd.DataFrame(data_arr.T, columns=pdindex))
+        camera_arr = np.asarray(camera_arrs[c])
+        camera_df = pd.DataFrame(camera_arr.T, columns=pdindex)
+        camera_dfs.append(camera_df)
+
     return camera_dfs, smooth_param_final
 
 
@@ -395,7 +414,6 @@ def multicam_optimize_smooth(
             bounds=[(0, None)]
         )
         smooth_param = sol.x[0]
-
     # Final smooth with optimized s
     ms, Vs, nll, nll_values = multicam_smooth_final(
         cov_matrix, smooth_param, y, m0, s0, C, A, R, ensemble_vars)

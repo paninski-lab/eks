@@ -24,9 +24,10 @@ s = args.s  # Defaults to automatic optimization
 s_frames = args.s_frames  # Frames to be used for automatic optimization if s is not provided
 camera_names = args.camera_names
 quantile_keep_pca = args.quantile_keep_pca
+verbose = True if args.verbose == 'True' else False
 
 # Fit EKS using the provided input data
-output_dfs, s_finals, input_dfs, bodypart_list = fit_eks_multicam(
+camera_dfs, s_finals, input_dfs, bodypart_list = fit_eks_multicam(
     input_source=input_source,
     save_dir=save_dir,
     bodypart_list=bodypart_list,
@@ -34,6 +35,7 @@ output_dfs, s_finals, input_dfs, bodypart_list = fit_eks_multicam(
     s_frames=s_frames,
     camera_names=camera_names,
     quantile_keep_pca=quantile_keep_pca,
+    verbose=verbose
 )
 
 
@@ -41,8 +43,8 @@ output_dfs, s_finals, input_dfs, bodypart_list = fit_eks_multicam(
 keypoint_i = -1
 camera_c = -1
 plot_results(
-    output_df=output_dfs[camera_c],
-    input_dfs_list=input_dfs[camera_c],
+    output_df=camera_dfs[1],
+    input_dfs_list=input_dfs[-1],
     key=f'{bodypart_list[keypoint_i]}',
     idxs=(0, 500),
     s_final=s_finals,

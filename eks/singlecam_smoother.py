@@ -30,6 +30,7 @@ def fit_eks_singlecam(
     blocks: list = [],
     avg_mode: str = 'median',
     var_mode: str = 'confidence_weighted_var',
+    verbose: bool = False,
 ) -> tuple:
     """Fit the Ensemble Kalman Smoother for single-camera data.
 
@@ -47,6 +48,7 @@ def fit_eks_singlecam(
             'median' | 'mean'
         var_mode: mode for computing ensemble variance
             'var' | 'confidence_weighted_var'
+        verbose: Extra print statements if True
 
     Returns:
         tuple:
@@ -71,7 +73,8 @@ def fit_eks_singlecam(
         s_frames=s_frames,
         blocks=blocks,
         avg_mode=avg_mode,
-        var_mode=var_mode
+        var_mode=var_mode,
+        verbose=verbose
     )
 
     # Save the output DataFrame to CSV
@@ -377,30 +380,13 @@ def singlecam_optimize_smooth(
     if verbose:
         print(f'Correlated keypoint blocks: {blocks}')
 
-    # Depending on whether we use GPU, choose parallel or sequential smoothing param optimization
-    try:
-        _ = jax.device_put(jax.numpy.ones(1), device=jax.devices('gpu')[0])
-        if verbose:
-            print("Using GPU")
+    @partial(jit)
+    def nll_loss_sequential_scan(s, cov_mats, cropped_ys, m0s, S0s, Cs, As, Rs, ensemble_vars):
+        s = jnp.exp(s)  # To ensure positivity
+        return singlecam_smooth_min(
+            s, cov_mats, cropped_ys, m0s, S0s, Cs, As, Rs, ensemble_vars)
 
-        @partial(jit)
-        def nll_loss_parallel_scan(s, cov_mats, cropped_ys, m0s, S0s, Cs, As, Rs):
-            s = jnp.exp(s)  # To ensure positivity
-            output = singlecam_smooth_min_parallel(s, cov_mats, cropped_ys, m0s, S0s, Cs, As, Rs)
-            return output
-
-        loss_function = nll_loss_parallel_scan
-    except:
-        if verbose:
-            print("Using CPU")
-
-        @partial(jit)
-        def nll_loss_sequential_scan(s, cov_mats, cropped_ys, m0s, S0s, Cs, As, Rs, ensemble_vars):
-            s = jnp.exp(s)  # To ensure positivity
-            return singlecam_smooth_min(
-                s, cov_mats, cropped_ys, m0s, S0s, Cs, As, Rs, ensemble_vars)
-
-        loss_function = nll_loss_sequential_scan
+    loss_function = nll_loss_sequential_scan
 
     # Optimize smooth_param
     if smooth_param is not None:
@@ -524,41 +510,6 @@ def inner_smooth_min_routine_parallel(y, m0, S0, A, Q, C, R):
 
 inner_smooth_min_routine_parallel_vmap = jit(
     vmap(inner_smooth_min_routine_parallel, in_axes=(0, 0, 0, 0, 0, 0, 0)))
-
-
-# ------------------------------------------------------------------------------------------------
-# Routines that use the parallel scan kalman filter implementation to arrive at the NLL function.
-# Note: This should only be run on GPUs
-# ------------------------------------------------------------------------------------------------
-
-def singlecam_smooth_min_parallel(
-    smooth_param, cov_mats, observations, initial_means, initial_covariances, Cs, As, Rs,
-):
-    """
-    Computes the maximum likelihood estimator for the process noise variance (smoothness param).
-    This function is parallelized to process all keypoints in a given block.
-    KEY: This function uses the parallel scan algorithm, which has effectively O(log(n))
-    runtime on GPUs. On CPUs, it is slower than the jax.lax.scan implementation above.
-
-    Parameters:
-    smooth_param (float): Smoothing parameter.
-    block (list): List of blocks.
-    cov_mats (np.ndarray): Covariance matrices.
-    ys (np.ndarray): Observations.
-    m0s (np.ndarray): Initial mean state.
-    S0s (np.ndarray): Initial state covariance.
-    Cs (np.ndarray): Measurement function.
-    As (np.ndarray): State-transition matrix.
-    Rs (np.ndarray): Measurement noise covariance.
-
-    Returns:
-        float: Negative log-likelihood.
-    """
-    # Adjust Q based on smooth_param and cov_matrix
-    Qs = smooth_param * cov_mats
-    values = inner_smooth_min_routine_parallel_vmap(observations, initial_means,
-                                                    initial_covariances, As, Qs, Cs, Rs)
-    return jnp.sum(values)
 
 
 def final_forwards_backwards_pass(process_cov, s, ys, m0s, S0s, Cs, As, Rs, ensemble_vars):
