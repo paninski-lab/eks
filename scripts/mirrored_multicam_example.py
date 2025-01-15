@@ -26,7 +26,7 @@ camera_names = args.camera_names
 quantile_keep_pca = args.quantile_keep_pca
 
 # Fit EKS using the provided input data
-output_df, s_finals, input_dfs, nll_values = fit_eks_mirrored_multicam(
+output_df, s_finals, input_dfs, bodypart_list = fit_eks_mirrored_multicam(
     input_source=input_source,
     save_file=os.path.join(save_dir, save_filename or 'eks_mirrored_multicam'),
     bodypart_list=bodypart_list,

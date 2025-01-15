@@ -26,7 +26,7 @@ camera_names = args.camera_names
 quantile_keep_pca = args.quantile_keep_pca
 
 # Fit EKS using the provided input data
-output_dfs, s_finals, input_dfs, nll_values = fit_eks_multicam(
+output_dfs, s_finals, input_dfs, bodypart_list = fit_eks_multicam(
     input_source=input_source,
     save_dir=save_dir,
     bodypart_list=bodypart_list,

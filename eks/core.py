@@ -394,7 +394,6 @@ def kalman_filter_step_nlls(carry, inputs):
 
 
 # Always run the sequential filter on CPU.
-# GPU will deploy individual kernels for each scan iteration, very slow.
 @partial(jit, backend='cpu')
 def jax_forward_pass(y, m0, cov0, A, Q, C, R, ensemble_vars):
     """

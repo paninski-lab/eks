@@ -61,7 +61,7 @@ def fit_eks_singlecam(
 
     if bodypart_list is None:
         bodypart_list = keypoint_names
-    print(f'Input data loaded for keypoints:\n{bodypart_list}')
+        print(f'Input data loaded for keypoints:\n{bodypart_list}')
 
     # Run the ensemble Kalman smoother
     df_smoothed, smooth_params_final = ensemble_kalman_smoother_singlecam(
@@ -71,7 +71,7 @@ def fit_eks_singlecam(
         s_frames=s_frames,
         blocks=blocks,
         avg_mode=avg_mode,
-        var_mode=var_mode,
+        var_mode=var_mode
     )
 
     # Save the output DataFrame to CSV
@@ -90,7 +90,7 @@ def ensemble_kalman_smoother_singlecam(
     blocks: list = [],
     avg_mode: str = 'median',
     var_mode: str = 'confidence_weighted_var',
-    zscore_threshold: float = 2,
+    # zscore_threshold: float = 2,
     verbose: bool = False,
 ) -> tuple:
     """Perform Ensemble Kalman Smoothing for single-camera data.
@@ -112,7 +112,7 @@ def ensemble_kalman_smoother_singlecam(
         verbose: True to print out details
 
     Returns:
-        tuple: Dataframes with smoothed predictions, final smoothing parameters, NLL values.
+        tuple: Dataframes with smoothed predictions, final smoothing parameters.
 
     """
 
