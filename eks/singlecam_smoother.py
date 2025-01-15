@@ -502,16 +502,6 @@ def singlecam_smooth_min(smooth_param, cov_mats, ys, m0s, S0s, Cs, As, Rs, ensem
     return nlls
 
 
-def inner_smooth_min_routine_parallel(y, m0, S0, A, Q, C, R):
-    # Run filtering with the current smooth_param
-    means, covariances, NLL = pkf_and_loss(y, m0, S0, A, Q, C, R)
-    return jnp.sum(NLL)
-
-
-inner_smooth_min_routine_parallel_vmap = jit(
-    vmap(inner_smooth_min_routine_parallel, in_axes=(0, 0, 0, 0, 0, 0, 0)))
-
-
 def final_forwards_backwards_pass(process_cov, s, ys, m0s, S0s, Cs, As, Rs, ensemble_vars):
     """
     Perform final smoothing with the optimized smoothing parameters.
