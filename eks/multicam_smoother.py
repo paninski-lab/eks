@@ -45,7 +45,11 @@ def fit_eks_mirrored_multicam(
         save_dir: The directory path to save output files to.
 
     Returns:
-        tuple: Smoothed DataFrames for each camera, final smoothing parameters, and NLL values.
+            tuple:
+                    camera_dfs (list): List of Output Dataframes
+                    s_finals (list): List of optimized smoothing factors for each keypoint.
+                    input_dfs (list): List of input DataFrames for plotting.
+                    bodypart_list (list): List of body parts used.
     """
     # Load and format input files
     input_dfs_list, _, keypoint_names = format_data(input_source)
@@ -89,7 +93,7 @@ def fit_eks_mirrored_multicam(
             pd.concat([final_df, camera_df],axis=1)
     # Save the output DataFrames to CSV file
     final_df.to_csv(f"{save_file}")
-    return camera_dfs[0], smooth_params_final, input_dfs_list, bodypart_list
+    return final_df, smooth_params_final, input_dfs_list, bodypart_list
 
 
 def fit_eks_multicam(
@@ -120,7 +124,7 @@ def fit_eks_multicam(
 
     Returns:
         tuple:
-            df_smoothed (pd.DataFrame)
+            camera_dfs (list): List of Output Dataframes
             s_finals (list): List of optimized smoothing factors for each keypoint.
             input_dfs (list): List of input DataFrames for plotting.
             bodypart_list (list): List of body parts used.
