@@ -16,7 +16,6 @@ from eks.core import (
     jax_ensemble,
     jax_forward_pass,
     jax_forward_pass_nlls,
-    pkf_and_loss,
 )
 from eks.utils import crop_frames, format_data, make_dlc_pandas_index
 
@@ -377,30 +376,13 @@ def singlecam_optimize_smooth(
     if verbose:
         print(f'Correlated keypoint blocks: {blocks}')
 
-    # Depending on whether we use GPU, choose parallel or sequential smoothing param optimization
-    try:
-        _ = jax.device_put(jax.numpy.ones(1), device=jax.devices('gpu')[0])
-        if verbose:
-            print("Using GPU")
+    @partial(jit)
+    def nll_loss_sequential_scan(s, cov_mats, cropped_ys, m0s, S0s, Cs, As, Rs, ensemble_vars):
+        s = jnp.exp(s)  # To ensure positivity
+        return singlecam_smooth_min(
+            s, cov_mats, cropped_ys, m0s, S0s, Cs, As, Rs, ensemble_vars)
 
-        @partial(jit)
-        def nll_loss_parallel_scan(s, cov_mats, cropped_ys, m0s, S0s, Cs, As, Rs):
-            s = jnp.exp(s)  # To ensure positivity
-            output = singlecam_smooth_min_parallel(s, cov_mats, cropped_ys, m0s, S0s, Cs, As, Rs)
-            return output
-
-        loss_function = nll_loss_parallel_scan
-    except:
-        if verbose:
-            print("Using CPU")
-
-        @partial(jit)
-        def nll_loss_sequential_scan(s, cov_mats, cropped_ys, m0s, S0s, Cs, As, Rs, ensemble_vars):
-            s = jnp.exp(s)  # To ensure positivity
-            return singlecam_smooth_min(
-                s, cov_mats, cropped_ys, m0s, S0s, Cs, As, Rs, ensemble_vars)
-
-        loss_function = nll_loss_sequential_scan
+    loss_function = nll_loss_sequential_scan
 
     # Optimize smooth_param
     if smooth_param is not None:
@@ -514,51 +496,6 @@ def singlecam_smooth_min(smooth_param, cov_mats, ys, m0s, S0s, Cs, As, Rs, ensem
     Qs = smooth_param * cov_mats
     nlls = jnp.sum(inner_smooth_min_routine_vmap(ys, m0s, S0s, As, Qs, Cs, Rs))
     return nlls
-
-
-def inner_smooth_min_routine_parallel(y, m0, S0, A, Q, C, R):
-    # Run filtering with the current smooth_param
-    means, covariances, NLL = pkf_and_loss(y, m0, S0, A, Q, C, R)
-    return jnp.sum(NLL)
-
-
-inner_smooth_min_routine_parallel_vmap = jit(
-    vmap(inner_smooth_min_routine_parallel, in_axes=(0, 0, 0, 0, 0, 0, 0)))
-
-
-# ------------------------------------------------------------------------------------------------
-# Routines that use the parallel scan kalman filter implementation to arrive at the NLL function.
-# Note: This should only be run on GPUs
-# ------------------------------------------------------------------------------------------------
-
-def singlecam_smooth_min_parallel(
-    smooth_param, cov_mats, observations, initial_means, initial_covariances, Cs, As, Rs,
-):
-    """
-    Computes the maximum likelihood estimator for the process noise variance (smoothness param).
-    This function is parallelized to process all keypoints in a given block.
-    KEY: This function uses the parallel scan algorithm, which has effectively O(log(n))
-    runtime on GPUs. On CPUs, it is slower than the jax.lax.scan implementation above.
-
-    Parameters:
-    smooth_param (float): Smoothing parameter.
-    block (list): List of blocks.
-    cov_mats (np.ndarray): Covariance matrices.
-    ys (np.ndarray): Observations.
-    m0s (np.ndarray): Initial mean state.
-    S0s (np.ndarray): Initial state covariance.
-    Cs (np.ndarray): Measurement function.
-    As (np.ndarray): State-transition matrix.
-    Rs (np.ndarray): Measurement noise covariance.
-
-    Returns:
-        float: Negative log-likelihood.
-    """
-    # Adjust Q based on smooth_param and cov_matrix
-    Qs = smooth_param * cov_mats
-    values = inner_smooth_min_routine_parallel_vmap(observations, initial_means,
-                                                    initial_covariances, As, Qs, Cs, Rs)
-    return jnp.sum(values)
 
 
 def final_forwards_backwards_pass(process_cov, s, ys, m0s, S0s, Cs, As, Rs, ensemble_vars):

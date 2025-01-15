@@ -193,7 +193,7 @@ def ensemble_kalman_smoother_multicam(
     """
 
     # --------------------------------------------------------------
-    # interpolate right cam markers to left cam timestamps
+    # Setup: Interpolate right cam markers to left cam timestamps
     # --------------------------------------------------------------
     num_cameras = len(camera_names)
     markers_list_stacked_interp = []
@@ -219,6 +219,7 @@ def ensemble_kalman_smoother_multicam(
         for camera in range(num_cameras):
             markers_list_interp[camera].append(camera_markers_curr[camera])
             camera_likelihoods[camera] = np.asarray(camera_likelihoods[camera])
+
     markers_list_stacked_interp = np.asarray(markers_list_stacked_interp)
     markers_list_interp = np.asarray(markers_list_interp)
     camera_likelihoods_stacked = np.asarray(camera_likelihoods_stacked)
@@ -230,6 +231,7 @@ def ensemble_kalman_smoother_multicam(
             markers_cam = pd.DataFrame(markers_list_interp[camera][k], columns=keys)
             markers_cam[f'{keypoint_ensemble}_likelihood'] = camera_likelihoods_stacked[k][camera]
             markers_list_cams[camera].append(markers_cam)
+
     # compute ensemble median for each camera
     cam_ensemble_preds = []
     cam_ensemble_vars = []
@@ -280,21 +282,17 @@ def ensemble_kalman_smoother_multicam(
     # latent variables (observed)
     good_z_t_obs = good_ensemble_pcs  # latent variables - true 3D pca
 
-    # ------ Set values for kalman filter ------
+    # --------------------------------------------------------------
+    # Kalman Filter
+    # --------------------------------------------------------------
     m0 = np.asarray([0.0, 0.0, 0.0])  # initial state: mean
     S0 = np.asarray([[np.var(good_z_t_obs[:, 0]), 0.0, 0.0],
                      [0.0, np.var(good_z_t_obs[:, 1]), 0.0],
                      [0.0, 0.0, np.var(good_z_t_obs[:, 2])]])  # diagonal: var
-
-    A = np.asarray([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])  # state-transition matrix,
-
-    # Q = np.asarray([[10.0, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 10.0]]) <-- state-cov matrix?
-
+    A = np.asarray([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])  # state-transition matrix
     d_t = good_z_t_obs[1:] - good_z_t_obs[:-1]
-
     C = ensemble_pca.components_.T  # Measurement function is inverse transform of PCA
     R = np.eye(ensemble_pca.components_.shape[1])  # placeholder diagonal matrix for ensemble var
-
     cov_matrix = np.cov(d_t.T)
 
     # Call functions from ensemble_kalman to optimize smooth_param before filtering and smoothing
