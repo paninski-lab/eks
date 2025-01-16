@@ -92,7 +92,6 @@ def ensemble_kalman_smoother_singlecam(
     blocks: list = [],
     avg_mode: str = 'median',
     var_mode: str = 'confidence_weighted_var',
-    # zscore_threshold: float = 2,
     verbose: bool = False,
 ) -> tuple:
     """Perform Ensemble Kalman Smoothing for single-camera data.
@@ -110,7 +109,6 @@ def ensemble_kalman_smoother_singlecam(
             'median' | 'mean'
         var_mode: mode for computing ensemble variance
             'var' | 'confidence_weighted_var'
-        zscore_threshold: z-score threshold.
         verbose: True to print out details
 
     Returns:

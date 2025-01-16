@@ -43,8 +43,8 @@ camera_dfs, s_finals, input_dfs, bodypart_list = fit_eks_multicam(
 keypoint_i = -1
 camera_c = -1
 plot_results(
-    output_df=camera_dfs[1],
-    input_dfs_list=input_dfs[-1],
+    output_df=camera_dfs[camera_c],
+    input_dfs_list=input_dfs[camera_c],
     key=f'{bodypart_list[keypoint_i]}',
     idxs=(0, 500),
     s_final=s_finals,

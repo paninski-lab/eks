@@ -41,8 +41,9 @@ def fit_eks_mirrored_multicam(
         camera_names: List of camera names corresponding to the input data.
         quantile_keep_pca: Percentage of points kept for PCA (default: 95).
         avg_mode: Mode for averaging across ensemble ('median', 'mean').
-        zscore_threshold: Z-score threshold for filtering low ensemble std.
-        save_dir: The directory path to save output files to.
+        var_mode: mode for computing ensemble variance
+            'var' | 'confidence_weighted_var'
+        verbose: True to print out details
 
     Returns:
             tuple:
@@ -91,7 +92,9 @@ def fit_eks_mirrored_multicam(
             final_df = camera_df
         else:
             pd.concat([final_df, camera_df],axis=1)
+
     # Save the output DataFrames to CSV file
+    os.makedirs(os.path.dirname(save_file), exist_ok=True)
     final_df.to_csv(f"{save_file}")
     return final_df, smooth_params_final, input_dfs_list, bodypart_list
 
@@ -120,7 +123,8 @@ def fit_eks_multicam(
         camera_names: List of camera names corresponding to the input data.
         quantile_keep_pca: Percentage of points kept for PCA (default: 95).
         avg_mode: Mode for averaging across ensemble ('median', 'mean').
-        zscore_threshold: Z-score threshold for filtering low ensemble std.
+        var_mode: mode for computing ensemble variance
+            'var' | 'confidence_weighted_var'
 
     Returns:
         tuple:
@@ -129,7 +133,7 @@ def fit_eks_multicam(
             input_dfs (list): List of input DataFrames for plotting.
             bodypart_list (list): List of body parts used.
 
-"""
+    """
     # Load and format input files
     # NOTE: input_dfs_list is a list of camera-specific lists of Dataframes
     input_dfs_list, _, keypoint_names = format_data(input_source,
@@ -166,6 +170,7 @@ def fit_eks_multicam(
     )
 
     # Save output DataFrames to CSVs (one per camera view)
+    os.makedirs(save_dir, exist_ok=True)
     for c, camera in enumerate(camera_names):
         save_filename = f'multicam_{camera}_results.csv'
         camera_dfs[c].to_csv(os.path.join(save_dir, save_filename))
