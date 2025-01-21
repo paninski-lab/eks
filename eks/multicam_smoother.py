@@ -14,7 +14,7 @@ from eks.core import (
     forward_pass,
 )
 from eks.ibl_paw_multiview_smoother import pca, remove_camera_means
-from eks.utils import crop_frames, format_data, make_dlc_pandas_index, populate_output_dataframe
+from eks.utils import crop_frames, format_data, make_dlc_pandas_index
 
 
 def fit_eks_mirrored_multicam(
@@ -53,7 +53,7 @@ def fit_eks_mirrored_multicam(
                     bodypart_list (list): List of body parts used.
     """
     # Load and format input files
-    input_dfs_list, _, keypoint_names = format_data(input_source)
+    input_dfs_list, keypoint_names = format_data(input_source)
     if bodypart_list is None:
         bodypart_list = keypoint_names
 
@@ -136,8 +136,7 @@ def fit_eks_multicam(
     """
     # Load and format input files
     # NOTE: input_dfs_list is a list of camera-specific lists of Dataframes
-    input_dfs_list, _, keypoint_names = format_data(input_source,
-                                                            camera_names=camera_names)
+    input_dfs_list, keypoint_names = format_data(input_source, camera_names=camera_names)
     if bodypart_list is None:
         bodypart_list = keypoint_names
         print(f'Input data loaded for keypoints:\n{bodypart_list}')

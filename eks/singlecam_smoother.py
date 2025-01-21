@@ -58,7 +58,7 @@ def fit_eks_singlecam(
 
     """
     # Load and format input files using the unified format_data function
-    input_dfs_list, _, keypoint_names = format_data(input_source)
+    input_dfs_list, keypoint_names = format_data(input_source)
 
     if bodypart_list is None:
         bodypart_list = keypoint_names

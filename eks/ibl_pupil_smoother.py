@@ -113,7 +113,7 @@ def fit_eks_pupil(
     """
 
     # Load and format input files
-    input_dfs_list, _, keypoint_names = format_data(input_source)
+    input_dfs_list, keypoint_names = format_data(input_source)
 
     print(f"Input data loaded for keypoints: {keypoint_names}")
 

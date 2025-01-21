@@ -20,9 +20,8 @@ def convert_lp_dlc(df_lp, keypoint_names, model_name=None):
         for feat2 in ['x', 'y', 'likelihood']:
             try:
                 if model_name is None:
-                    col_tuple = (feat, feat2)
-                else:
-                    col_tuple = (model_name, feat, feat2)
+                    model_name = df_lp.columns[0][0]
+                col_tuple = (model_name, feat, feat2)
 
                 # Skip columns with any unnamed level
                 if any(level.startswith('Unnamed') for level in col_tuple if
@@ -92,7 +91,6 @@ def format_data(input_source, camera_names=None):
 
     Returns:
         input_dfs_list (list): List of formatted DataFrames (List of Lists for un-mirrored sets).
-        output_df (DataFrame): Empty DataFrame for storing results.
         keypoint_names (list): List of keypoint names.
 
     """
@@ -114,17 +112,15 @@ def format_data(input_source, camera_names=None):
     if camera_names is None:
         for file_path in file_paths:
             if file_path.endswith('.slp'):
-                markers_curr = convert_slp_dlc(os.path.dirname(file_path),
-                                               os.path.basename(file_path))
+                markers_curr = convert_slp_dlc(
+                    os.path.dirname(file_path), os.path.basename(file_path),
+                )
                 keypoint_names = [c[1] for c in markers_curr.columns[::3]]
                 markers_curr_fmt = markers_curr
             elif file_path.endswith('.csv'):
                 markers_curr = pd.read_csv(file_path, header=[0, 1, 2], index_col=0)
                 keypoint_names = [c[1] for c in markers_curr.columns[::3]]
-                model_name = markers_curr.columns[0][0]
-                markers_curr_fmt = convert_lp_dlc(markers_curr,
-                                                  keypoint_names,
-                                                  model_name=model_name)
+                markers_curr_fmt = convert_lp_dlc(markers_curr, keypoint_names)
             else:
                 continue
             input_dfs_list.append(markers_curr_fmt)
@@ -136,17 +132,15 @@ def format_data(input_source, camera_names=None):
                     continue
                 else:  # file_path matches the camera name, proceed with processing
                     if file_path.endswith('.slp'):
-                        markers_curr = convert_slp_dlc(os.path.dirname(file_path),
-                                                       os.path.basename(file_path))
+                        markers_curr = convert_slp_dlc(
+                            os.path.dirname(file_path), os.path.basename(file_path),
+                        )
                         keypoint_names = [c[1] for c in markers_curr.columns[::3]]
                         markers_curr_fmt = markers_curr
                     elif file_path.endswith('.csv'):
                         markers_curr = pd.read_csv(file_path, header=[0, 1, 2], index_col=0)
                         keypoint_names = [c[1] for c in markers_curr.columns[::3]]
-                        model_name = markers_curr.columns[0][0]
-                        markers_curr_fmt = convert_lp_dlc(markers_curr,
-                                                          keypoint_names,
-                                                          model_name=model_name)
+                        markers_curr_fmt = convert_lp_dlc(markers_curr, keypoint_names)
                     else:
                         continue
                 markers_for_this_camera.append(markers_curr_fmt)
@@ -157,84 +151,7 @@ def format_data(input_source, camera_names=None):
     if len(input_dfs_list) == 0:
         raise FileNotFoundError(f'No valid marker input files found in {input_source}')
 
-    # Create an empty output DataFrame using the last processed DataFrame as a template
-    if camera_names is None:
-        last_df = input_dfs_list[0]
-    else:  # multicam
-        last_df = input_dfs_list[0][0]
-    output_df = make_output_dataframe(last_df)
-
-    return input_dfs_list, output_df, keypoint_names
-
-
-def make_output_dataframe(markers_curr):
-    ''' Makes empty DataFrame for EKS output, including x_var and y_var '''
-    markers_eks = markers_curr.copy()
-
-    # Check if the columns Index is a MultiIndex
-    if isinstance(markers_eks.columns, pd.MultiIndex):
-        # Set the first level of the MultiIndex to 'ensemble-kalman_tracker'
-        markers_eks.columns = markers_eks.columns.set_levels(['ensemble-kalman_tracker'], level=0)
-    else:
-        # Convert the columns Index to a MultiIndex with three levels
-        new_columns = []
-
-        for col in markers_eks.columns:
-            # Extract instance number, keypoint name, and feature from the column name
-            parts = col.split('_')
-            instance_num = parts[0]
-            keypoint_name = '_'.join(parts[1:-1])  # Combine parts for keypoint name
-            if keypoint_name != '':
-                keypoint_name = f'_{keypoint_name}'
-            feature = parts[-1]
-
-            # Construct new column names with desired MultiIndex structure
-            new_columns.append(
-                ('ensemble-kalman_tracker', f'{instance_num}{keypoint_name}', feature))
-
-        # Convert the columns Index to a MultiIndex with three levels
-        markers_eks.columns = pd.MultiIndex.from_tuples(new_columns,
-                                                        names=['scorer', 'bodyparts', 'coords'])
-
-    # Iterate over columns and set initial values for likelihood and variance
-    for col in markers_eks.columns:
-        if col[-1] == 'likelihood':
-            # Set likelihood values to 1.0
-            markers_eks[col].values[:] = 1.0
-        elif col[-1] in ['x_var', 'y_var']:
-            markers_eks[col].values[:] = np.nan
-        else:
-            # Set other values to NaN
-            markers_eks[col].values[:] = np.nan
-
-    return markers_eks
-
-
-def dataframe_to_csv(df, filename):
-    """
-    Converts a DataFrame to a CSV file.
-
-    Parameters:
-        df (pandas.DataFrame): The DataFrame to be converted.
-        filename (str): The name of the CSV file to be created.
-
-    Returns:
-        None
-    """
-    try:
-        df.to_csv(filename, index=False)
-    except Exception as e:
-        print("Error:", e)
-
-
-def populate_output_dataframe(keypoint_df, keypoint_ensemble, output_df, key_suffix=''):
-    # Include 'x', 'y', 'zscore', 'nll', 'x_var', and 'y_var' in the coordinates to transfer
-    for coord in ['x', 'y', 'zscore', 'nll', 'x_var', 'y_var']:
-        src_cols = ('ensemble-kalman_tracker', f'{keypoint_ensemble}', coord)
-        dst_cols = ('ensemble-kalman_tracker', f'{keypoint_ensemble}' + key_suffix, coord)
-        output_df.loc[:, dst_cols] = keypoint_df.loc[:, src_cols]
-
-    return output_df
+    return input_dfs_list, keypoint_names
 
 
 def plot_results(
@@ -284,8 +201,7 @@ def plot_results(
 
     plt.suptitle(f'EKS results for {key}, smoothing = {s_final}', fontsize=14)
     plt.tight_layout()
-    save_file = os.path.join(save_dir,
-                             f'{smoother_type}_{key}.pdf')
+    save_file = os.path.join(save_dir, f'{smoother_type}_{key}.pdf')
     plt.savefig(save_file)
     plt.close()
     print(f'see example EKS output at {save_file}')
