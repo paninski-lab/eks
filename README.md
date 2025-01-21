@@ -71,14 +71,6 @@ python3 -m pip install ensemble-kalman-smoother
 Note that you will not have access to the example data or example scripts with the pip install 
 option.
 
-### Note: Using GPU for fast parallel-scan
-
-As of now, EKS singlecam features a jitted parallel scan implementation for quickly optimizing the
-smoothing parameter (notably for larger datasets of 10,000+ frames). In order to utilize parallel scan,
-you will need to have a cuda environment with jax enabled. Further instructions can be found in the [jax
-docs](https://jax.readthedocs.io/en/latest/installation.html).
-
-
 ## Example scripts
 
 We provide several example datasets and fitting scripts to illustrate use of the package. See
@@ -103,8 +95,15 @@ implementations, including fast smoothing parameter auto-tuning using GPU-driven
 [Here](docs/singlecam_overview.md) is a detailed overview of the workflow.
 
 ### Multi-camera datasets
-Coming soon!
+The `multicam_example.py` script demonstrates how to run the EKS code for multi-camera
+setups where the pose predictions for a given model are all stored a separate csv file per camera.
+We provide example data in the `data/mirror-mouse-separate` directory inside this repo, 
+for a two-view video of a mouse with cameras named `top` and `bot`. 
+To run the EKS on the example data provided, execute the following command from inside this repo:
 
+```console 
+python scripts/multicam_example.py --input-dir ./data/mirror-mouse-separate --bodypart-list paw1LH paw2LF paw3RF paw4RH --camera-names top bot
+```
  
 ### Mirrored multi-camera datasets
 The `mirrored_multicam_example.py` script demonstrates how to run the EKS code for multi-camera

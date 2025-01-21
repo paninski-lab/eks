@@ -31,8 +31,7 @@ for filename in filenames:
         markers_curr = pd.read_csv(
             os.path.join(input_dir, filename), header=[0, 1, 2], index_col=0)
         keypoint_names = [c[1] for c in markers_curr.columns[::3]]
-        model_name = markers_curr.columns[0][0]
-        markers_curr_fmt = convert_lp_dlc(markers_curr, keypoint_names, model_name=model_name)
+        markers_curr_fmt = convert_lp_dlc(markers_curr, keypoint_names)
         if 'left' in filename:
             markers_list_left.append(markers_curr_fmt)
         else:
