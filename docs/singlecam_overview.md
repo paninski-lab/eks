@@ -46,7 +46,6 @@ Smoother (EKS).
 
 5. **Save Smoothed Results**:
     - For each body part, convert the resulting DataFrames to CSV files.
-    - Use `populate_output_dataframe` to integrate the results into the output DataFrame.
     - Save the output DataFrame as a CSV file in the specified directory.
 
 6. **Plot Results**:
