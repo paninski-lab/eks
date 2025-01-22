@@ -25,6 +25,8 @@ s_frames = args.s_frames  # Frames to be used for automatic optimization if s is
 camera_names = args.camera_names
 quantile_keep_pca = args.quantile_keep_pca
 verbose = True if args.verbose == 'True' else False
+maha = True if args.maha == 'True' else False
+
 
 # Fit EKS using the provided input data
 output_df, s_finals, input_dfs, bodypart_list = fit_eks_mirrored_multicam(
@@ -35,7 +37,8 @@ output_df, s_finals, input_dfs, bodypart_list = fit_eks_mirrored_multicam(
     s_frames=s_frames,
     camera_names=camera_names,
     quantile_keep_pca=quantile_keep_pca,
-    verbose=verbose
+    verbose=verbose,
+    maha=maha
 )
 
 # Plot results for a specific keypoint (default to last keypoint)

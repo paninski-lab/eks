@@ -150,6 +150,7 @@ def ensemble_kalman_smoother_singlecam(
     # Initialize Kalman filter values
     m0s, S0s, As, cov_mats, Cs, Rs, ys = initialize_kalman_filter(
         scaled_ensemble_preds, adjusted_obs_dict, n_keypoints)
+
     # Main smoothing function
     s_finals, ms, Vs, nlls = singlecam_optimize_smooth(
         cov_mats, ys, m0s, S0s, Cs, As, Rs, ensemble_vars,
@@ -453,6 +454,7 @@ def singlecam_optimize_smooth(
 
     s_finals = np.array(s_finals)
     # Final smooth with optimized s
+    S0s *= 10
     ms, Vs, nlls = final_forwards_backwards_pass(
         cov_mats, s_finals, ys, m0s, S0s, Cs, As, Rs, ensemble_vars,
     )
@@ -525,11 +527,13 @@ def final_forwards_backwards_pass(process_cov, s, ys, m0s, S0s, Cs, As, Rs, ense
     Vs_array = []
     nlls_array = []
     Qs = s[:, None, None] * process_cov
+
     # Run forward and backward pass for each keypoint
     for k in range(n_keypoints):
         mf, Vf, nll, nll_array = jax_forward_pass_nlls(
             ys[k], m0s[k], S0s[k], As[k], Qs[k], Cs[k], Rs[k], ensemble_vars[:, k, :])
         ms, Vs = jax_backward_pass(mf, Vf, As[k], Qs[k])
+
         ms_array.append(np.array(ms))
         Vs_array.append(np.array(Vs))
         nlls_array.append(np.array(nll_array))
