@@ -1,4 +1,5 @@
 import os
+from typing import Optional, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -6,7 +7,9 @@ import pandas as pd
 from sleap_io.io.slp import read_labels
 
 
-def make_dlc_pandas_index(keypoint_names, labels=["x", "y", "likelihood"]):
+def make_dlc_pandas_index(
+    keypoint_names: list, labels: list = ["x", "y", "likelihood"],
+) -> pd.MultiIndex:
     pdindex = pd.MultiIndex.from_product(
         [["ensemble-kalman_tracker"], keypoint_names, labels],
         names=["scorer", "bodyparts", "coords"],
@@ -14,7 +17,9 @@ def make_dlc_pandas_index(keypoint_names, labels=["x", "y", "likelihood"]):
     return pdindex
 
 
-def convert_lp_dlc(df_lp, keypoint_names, model_name=None):
+def convert_lp_dlc(
+    df_lp: pd.DataFrame, keypoint_names: list, model_name: Optional[str] = None,
+) -> pd.DataFrame:
     df_dlc = {}
     for feat in keypoint_names:
         for feat2 in ['x', 'y', 'likelihood']:
@@ -37,7 +42,7 @@ def convert_lp_dlc(df_lp, keypoint_names, model_name=None):
     return df_dlc
 
 
-def convert_slp_dlc(base_dir, slp_file):
+def convert_slp_dlc(base_dir: str, slp_file: str) -> pd.DataFrame:
     # Read data from .slp file
     filepath = os.path.join(base_dir, slp_file)
     labels = read_labels(filepath)
@@ -80,7 +85,12 @@ def convert_slp_dlc(base_dir, slp_file):
     return df
 
 
-def format_data(input_source, camera_names=None):
+def get_keypoint_names(df: pd.DataFrame) -> list:
+    kps = df.columns[df.columns.get_level_values('coords') == 'x'].get_level_values('bodyparts')
+    return kps.tolist()
+
+
+def format_data(input_source: Union[str, list], camera_names: Optional[list] = None) -> tuple:
     """
     Load and format input files from a directory or a list of file paths.
 
@@ -115,11 +125,11 @@ def format_data(input_source, camera_names=None):
                 markers_curr = convert_slp_dlc(
                     os.path.dirname(file_path), os.path.basename(file_path),
                 )
-                keypoint_names = [c[1] for c in markers_curr.columns[::3]]
+                keypoint_names = get_keypoint_names(markers_curr)
                 markers_curr_fmt = markers_curr
             elif file_path.endswith('.csv'):
                 markers_curr = pd.read_csv(file_path, header=[0, 1, 2], index_col=0)
-                keypoint_names = [c[1] for c in markers_curr.columns[::3]]
+                keypoint_names = get_keypoint_names(markers_curr)
                 markers_curr_fmt = convert_lp_dlc(markers_curr, keypoint_names)
             else:
                 continue
@@ -135,17 +145,16 @@ def format_data(input_source, camera_names=None):
                         markers_curr = convert_slp_dlc(
                             os.path.dirname(file_path), os.path.basename(file_path),
                         )
-                        keypoint_names = [c[1] for c in markers_curr.columns[::3]]
+                        keypoint_names = get_keypoint_names(markers_curr)
                         markers_curr_fmt = markers_curr
                     elif file_path.endswith('.csv'):
                         markers_curr = pd.read_csv(file_path, header=[0, 1, 2], index_col=0)
-                        keypoint_names = [c[1] for c in markers_curr.columns[::3]]
+                        keypoint_names = get_keypoint_names(markers_curr)
                         markers_curr_fmt = convert_lp_dlc(markers_curr, keypoint_names)
                     else:
                         continue
                 markers_for_this_camera.append(markers_curr_fmt)
             input_dfs_list.append(markers_for_this_camera) # list of lists of markers
-
 
     # Check if we found any valid input files
     if len(input_dfs_list) == 0:
@@ -207,7 +216,7 @@ def plot_results(
     print(f'see example EKS output at {save_file}')
 
 
-def crop_frames(y, s_frames):
+def crop_frames(y: np.ndarray, s_frames: Union[list, tuple]) -> np.ndarray:
     """ Crops frames as specified by s_frames to be used for auto-tuning s."""
     # Create an empty list to store arrays
     result = []
