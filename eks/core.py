@@ -6,7 +6,6 @@ import numpy as np
 from jax import jit
 from jax import numpy as jnp
 
-
 # ------------------------------------------------------------------------------------------
 # Original Core Functions: These functions are still in use for the multicam and IBL scripts
 # as of this update, but will eventually be replaced the with faster versions used in
@@ -631,5 +630,3 @@ def compute_initial_guesses(ensemble_vars):
     # Compute standard deviation of temporal differences
     std_dev_guess = round(np.std(temporal_diffs_list), 5)
     return std_dev_guess
-
-
