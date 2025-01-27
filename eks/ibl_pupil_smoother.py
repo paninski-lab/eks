@@ -1,16 +1,17 @@
 import os
 import warnings
-from typing import Optional, Union
 
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
+from typeguard import typechecked
 
 from eks.core import backward_pass, compute_nll, ensemble, forward_pass
 from eks.utils import crop_frames, format_data, make_dlc_pandas_index
 
 
-def get_pupil_location(dlc):
+@typechecked
+def get_pupil_location(dlc: dict) -> np.ndarray:
     """get mean of both pupil diameters
     d1 = top - bottom, d2 = left - right
     and in addition assume it's a circle and
@@ -38,7 +39,8 @@ def get_pupil_location(dlc):
     return center
 
 
-def get_pupil_diameter(dlc):
+@typechecked
+def get_pupil_diameter(dlc: dict) -> np.ndarray:
     """
     from: https://int-brain-lab.github.io/iblenv/_modules/brainbox/behavior/dlc.html
     Estimates pupil diameter by taking median of different computations.
@@ -80,11 +82,12 @@ def add_mean_to_array(pred_arr, keys, mean_x, mean_y):
     return processed_arr_dict
 
 
+@typechecked
 def fit_eks_pupil(
-    input_source: Union[str, list],
+    input_source: str | list,
     save_file: str,
-    smooth_params: Optional[list] = None,
-    s_frames: Optional[list] = None,
+    smooth_params: list | None = None,
+    s_frames: list | None = None,
     avg_mode: str = 'median',
     var_mode: str = 'confidence_weighted_var',
 ) -> tuple:
@@ -134,13 +137,13 @@ def fit_eks_pupil(
     return df_smoothed, smooth_params_final, input_dfs_list, keypoint_names, nll_values
 
 
+@typechecked
 def ensemble_kalman_smoother_ibl_pupil(
     markers_list: list,
-    smooth_params: Optional[list] = None,
-    s_frames: Optional[list] = None,
+    smooth_params: list | None = None,
+    s_frames: list | None = None,
     avg_mode: str = 'median',
     var_mode: str = 'confidence_weighted_var',
-    zscore_threshold: float = 2,
 ) -> tuple:
     """Perform Ensemble Kalman Smoothing on pupil data.
 
@@ -153,8 +156,6 @@ def ensemble_kalman_smoother_ibl_pupil(
             'median' | 'mean'
         var_mode
             'confidence_weighted_var' | 'var'
-        zscore_threshold: Minimum std threshold to reduce the effect of low ensemble std on a
-            zscore metric (default 2).
 
     Returns:
         tuple:
@@ -298,8 +299,8 @@ def ensemble_kalman_smoother_ibl_pupil(
 
 def pupil_optimize_smooth(
     y, m0, S0, C, R, ensemble_vars, diameters_var, x_var, y_var,
-    s_frames: Optional[list] = [(1, 2000)],
-    smooth_params: Optional[list] = [None, None],
+    s_frames: list | None = [(1, 2000)],
+    smooth_params: list | None = [None, None],
 ):
     """Optimize-and-smooth function for the pupil example script."""
     # Optimize smooth_param

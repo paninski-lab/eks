@@ -1,14 +1,17 @@
 import os
-from typing import Optional, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from jax import numpy as jnp
 from sleap_io.io.slp import read_labels
+from typeguard import typechecked
 
 
+@typechecked
 def make_dlc_pandas_index(
-    keypoint_names: list, labels: list = ["x", "y", "likelihood"],
+    keypoint_names: list,
+    labels: list = ["x", "y", "likelihood"],
 ) -> pd.MultiIndex:
     pdindex = pd.MultiIndex.from_product(
         [["ensemble-kalman_tracker"], keypoint_names, labels],
@@ -17,8 +20,11 @@ def make_dlc_pandas_index(
     return pdindex
 
 
+@typechecked
 def convert_lp_dlc(
-    df_lp: pd.DataFrame, keypoint_names: list, model_name: Optional[str] = None,
+    df_lp: pd.DataFrame,
+    keypoint_names: list,
+    model_name: str | None = None,
 ) -> pd.DataFrame:
     df_dlc = {}
     for feat in keypoint_names:
@@ -42,6 +48,7 @@ def convert_lp_dlc(
     return df_dlc
 
 
+@typechecked
 def convert_slp_dlc(base_dir: str, slp_file: str) -> pd.DataFrame:
     # Read data from .slp file
     filepath = os.path.join(base_dir, slp_file)
@@ -85,12 +92,14 @@ def convert_slp_dlc(base_dir: str, slp_file: str) -> pd.DataFrame:
     return df
 
 
+@typechecked
 def get_keypoint_names(df: pd.DataFrame) -> list:
     kps = df.columns[df.columns.get_level_values('coords') == 'x'].get_level_values('bodyparts')
     return kps.tolist()
 
 
-def format_data(input_source: Union[str, list], camera_names: Optional[list] = None) -> tuple:
+@typechecked
+def format_data(input_source: str | list, camera_names: list | None = None) -> tuple:
     """
     Load and format input files from a directory or a list of file paths.
 
@@ -216,7 +225,8 @@ def plot_results(
     print(f'see example EKS output at {save_file}')
 
 
-def crop_frames(y: np.ndarray, s_frames: Union[list, tuple]) -> np.ndarray:
+@typechecked
+def crop_frames(y: np.ndarray | jnp.ndarray, s_frames: list | tuple) -> np.ndarray | jnp.ndarray:
     """ Crops frames as specified by s_frames to be used for auto-tuning s."""
     # Create an empty list to store arrays
     result = []
