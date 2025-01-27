@@ -5,8 +5,6 @@ import jax.scipy as jsc
 import numpy as np
 from jax import jit
 from jax import numpy as jnp
-from jax import vmap
-from jax.lax import associative_scan
 
 # ------------------------------------------------------------------------------------------
 # Original Core Functions: These functions are still in use for the multicam and IBL scripts
@@ -125,17 +123,20 @@ def forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars):
     """
     T = y.shape[0]
     mf = np.zeros(shape=(T, m0.shape[0]))
-    Vf = np.zeros(shape=(T, m0.shape[0], m0.shape[0]))
-    S = np.zeros(shape=(T, m0.shape[0], m0.shape[0]))
+    Vf = np.array([np.eye(m0.shape[0]) for _ in range(T)])
+    S = np.array([np.eye(m0.shape[0]) for _ in range(T)])
     innovations = np.zeros((T, y.shape[1]))
     innovation_cov = np.zeros((T, C.shape[0], C.shape[0]))
+
     # time-varying observation variance
     for i in range(ensemble_vars.shape[1]):
         R[i, i] = ensemble_vars[0][i]
+
+    # Predict
     K_array, _ = kalman_dot(y[0, :] - np.dot(C, m0), S0, C, R)
     mf[0] = m0 + K_array
     Vf[0, :] = S0 - K_array
-    S[0] = S0
+    S[0] = np.eye(3)
     innovations[0] = y[0] - np.dot(C, mf[0])
     innovation_cov[0] = np.dot(C, np.dot(S0, C.T)) + R
 
@@ -188,8 +189,8 @@ def backward_pass(y, mf, Vf, S, A):
             shape (samples, n_latents, n_latents)
     """
     T = y.shape[0]
-    ms = np.zeros(shape=(T, mf.shape[1]))
-    Vs = np.zeros(shape=(T, mf.shape[1], mf.shape[1]))
+    ms = mf.copy()
+    Vs = Vf.copy()
     CV = np.zeros(shape=(T - 1, mf.shape[1], mf.shape[1]))
 
     # Last-time smoothed posterior is equal to last-time filtered posterior
@@ -202,6 +203,8 @@ def backward_pass(y, mf, Vf, S, A):
                 J = np.linalg.solve(S[i], np.dot(A, Vf[i])).T
             except np.linalg.LinAlgError:
                 # Skip backward pass for this timestep if matrix is singular
+                print(f"Warning: Singular Matrix at time step {i}. Skipping backwards pass"
+                      f" at this time step.")
                 continue
 
             Vs[i] = Vf[i] + np.dot(J, np.dot(Vs[i + 1] - S[i], J.T))
@@ -450,7 +453,7 @@ def jax_forward_pass_nlls(y, m0, cov0, A, Q, C, R, ensemble_vars):
     # Initialize carry
     num_timepoints = y.shape[0]
     nll_array_init = jnp.zeros(num_timepoints)  # Preallocate an array with zeros
-    t_init = 0  # Initialize the time step counter
+    t_init = 1  # Initialize the time step counter
     carry = (m0, cov0, A, Q, C, R, 0, nll_array_init, t_init)
 
     # Run the scan, passing y and ensemble_vars

@@ -1,11 +1,12 @@
 import numpy as np
 import pandas as pd
 
-from eks.multicam_smoother import ensemble_kalman_smoother_multicam
+from eks.multicam_smoother import ensemble_kalman_smoother_multicam, inflate_variance
 
 
 def test_ensemble_kalman_smoother_multicam():
     """Test the basic functionality of ensemble_kalman_smoother_multicam."""
+
     # Mock inputs
     keypoint_names = ['kp1', 'kp2']
     columns = [f'{kp}_{coord}' for kp in keypoint_names for coord in ['x', 'y', 'likelihood']]
@@ -21,7 +22,6 @@ def test_ensemble_kalman_smoother_multicam():
     smooth_param = 0.1
     quantile_keep_pca = 95
     s_frames = None
-    zscore_threshold = 2
 
     # Run the smoother
     camera_dfs, smooth_params_final = ensemble_kalman_smoother_multicam(
@@ -32,6 +32,7 @@ def test_ensemble_kalman_smoother_multicam():
         camera_names=camera_names,
         s_frames=s_frames,
         avg_mode='median',
+        inflate_vars=False,
     )
 
     # Assertions
@@ -71,9 +72,40 @@ def test_ensemble_kalman_smoother_multicam_no_smooth_param():
         camera_names=camera_names,
         s_frames=s_frames,
         avg_mode='median',
+        inflate_vars=False,
     )
 
     # Assertions
     assert smooth_params_final is not None, "Expected smooth_param_final to be not None"
     assert isinstance(smooth_params_final, float), \
         f"Expected smooth_param_final to be a float, got {type(smooth_params_final)}"
+
+
+def test_inflate_variance():
+
+    # test no inflation
+    n_time = 10
+    n_cams = 2
+    maha_dict = {c: np.ones((n_time, 1)) for c in range(n_cams)}
+    v = np.ones((n_time, 2 * n_cams))
+    v_new, inflated = inflate_variance(v=v, maha_dict=maha_dict, threshold=5, scalar=2)
+    assert not inflated
+    assert np.allclose(v, v_new)
+
+    # test inflation
+    scalar = 2
+    v_new, inflated = inflate_variance(v=v, maha_dict=maha_dict, threshold=0.5, scalar=scalar)
+    assert inflated
+    assert np.allclose(scalar * v, v_new)
+
+    # test inflation for one view but not the other
+    maha_dict = {
+        0: np.ones((n_time, 1)),
+        1: 2 * np.ones((n_time, 1)),
+    }
+    v = np.ones((n_time, 2 * n_cams))
+    scalar = 3
+    v_new, inflated = inflate_variance(v=v, maha_dict=maha_dict, threshold=1.5, scalar=scalar)
+    assert inflated
+    assert np.allclose(v[:, :2], v_new[:, :2])
+    assert np.allclose(scalar * v[:, 2:], v_new[:, 2:])
