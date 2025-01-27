@@ -83,22 +83,46 @@ def test_ensemble_kalman_smoother_multicam_no_smooth_param():
 
 def test_inflate_variance():
 
+    # ------------------------------------------------------------------------
     # test no inflation
+    # ------------------------------------------------------------------------
     n_time = 10
-    n_cams = 2
+    n_cams = 3
     maha_dict = {c: np.ones((n_time, 1)) for c in range(n_cams)}
     v = np.ones((n_time, 2 * n_cams))
     v_new, inflated = inflate_variance(v=v, maha_dict=maha_dict, threshold=5, scalar=2)
     assert not inflated
     assert np.allclose(v, v_new)
 
+    # ------------------------------------------------------------------------
     # test inflation
+    # ------------------------------------------------------------------------
     scalar = 2
     v_new, inflated = inflate_variance(v=v, maha_dict=maha_dict, threshold=0.5, scalar=scalar)
     assert inflated
     assert np.allclose(scalar * v, v_new)
 
-    # test inflation for one view but not the other
+    # ------------------------------------------------------------------------
+    # test inflation for one view but not the other (>2 cams)
+    # ------------------------------------------------------------------------
+    n_cams = 3
+    maha_dict = {
+        0: np.ones((n_time, 1)),
+        1: 2 * np.ones((n_time, 1)),
+        2: 4 * np.ones((n_time, 1)),
+    }
+    v = np.ones((n_time, 2 * n_cams))
+    scalar = 3
+    v_new, inflated = inflate_variance(v=v, maha_dict=maha_dict, threshold=1.5, scalar=scalar)
+    assert inflated
+    assert np.allclose(v[:, :2], v_new[:, :2])
+    assert np.allclose(scalar * v[:, 2:4], v_new[:, 2:4])
+    assert np.allclose(scalar * v[:, 4:], v_new[:, 4:])
+
+    # ------------------------------------------------------------------------
+    # redo, but with 2 view; variance should be inflated in both
+    # ------------------------------------------------------------------------
+    n_cams = 2
     maha_dict = {
         0: np.ones((n_time, 1)),
         1: 2 * np.ones((n_time, 1)),
@@ -107,5 +131,4 @@ def test_inflate_variance():
     scalar = 3
     v_new, inflated = inflate_variance(v=v, maha_dict=maha_dict, threshold=1.5, scalar=scalar)
     assert inflated
-    assert np.allclose(v[:, :2], v_new[:, :2])
-    assert np.allclose(scalar * v[:, 2:], v_new[:, 2:])
+    assert np.allclose(scalar * v, v_new)
