@@ -5,6 +5,7 @@ import jax.scipy as jsc
 import numpy as np
 from jax import jit
 from jax import numpy as jnp
+from typeguard import typechecked
 
 # ------------------------------------------------------------------------------------------
 # Original Core Functions: These functions are still in use for the multicam and IBL scripts
@@ -13,6 +14,7 @@ from jax import numpy as jnp
 # ------------------------------------------------------------------------------------------
 
 
+@typechecked
 def ensemble(
     markers_list: list,
     keys: list,
@@ -255,8 +257,9 @@ def compute_nll(innovations, innovation_covs, epsilon=1e-6):
 
 # ----- Sequential Functions for CPU -----
 
+@typechecked
 def jax_ensemble(
-    markers_3d_array: np.ndarray,
+    markers_3d_array: np.ndarray | jnp.ndarray,
     avg_mode: str = 'median',
     var_mode: str = 'confidence_weighted_var',
 ) -> tuple:

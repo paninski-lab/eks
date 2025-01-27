@@ -1,9 +1,9 @@
 import os
-from typing import Optional, Union
 
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
+from typeguard import typechecked
 
 from eks.core import backward_pass, compute_initial_guesses, compute_nll, ensemble, forward_pass
 from eks.ibl_paw_multiview_smoother import pca, remove_camera_means
@@ -11,18 +11,19 @@ from eks.stats import compute_mahalanobis
 from eks.utils import crop_frames, format_data, make_dlc_pandas_index
 
 
+@typechecked
 def fit_eks_mirrored_multicam(
-    input_source: Union[str, list],
+    input_source: str | list,
     save_file: str,
-    bodypart_list: Optional[list] = None,
-    smooth_param: Optional[Union[float, list]] = None,
-    s_frames: Optional[list] = None,
-    camera_names: Optional[list] = None,
-    quantile_keep_pca: float = 95,
+    bodypart_list: list | None = None,
+    smooth_param: float | list | None = None,
+    s_frames: list | None = None,
+    camera_names: list | None = None,
+    quantile_keep_pca: float = 95.0,
     avg_mode: str = 'median',
     var_mode: str = 'confidence_weighted_var',
     verbose: bool = False,
-    inflate_vars: bool = False
+    inflate_vars: bool = False,
 ) -> tuple:
     """
     Fit the Ensemble Kalman Smoother for mirrored multi-camera data.
@@ -95,14 +96,15 @@ def fit_eks_mirrored_multicam(
     return final_df, smooth_params_final, input_dfs_list, bodypart_list
 
 
+@typechecked
 def fit_eks_multicam(
-    input_source: Union[str, list],
+    input_source: str | list,
     save_dir: str,
-    bodypart_list: Optional[list] = None,
-    smooth_param: Optional[Union[float, list]] = None,
-    s_frames: Optional[list] = None,
-    camera_names: Optional[list] = None,
-    quantile_keep_pca: float = 95,
+    bodypart_list: list | None = None,
+    smooth_param: float | list | None = None,
+    s_frames: list | None = None,
+    camera_names: list | None = None,
+    quantile_keep_pca: float = 95.0,
     avg_mode: str = 'median',
     var_mode: str = 'confidence_weighted_var',
     inflate_vars: bool = False,
@@ -176,13 +178,14 @@ def fit_eks_multicam(
     return camera_dfs, smooth_params_final, input_dfs_list, bodypart_list
 
 
+@typechecked
 def ensemble_kalman_smoother_multicam(
     markers_list: list,
     keypoint_names: list,
-    smooth_param: Optional[Union[float, list]] = None,
-    quantile_keep_pca: float = 95,
-    camera_names: Optional[list] = None,
-    s_frames: Optional[list] = None,
+    smooth_param: float | list | None = None,
+    quantile_keep_pca: float = 95.0,
+    camera_names: list | None = None,
+    s_frames: list | None = None,
     avg_mode: str = 'median',
     var_mode: str = 'confidence_weighted_var',
     inflate_vars: bool = False,
@@ -458,7 +461,13 @@ def multicam_smooth_min(smooth_param, cov_matrix, y, m0, S0, C, A, R, ensemble_v
     return nll
 
 
-def inflate_variance(v: np.ndarray, maha_dict: dict, threshold: float = 5.0, scalar: float = 2.0):
+@typechecked
+def inflate_variance(
+    v: np.ndarray,
+    maha_dict: dict,
+    threshold: float = 5.0,
+    scalar: float = 2.0
+) -> tuple:
     """Inflate ensemble variances for Mahalanobis distances exceeding a threshold.
 
     Args:

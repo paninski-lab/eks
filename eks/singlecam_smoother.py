@@ -1,6 +1,5 @@
 import os
 from functools import partial
-from typing import Optional, Union
 
 import jax
 import jax.numpy as jnp
@@ -8,6 +7,7 @@ import numpy as np
 import optax
 import pandas as pd
 from jax import jit, vmap
+from typeguard import typechecked
 
 from eks.core import (
     compute_covariance_matrix,
@@ -20,12 +20,13 @@ from eks.core import (
 from eks.utils import crop_frames, format_data, make_dlc_pandas_index
 
 
+@typechecked
 def fit_eks_singlecam(
-    input_source: Union[str, list],
+    input_source: str | list,
     save_file: str,
-    bodypart_list: Optional[list] = None,
-    smooth_param: Optional[Union[float, list]] = None,
-    s_frames: Optional[list] = None,
+    bodypart_list: list | None = None,
+    smooth_param: float | list | None = None,
+    s_frames: list | None = None,
     blocks: list = [],
     avg_mode: str = 'median',
     var_mode: str = 'confidence_weighted_var',
@@ -84,11 +85,12 @@ def fit_eks_singlecam(
     return df_smoothed, smooth_params_final, input_dfs_list, bodypart_list
 
 
+@typechecked
 def ensemble_kalman_smoother_singlecam(
     markers_list: list,
     keypoint_names: list,
-    smooth_param: Optional[Union[float, list]] = None,
-    s_frames: Optional[list] = None,
+    smooth_param: float | list | None = None,
+    s_frames: list | None = None,
     blocks: list = [],
     avg_mode: str = 'median',
     var_mode: str = 'confidence_weighted_var',
@@ -223,8 +225,9 @@ def ensemble_kalman_smoother_singlecam(
     return markers_df, s_finals
 
 
+@typechecked
 def adjust_observations(
-    scaled_ensemble_preds: np.ndarray,
+    scaled_ensemble_preds: jnp.ndarray | np.ndarray,
     n_keypoints: int,
 ) -> tuple:
     """
@@ -281,8 +284,9 @@ def adjust_observations(
     return mean_obs_dict, adjusted_obs_dict, scaled_ensemble_preds
 
 
+@typechecked
 def initialize_kalman_filter(
-    scaled_ensemble_preds: np.ndarray,
+    scaled_ensemble_preds: jnp.ndarray | np.ndarray,
     adjusted_obs_dict: dict,
     n_keypoints: int
 ) -> tuple:
@@ -330,17 +334,18 @@ def initialize_kalman_filter(
     return m0s, S0s, As, cov_mats, Cs, Rs, y_obs_array
 
 
+@typechecked
 def singlecam_optimize_smooth(
-    cov_mats: np.ndarray,
-    ys: np.ndarray,
-    m0s: np.ndarray,
-    S0s: np.ndarray,
-    Cs: np.ndarray,
-    As: np.ndarray,
-    Rs: np.ndarray,
-    ensemble_vars: np.ndarray,
-    s_frames: list,
-    smooth_param: Union[float, list],
+    cov_mats: jnp.ndarray,
+    ys: jnp.ndarray,
+    m0s: jnp.ndarray,
+    S0s: jnp.ndarray,
+    Cs: jnp.ndarray,
+    As: jnp.ndarray,
+    Rs: jnp.ndarray,
+    ensemble_vars: jnp.ndarray,
+    s_frames: list | None,
+    smooth_param: float | list | None,
     blocks: list = [],
     maxiter: int = 1000,
     verbose: bool = False,

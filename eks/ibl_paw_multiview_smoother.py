@@ -6,9 +6,6 @@ from sklearn.decomposition import PCA
 from eks.core import backward_pass, eks_zscore, ensemble, forward_pass
 from eks.utils import make_dlc_pandas_index
 
-# TODO:
-# - allow conf_weighted_mean for ensemble variance computation
-
 
 def remove_camera_means(ensemble_stacks, camera_means):
     scaled_ensemble_stacks = ensemble_stacks.copy()

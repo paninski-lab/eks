@@ -1,8 +1,16 @@
 import numpy as np
 from sklearn.decomposition import FactorAnalysis
+from typeguard import typechecked
 
 
-def compute_mahalanobis(x, v, n_latent=3, likelihoods=None, likelihood_threshold=0.9):
+@typechecked
+def compute_mahalanobis(
+    x: np.ndarray,
+    v: np.ndarray,
+    n_latent: int = 3,
+    likelihoods: np.ndarray | None = None,
+    likelihood_threshold: float = 0.9,
+) -> dict:
     """
     Computes Mahalanobis distances and posterior predictive variance, including
     Factor Analysis to determine W and mu_x. Rows with low likelihoods are excluded
