@@ -79,7 +79,7 @@ def handle_parse_args(script_type):
         add_camera_names(parser)
         add_quantile_keep_pca(parser)
         add_s(parser)
-        add_maha(parser)
+        add_inflate_vars(parser)
     elif script_type == 'ibl_pupil':
         add_diameter_s(parser)
         add_com_s(parser)
@@ -198,9 +198,9 @@ def add_com_s(parser):
     return parser
 
 
-def add_maha(parser):
+def add_inflate_vars(parser):
     parser.add_argument(
-        '--maha',
+        '--inflate-vars',
         help='if set to true, uses Mahalanobis distances to inflate ensemble variance in multicam',
         default='',
         type=str,

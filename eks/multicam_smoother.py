@@ -10,10 +10,9 @@ from eks.core import (
     compute_initial_guesses,
     compute_nll,
     ensemble,
-    forward_pass,
-    compute_mahalanobis,
-    inflate_variance
+    forward_pass
 )
+from eks.stats import compute_mahalanobis
 from eks.ibl_paw_multiview_smoother import pca, remove_camera_means
 from eks.utils import crop_frames, format_data, make_dlc_pandas_index
 
@@ -29,7 +28,7 @@ def fit_eks_mirrored_multicam(
     avg_mode: str = 'median',
     var_mode: str = 'confidence_weighted_var',
     verbose: bool = False,
-    maha: bool = False
+    inflate_vars: bool = False
 ) -> tuple:
     """
     Fit the Ensemble Kalman Smoother for mirrored multi-camera data.
@@ -46,7 +45,7 @@ def fit_eks_mirrored_multicam(
         var_mode: mode for computing ensemble variance
             'var' | 'confidence_weighted_var'
         verbose: True to print out details
-        maha: True to use Mahalanobis distance thresholding to inflate ensemble variance
+        inflate_vars: True to use Mahalanobis distance thresholding to inflate ensemble variance
 
     Returns:
             tuple:
@@ -56,7 +55,7 @@ def fit_eks_mirrored_multicam(
                     bodypart_list (list): List of body parts used.
     """
     # Load and format input files
-    input_dfs_list, _, keypoint_names = format_data(input_source)
+    input_dfs_list, keypoint_names = format_data(input_source)
     if bodypart_list is None:
         bodypart_list = keypoint_names
 
@@ -84,7 +83,7 @@ def fit_eks_mirrored_multicam(
         avg_mode=avg_mode,
         var_mode=var_mode,
         verbose=verbose,
-        maha=maha
+        inflate_vars=inflate_vars
     )
     final_df = None
     for c, camera_df in enumerate(camera_dfs):
@@ -114,7 +113,7 @@ def fit_eks_multicam(
     avg_mode: str = 'median',
     var_mode: str = 'confidence_weighted_var',
     verbose: bool = False,
-    maha: bool = False
+    inflate_vars: bool = False
 ) -> tuple:
     """
     Fit the Ensemble Kalman Smoother for un-mirrored multi-camera data.
@@ -131,7 +130,7 @@ def fit_eks_multicam(
         var_mode: mode for computing ensemble variance
             'var' | 'confidence_weighted_var'
         verbose: True to print out details
-        maha: True to use Mahalanobis distance thresholding to inflate ensemble variance
+        inflate_vars: True to use Mahalanobis distance thresholding to inflate ensemble variance
 
 
     Returns:
@@ -144,7 +143,7 @@ def fit_eks_multicam(
     """
     # Load and format input files
     # NOTE: input_dfs_list is a list of camera-specific lists of Dataframes
-    input_dfs_list, _, keypoint_names = format_data(input_source,
+    input_dfs_list, keypoint_names = format_data(input_source,
                                                             camera_names=camera_names)
     if bodypart_list is None:
         bodypart_list = keypoint_names
@@ -175,7 +174,7 @@ def fit_eks_multicam(
         avg_mode=avg_mode,
         var_mode=var_mode,
         verbose=verbose,
-        maha=maha
+        inflate_vars=inflate_vars
     )
 
     # Save output DataFrames to CSVs (one per camera view)
@@ -197,7 +196,7 @@ def ensemble_kalman_smoother_multicam(
     var_mode: str = 'confidence_weighted_mean',
     zscore_threshold: float = 2,
     verbose: bool = False,
-    maha: bool = False,
+    inflate_vars: bool = False,
 ) -> tuple:
     """
     Use multi-view constraints to fit a 3D latent subspace for each body part.
@@ -327,12 +326,17 @@ def ensemble_kalman_smoother_multicam(
         good_ensemble_pcs = ensemble_pcs[good_frames]
         y_obs = scaled_ensemble_preds
 
-        if maha:
-            # Compute Mahalanobis distances
-            maha_results = compute_mahalanobis(y_obs, ensemble_vars, likelihoods=ensemble_likes)
+        if inflate_vars:
+            inflated = True
+            tmp_vars = ensemble_vars
+            while inflated:
+                # Compute Mahalanobis distances
+                maha_results = compute_mahalanobis(y_obs, tmp_vars, likelihoods=ensemble_likes)
+                # Inflate variances based on Mahalanobis distances
+                inflated_ens_vars, inflated = inflate_variance(
+                    tmp_vars, maha_results, threshold=5, scalar=2)
+                tmp_vars = inflated_ens_vars
 
-            # Inflate variances based on Mahalanobis distances
-            inflated_ens_vars = inflate_variance(ensemble_vars, maha_results, threshold=5, scalar=2)
         else:
             inflated_ens_vars = ensemble_vars
 
@@ -345,7 +349,7 @@ def ensemble_kalman_smoother_multicam(
         d_t = good_ensemble_pcs[1:] - good_ensemble_pcs[:-1]
         C = ensemble_pca.components_.T
         R = np.eye(ensemble_pca.components_.shape[1])
-        cov_matrix = A  # np.cov(d_t.T)
+        cov_matrix = np.cov(d_t.T)
         smooth_param_final, ms, Vs, _, _ = multicam_optimize_smooth(
             cov_matrix, y_obs, m0, S0, C, A, R, inflated_ens_vars, s_frames, smooth_param
         )
@@ -460,3 +464,31 @@ def multicam_smooth_min(smooth_param, cov_matrix, y, m0, S0, C, A, R, ensemble_v
     # Compute the negative log-likelihood based on innovations and their covariance
     nll, nll_values = compute_nll(innovs, innov_cov)
     return nll
+
+
+def inflate_variance(v, maha_results, threshold=5.0, scalar=2.0):
+    """
+    Inflates ensemble variances for Mahalanobis distances exceeding a threshold.
+
+    Args:
+        v: Variance data (Nx2C array).
+        maha_results: Dictionary from compute_mahalanobis, containing Mahalanobis distances.
+        threshold: Threshold above which to inflate variances (default: 5.0).
+        scalar: Scalar to multiply variances by (default: 2.0).
+
+    Returns:
+        np.ndarray: Updated variance array with inflated values.
+        bool: Whether any variances were updated.
+    """
+
+    updated_v = v.copy()
+    inflated = False
+    # Iterate over Mahalanobis distances for each view
+    for view_idx, distances in maha_results['mahalanobis'].items():
+        for i in range(distances.shape[0]):
+            if distances[i, 0] > threshold:
+                # Inflate the variance for the corresponding view and timestep
+                idxs = slice(2 * view_idx, 2 * (view_idx + 1))
+                updated_v[i, idxs] *= scalar
+                inflated = True
+    return updated_v, inflated

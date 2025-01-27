@@ -5,9 +5,7 @@ import jax.scipy as jsc
 import numpy as np
 from jax import jit
 from jax import numpy as jnp
-from jax import vmap
-from jax.lax import associative_scan
-from sklearn.decomposition import FactorAnalysis
+
 
 # ------------------------------------------------------------------------------------------
 # Original Core Functions: These functions are still in use for the multicam and IBL scripts
@@ -634,94 +632,4 @@ def compute_initial_guesses(ensemble_vars):
     std_dev_guess = round(np.std(temporal_diffs_list), 5)
     return std_dev_guess
 
-
-def compute_mahalanobis(x, v, n_latent=3, likelihoods=None, likelihood_threshold=0.9):
-    """
-    Computes Mahalanobis distances and posterior predictive variance, including
-    Factor Analysis to determine W and mu_x. Rows with low likelihoods are excluded
-    from Factor Analysis fitting.
-
-    Args:
-        x: Observed data (Nx2C array).
-        v: Variance data (Nx2C array).
-        n_latent: Number of latent dimensions to extract (default: 3).
-        likelihoods: Likelihoods for each row and view (NxC array, optional).
-        likelihood_threshold: Minimum likelihood for a row to be used in FA fitting (default: 0.9).
-
-    Returns:
-        dict: Mahalanobis distances, posterior predictive variance, and reconstructed data.
-    """
-    # Filter rows based on likelihood threshold if likelihoods are provided
-    if likelihoods is not None:
-        valid_rows = np.min(likelihoods, axis=1) >= likelihood_threshold
-    else:
-        valid_rows = np.ones(x.shape[0], dtype=bool)
-
-    # Perform Factor Analysis to estimate W and mu_x using valid rows
-    fa = FactorAnalysis(n_components=n_latent)
-    fa.fit(x[valid_rows])
-    W = fa.components_.T  # W is (2C x n_latent)
-    mu_x = fa.mean_       # Mean of the observations (2C array)
-
-    # Posterior variance (B)
-    B = np.zeros((v.shape[0], W.shape[1], W.shape[1]))
-    for i in range(v.shape[0]):
-        B[i] = np.linalg.inv(W.T @ np.diag(1.0 / v[i]) @ W)
-
-    # Posterior mean (z_hat)
-    z_hat = np.zeros((v.shape[0], W.shape[1]))
-    for i in range(v.shape[0]):
-        z_hat[i] = B[i] @ W.T @ np.diag(1.0 / v[i]) @ (x[i] - mu_x)
-
-    # Posterior predictive mean (x_hat)
-    xhat = np.dot(W, z_hat.T).T + mu_x
-
-    # Compute residuals (diff) once
-    diff = x - xhat
-
-    # Posterior predictive variance per view (Q)
-    num_views = x.shape[1] // 2
-    Q = {view_idx: np.zeros((v.shape[0], 2, 2)) for view_idx in range(num_views)}
-    for i in range(v.shape[0]):
-        for view_idx in range(num_views):
-            idxs = slice(2 * view_idx, 2 * (view_idx + 1))
-            Q[view_idx][i] = np.diag(v[i, idxs]) + W[idxs] @ B[i] @ W[idxs].T
-
-    # Mahalanobis distance (M)
-    M = {view_idx: np.zeros((v.shape[0], 1)) for view_idx in range(num_views)}
-    for i in range(v.shape[0]):
-        for view_idx in range(num_views):
-            idxs = slice(2 * view_idx, 2 * (view_idx + 1))
-            M[view_idx][i] = diff[i, idxs].T @ np.linalg.inv(Q[view_idx][i]) @ diff[i, idxs]
-
-    return {
-        'mahalanobis': M,
-        'posterior_variance': Q,
-        'reconstructed': xhat
-    }
-
-
-def inflate_variance(v, maha_results, threshold=5.0, scalar=2.0):
-    """
-    Inflates ensemble variances for Mahalanobis distances exceeding a threshold.
-
-    Args:
-        v: Variance data (Nx2C array).
-        maha_results: Dictionary from compute_mahalanobis, containing Mahalanobis distances.
-        threshold: Threshold above which to inflate variances (default: 5.0).
-        scalar: Scalar to multiply variances by (default: 2.0).
-
-    Returns:
-        np.ndarray: Updated variance array with inflated values.
-    """
-
-    updated_v = v.copy()
-    # Iterate over Mahalanobis distances for each view
-    for view_idx, distances in maha_results['mahalanobis'].items():
-        for i in range(distances.shape[0]):
-            if distances[i, 0] > threshold:
-                # Inflate the variance for the corresponding view and timestep
-                idxs = slice(2 * view_idx, 2 * (view_idx + 1))
-                updated_v[i, idxs] *= scalar
-    return updated_v
 

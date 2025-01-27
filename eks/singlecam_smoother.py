@@ -454,7 +454,6 @@ def singlecam_optimize_smooth(
 
     s_finals = np.array(s_finals)
     # Final smooth with optimized s
-    S0s *= 10
     ms, Vs, nlls = final_forwards_backwards_pass(
         cov_mats, s_finals, ys, m0s, S0s, Cs, As, Rs, ensemble_vars,
     )
