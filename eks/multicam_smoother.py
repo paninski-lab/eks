@@ -471,14 +471,26 @@ def inflate_variance(v: np.ndarray, maha_dict: dict, threshold: float = 5.0, sca
         np.ndarray: Updated variance array with inflated values.
         bool: Whether any variances were updated.
     """
+    assert len(maha_dict) >= 2, 'must have >=2 views to inflate variance'
     updated_v = v.copy()
-    inflated = False
-    # Iterate over Mahalanobis distances for each view
+    N, D = v.shape
+    C = len(maha_dict)  # Number of views
+
+    # Create an inflation mask for all views
+    inflation_mask = np.zeros((N, C), dtype=bool)
+
     for view_idx, distances in maha_dict.items():
-        for i in range(distances.shape[0]):
-            if distances[i, 0] > threshold:
-                # Inflate the variance for the corresponding view and timestep
-                idxs = slice(2 * view_idx, 2 * (view_idx + 1))
-                updated_v[i, idxs] *= scalar
-                inflated = True
+        inflation_mask[:, view_idx] = distances[:, 0] > threshold
+
+    # Duplicate columns of inflation_mask to match the shape of v
+    inflation_mask_full = np.repeat(inflation_mask, 2, axis=1)
+
+    if C == 2:
+        # For 2 views, ensure a full row is set to True if any individual entry is True
+        inflation_mask_full |= inflation_mask_full.any(axis=1, keepdims=True)
+
+    # Apply inflation where the mask is True
+    updated_v[inflation_mask_full] *= scalar
+    inflated = inflation_mask_full.any()
+
     return updated_v, inflated
