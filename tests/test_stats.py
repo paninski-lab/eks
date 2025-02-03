@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+import warnings
 
 from eks.stats import compute_mahalanobis
 
@@ -83,12 +84,14 @@ def test_compute_mahalanobis_singular_matrix():
     # Variance with all zeros (this will cause a singular matrix)
     v = np.zeros((N, 2 * C))
 
-    # 1. Check that function fails with epsilon=0 (singular matrix)
-    with pytest.raises(np.linalg.LinAlgError):
+    # 1. Check that function issues a warning with epsilon=0 (singular matrix)
+    with pytest.warns(RuntimeWarning):
         compute_mahalanobis(x, v, epsilon=0, v_quantile_threshold=None)
 
     # 2. Check that function succeeds with nonzero epsilon
-    result = compute_mahalanobis(x, v, epsilon=1e-6, v_quantile_threshold=None)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # Treat warnings as errors to ensure none are raised
+        result = compute_mahalanobis(x, v, epsilon=1e-6, v_quantile_threshold=None)
 
     # Check that outputs are correctly shaped
     assert 'mahalanobis' in result
