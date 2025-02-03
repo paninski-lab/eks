@@ -11,6 +11,7 @@ def compute_mahalanobis(
     v_quantile_threshold: float | None = 50.0,
     likelihoods: np.ndarray | None = None,
     likelihood_threshold: float | None = 0.9,
+    epsilon: float | None = 1e-6
 ) -> dict:
     """Compute Mahalanobis distance and posterior predictive variance for observations.
 
@@ -27,6 +28,7 @@ def compute_mahalanobis(
         v_quantile_threshold: maximum variance (percentage) for a row to be used in FA fitting.
         likelihoods: Likelihoods for each row and view (NxC array).
         likelihood_threshold: Minimum likelihood for a row to be used in FA fitting.
+        epsilon: Specifies epsilon added to prevent singular matrices.
 
     Returns:
         dict: Mahalanobis distances, posterior predictive variance, and reconstructed data.
@@ -54,12 +56,12 @@ def compute_mahalanobis(
     # Posterior variance (B)
     B = np.zeros((v.shape[0], W.shape[1], W.shape[1]))
     for i in range(v.shape[0]):
-        B[i] = np.linalg.inv(W.T @ np.diag(1.0 / v[i]) @ W)
+        B[i] = np.linalg.inv(W.T @ np.diag(1.0 / (v[i] + epsilon)) @ W)
 
     # Posterior mean (z_hat)
     z_hat = np.zeros((v.shape[0], W.shape[1]))
     for i in range(v.shape[0]):
-        z_hat[i] = B[i] @ W.T @ np.diag(1.0 / v[i]) @ (x[i] - mu_x)
+        z_hat[i] = B[i] @ W.T @ np.diag(1.0 / (v[i] + epsilon)) @ (x[i] - mu_x)
 
     # Posterior predictive mean (x_hat)
     xhat = np.dot(W, z_hat.T).T + mu_x
