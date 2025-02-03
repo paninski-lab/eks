@@ -71,8 +71,7 @@ def test_compute_mahalanobis():
 
 
 def test_compute_mahalanobis_singular_matrix():
-    """Test compute_mahalanobis function with a variance matrix that would be singular
-    without the epsilon term."""
+    """Test compute_mahalanobis behavior with a variance matrix that would be singular."""
 
     # Create input data
     N = 5  # Number of samples
@@ -81,15 +80,15 @@ def test_compute_mahalanobis_singular_matrix():
     np.random.seed(42)
     x = np.random.randn(N, 2 * C)  # Random observations
 
-    # Variance with zeros except for one row (to ensure FactorAnalysis has data)
+    # Variance with all zeros (this will cause a singular matrix)
     v = np.zeros((N, 2 * C))
-    v[0, :] = 1e-6  # Small nonzero variance for at least one row to be valid
 
-    # Run function
-    try:
-        result = compute_mahalanobis(x, v, epsilon=1e-6, v_quantile_threshold=None)
-    except np.linalg.LinAlgError:
-        pytest.fail("Function failed due to a singular matrix despite the epsilon term.")
+    # 1. Check that function fails with epsilon=0 (singular matrix)
+    with pytest.raises(np.linalg.LinAlgError):
+        compute_mahalanobis(x, v, epsilon=0, v_quantile_threshold=None)
+
+    # 2. Check that function succeeds with nonzero epsilon
+    result = compute_mahalanobis(x, v, epsilon=1e-6, v_quantile_threshold=None)
 
     # Check that outputs are correctly shaped
     assert 'mahalanobis' in result
