@@ -184,6 +184,7 @@ def ensemble_kalman_smoother_multicam(
     keypoint_names: list,
     smooth_param: float | list | None = None,
     quantile_keep_pca: float = 95.0,
+    subspace_observations: np.ndarray | None = None,
     camera_names: list | None = None,
     s_frames: list | None = None,
     avg_mode: str = 'median',
@@ -200,6 +201,8 @@ def ensemble_kalman_smoother_multicam(
         keypoint_names: List of body parts to run smoothing on
         smooth_param: Value in (0, Inf); smaller values lead to more smoothing (default: None).
         quantile_keep_pca: Percentage of points kept for PCA (default: 95).
+        subspace_observations: array of observations to use for computing PCA subspace rather than
+            observations in markers_list
         camera_names: List of camera names corresponding to the input data (default: None).
         s_frames: Frames for auto-optimization if smooth_param is not provided (default: None).
         avg_mode: mode for averaging across ensemble
@@ -307,11 +310,22 @@ def ensemble_kalman_smoother_multicam(
         ensemble_likes = np.hstack(cam_ensemble_likes)
         ensemble_stacks = np.concatenate(cam_ensemble_stacks, 2)
         remove_camera_means(ensemble_stacks, means_camera)
-        good_scaled_ensemble_preds = remove_camera_means(
-            good_ensemble_preds[None, :, :], means_camera
-        )[0]
 
-        ensemble_pca, ensemble_ex_var = pca(good_scaled_ensemble_preds, 3)
+        # compute pca subspace
+        if subspace_observations is not None:
+            means_camera = []
+            for i in range(subspace_observations.shape[1]):
+                means_camera.append(subspace_observations[:, i].mean())
+            subspace_obs_nomean = remove_camera_means(
+                subspace_observations[None, :, :], means_camera
+            )[0]
+            ensemble_pca, ensemble_ex_var = pca(subspace_obs_nomean, 3)
+        else:
+            good_scaled_ensemble_preds = remove_camera_means(
+                good_ensemble_preds[None, :, :], means_camera
+            )[0]
+            ensemble_pca, ensemble_ex_var = pca(good_scaled_ensemble_preds, 3)
+
         scaled_ensemble_preds = remove_camera_means(
             ensemble_preds[None, :, :], means_camera
         )[0]
