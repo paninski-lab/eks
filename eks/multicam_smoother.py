@@ -189,7 +189,7 @@ def ensemble_kalman_smoother_multicam(
     avg_mode: str = 'median',
     var_mode: str = 'confidence_weighted_var',
     inflate_vars: bool = False,
-    inflate_vars_likelihood_thresh: bool | None = 0.9,
+    inflate_vars_likelihood_thresh: float | None = 0.9,
     inflate_vars_v_quantile_thresh: float | None = 50.0,
     verbose: bool = False,
 ) -> tuple:
