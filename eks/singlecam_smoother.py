@@ -134,7 +134,7 @@ def ensemble_kalman_smoother_singlecam(
     key_cols = np.array(keys)
     markers_3d_array = markers_3d_array[:, :, key_cols]
 
-    T = markers_3d_array.shape[1]
+    n_frames = markers_3d_array.shape[1]
     n_keypoints = markers_3d_array.shape[2] // 3
     n_coords = 2
 
@@ -158,8 +158,8 @@ def ensemble_kalman_smoother_singlecam(
         cov_mats, ys, m0s, S0s, Cs, As, Rs, ensemble_vars,
         s_frames, smooth_param, blocks, verbose)
 
-    y_m_smooths = np.zeros((n_keypoints, T, n_coords))
-    y_v_smooths = np.zeros((n_keypoints, T, n_coords, n_coords))
+    y_m_smooths = np.zeros((n_keypoints, n_frames, n_coords))
+    y_v_smooths = np.zeros((n_keypoints, n_frames, n_coords, n_coords))
 
     data_arr = []
 

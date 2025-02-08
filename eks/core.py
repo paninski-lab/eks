@@ -7,6 +7,8 @@ from jax import jit
 from jax import numpy as jnp
 from typeguard import typechecked
 
+from eks.marker_array import MarkerArray
+
 # ------------------------------------------------------------------------------------------
 # Original Core Functions: These functions are still in use for the multicam and IBL scripts
 # as of this update, but will eventually be replaced the with faster versions used in
@@ -259,89 +261,44 @@ def compute_nll(innovations, innovation_covs, epsilon=1e-6):
 
 @typechecked
 def jax_ensemble(
-    markers_3d_array: np.ndarray | jnp.ndarray,
+    marker_array: MarkerArray,
     avg_mode: str = 'median',
     var_mode: str = 'confidence_weighted_var',
-) -> tuple:
+) -> MarkerArray:
     """
-    Compute ensemble mean/median and variance of a 3D marker array using JAX.
-
-    Args:
-        markers_3d_array: shape (n_models, samples, 3 * n_keypoints); "3" is for x, y, likelihood
-        avg_mode
-            'median' | 'mean'
-        var_mode
-            'confidence_weighted_var' | 'var'
-
-    Returns:
-        tuple:
-            ensemble_preds: np.ndarray
-                shape (n_timepoints, n_keypoints, n_coordinates).
-                ensembled predictions for each keypoint
-            ensemble_vars: np.ndarray
-                shape (n_timepoints, n_keypoints, n_coordinates).
-                ensembled variances for each keypoint
-            ensemble_likes: np.ndarray
-                shape (n_timepoints, n_keypoints, 1).
-                mean likelihood for each keypoint
-
+    Compute ensemble mean/median and variance of a marker array using JAX.
     """
-    markers_3d_array = jnp.array(markers_3d_array)  # Convert to JAX array
-    n_frames = markers_3d_array.shape[1]
-    n_keypoints = markers_3d_array.shape[2] // 3
+    marker_array = marker_array.jaxify()  # Convert to JAX array
+    n_models, n_cameras, n_frames, n_keypoints, _ = marker_array.get_shape()
 
-    # Initialize output structures
-    ensemble_preds = np.zeros((n_frames, n_keypoints, 2))
-    ensemble_vars = np.zeros((n_frames, n_keypoints, 2))
-    ensemble_likes = np.zeros((n_frames, n_keypoints, 1))
+    avg_func = jnp.nanmedian if avg_mode == 'median' else jnp.nanmean
 
-    # Choose the appropriate JAX function based on the mode
-    if avg_mode == 'median':
-        avg_func = lambda x: jnp.nanmedian(x, axis=0)
-    elif avg_mode == 'mean':
-        avg_func = lambda x: jnp.nanmean(x, axis=0)
-    else:
-        raise ValueError(f"{avg_mode} averaging not supported")
-
-    def compute_stats(i):
-        data_x = markers_3d_array[:, :, 3 * i]
-        data_y = markers_3d_array[:, :, 3 * i + 1]
-        data_likelihood = markers_3d_array[:, :, 3 * i + 2]
-
-        avg_x = avg_func(data_x)
-        avg_y = avg_func(data_y)
+    def compute_stats(data_x, data_y, data_likelihood):
+        avg_x = avg_func(data_x, axis=0)
+        avg_y = avg_func(data_y, axis=0)
 
         conf_per_keypoint = jnp.sum(data_likelihood, axis=0)
-        mean_conf_per_keypoint = conf_per_keypoint / data_likelihood.shape[0]
+        mean_conf_per_keypoint = conf_per_keypoint / n_models
 
-        if var_mode in ['conf_weighted_var', 'confidence_weighted_var']:
-            var_x = jnp.nanvar(data_x, axis=0) / mean_conf_per_keypoint
-            var_y = jnp.nanvar(data_y, axis=0) / mean_conf_per_keypoint
-        elif var_mode in ['var', 'variance']:
-            var_x = jnp.nanvar(data_x, axis=0)
-            var_y = jnp.nanvar(data_y, axis=0)
-        else:
-            raise ValueError(f"{var_mode} for variance computation not supported")
+        var_x = jnp.nanvar(data_x, axis=0) / mean_conf_per_keypoint if var_mode in [
+            'conf_weighted_var', 'confidence_weighted_var'] else jnp.nanvar(data_x, axis=0)
+        var_y = jnp.nanvar(data_y, axis=0) / mean_conf_per_keypoint if var_mode in [
+            'conf_weighted_var', 'confidence_weighted_var'] else jnp.nanvar(data_y, axis=0)
 
-        return avg_x, avg_y, var_x, var_y, mean_conf_per_keypoint
+        return jnp.stack([avg_x, avg_y, var_x, var_y, mean_conf_per_keypoint], axis=-1)
 
     compute_stats_jit = jax.jit(compute_stats)
-    stats = jax.vmap(compute_stats_jit)(jnp.arange(n_keypoints))
 
-    avg_x, avg_y, var_x, var_y, likes = stats
+    data_x = marker_array.get_field("x")  # Extract x values
+    data_y = marker_array.get_field("y")  # Extract y values
+    data_likelihood = marker_array.get_field("likelihood")  # Extract likelihood values
 
-    for i in range(n_keypoints):
-        ensemble_preds[:, i, 0] = avg_x[i]
-        ensemble_preds[:, i, 1] = avg_y[i]
-        ensemble_vars[:, i, 0] = var_x[i]
-        ensemble_vars[:, i, 1] = var_y[i]
-        ensemble_likes[:, i, 0] = likes[i]
+    # Apply compute_stats in a single JIT call
+    ensemble_array = compute_stats_jit(data_x, data_y, data_likelihood)
+    ensemble_marker_array = MarkerArray(ensemble_array[None, ...],  # add n_models dim
+                                        data_fields=['x', 'y', 'var_x', 'var_y', 'likelihood'])
 
-    # Convert outputs to JAX arrays
-    ensemble_preds = jnp.array(ensemble_preds)
-    ensemble_vars = jnp.array(ensemble_vars)
-
-    return ensemble_preds, ensemble_vars, ensemble_likes
+    return ensemble_marker_array
 
 
 def kalman_filter_step(carry, curr_y):
