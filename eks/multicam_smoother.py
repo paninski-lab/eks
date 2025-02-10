@@ -147,7 +147,7 @@ def fit_eks_multicam(
     markerArray = input_dfs_to_markerArray(input_dfs_list, bodypart_list, camera_names)
 
     # Run the ensemble Kalman smoother for multi-camera data
-    camera_dfs, smooth_params_final = jax_ensemble_kalman_smoother_multicam(
+    camera_dfs, smooth_params_final = mA_ensemble_kalman_smoother_multicam(
         markerArray=markerArray,
         keypoint_names=bodypart_list,
         smooth_param=smooth_param,
@@ -196,229 +196,229 @@ def fit_eks_multicam(
     return camera_dfs, smooth_params_final, input_dfs_list, bodypart_list
 
 
+# @typechecked
+# def ensemble_kalman_smoother_multicam(
+#     markers_list: list,
+#     keypoint_names: list,
+#     smooth_param: float | list | None = None,
+#     quantile_keep_pca: float = 95.0,
+#     camera_names: list | None = None,
+#     s_frames: list | None = None,
+#     avg_mode: str = 'median',
+#     var_mode: str = 'confidence_weighted_var',
+#     inflate_vars: bool = False,
+#     inflate_vars_likelihood_thresh: float | None = 0.9,
+#     inflate_vars_v_quantile_thresh: float | None = 50.0,
+#     verbose: bool = False,
+# ) -> tuple:
+#     """
+#     Use multi-view constraints to fit a 3D latent subspace for each body part.
+#
+#     Args:
+#         markers_list: List of lists of pd.DataFrames, where each inner list contains
+#             DataFrame predictions for a single camera.
+#         keypoint_names: List of body parts to run smoothing on
+#         smooth_param: Value in (0, Inf); smaller values lead to more smoothing (default: None).
+#         quantile_keep_pca: Percentage of points kept for PCA (default: 95).
+#         camera_names: List of camera names corresponding to the input data (default: None).
+#         s_frames: Frames for auto-optimization if smooth_param is not provided (default: None).
+#         avg_mode: mode for averaging across ensemble
+#             'median' | 'mean'
+#         var_mode: mode for computing ensemble variance
+#             'var' | 'confidence_weighted_var'
+#         inflate_vars: True to use Mahalanobis distance thresholding to inflate ensemble variance
+#         inflate_vars_likelihood_thresh: Minimum likelihood for a row to be used in FA fitting when
+#             inflating variance.
+#         inflate_vars_v_quantile_thresh: maximum variance (percentage) for a row to be used in FA
+#             fitting when inflating variance.
+#
+#         verbose: True to print out details
+#
+#     Returns:
+#         tuple: Dataframes with smoothed predictions, final smoothing parameters.
+#     """
+#
+#     # Collection array for marker output by camera view
+#     camera_arrs = [[] for _ in camera_names]
+#     # Loop over keypoints; apply EKS to each individually
+#     for k, keypoint in enumerate(keypoint_names):
+#         # Setup: Interpolate right cam markers to left cam timestamps
+#         markers_list_cameras = markers_list[k]
+#         num_cameras = len(camera_names)
+#
+#         markers_list_stacked_interp = []
+#         markers_list_interp = [[] for _ in range(num_cameras)]
+#         camera_likelihoods_stacked = []
+#
+#         for model_id in range(len(markers_list_cameras[0])):
+#             bl_markers_curr = []
+#             camera_markers_curr = [[] for _ in range(num_cameras)]
+#             camera_likelihoods = [[] for _ in range(num_cameras)]
+#
+#             for i in range(markers_list_cameras[0][0].shape[0]):
+#                 curr_markers = []
+#
+#                 for camera in range(num_cameras):
+#                     markers = np.array(
+#                         markers_list_cameras[camera][model_id].to_np()[i, [0, 1]]
+#                     )
+#                     likelihood = np.array(
+#                         markers_list_cameras[camera][model_id].to_np()[i, [2]]
+#                     )[0]
+#
+#                     camera_markers_curr[camera].append(markers)
+#                     curr_markers.append(markers)
+#                     camera_likelihoods[camera].append(likelihood)
+#
+#                 # Combine predictions for all cameras
+#                 bl_markers_curr.append(np.concatenate(curr_markers))
+#             markers_list_stacked_interp.append(bl_markers_curr)
+#             camera_likelihoods_stacked.append(camera_likelihoods)
+#
+#             camera_likelihoods = np.asarray(camera_likelihoods)
+#             for camera in range(num_cameras):
+#                 markers_list_interp[camera].append(camera_markers_curr[camera])
+#                 camera_likelihoods[camera] = np.asarray(camera_likelihoods[camera])
+#
+#         # Shape (n_models, n_frames, n_coords * n_cameras)
+#         markers_list_stacked_interp = np.asarray(markers_list_stacked_interp)
+#
+#         # Shape (n_cameras, n_models, n_frames, n_coords)
+#         markers_list_interp = np.asarray(markers_list_interp)
+#
+#         # Shape (n_models, n_cameras, n_frames)
+#         camera_likelihoods_stacked = np.asarray(camera_likelihoods_stacked)
+#
+#         keys = [f"{keypoint}_x", f"{keypoint}_y"]
+#         markers_list_cams = [[] for _ in range(num_cameras)]
+#
+#         for k in range(len(markers_list_interp[0])):
+#             for camera in range(num_cameras):
+#                 markers_cam = pd.DataFrame(markers_list_interp[camera][k], columns=keys)
+#                 markers_cam[f'{keypoint}_likelihood'] = camera_likelihoods_stacked[k][camera]
+#                 markers_list_cams[camera].append(markers_cam)
+#
+#         # Compute ensemble median for each camera
+#         cam_ensemble_preds = []
+#         cam_ensemble_vars = []
+#         cam_ensemble_likes = []
+#         cam_ensemble_stacks = []
+#
+#         for camera in range(num_cameras):
+#             (
+#                 cam_ensemble_preds_curr,
+#                 cam_ensemble_vars_curr,
+#                 cam_ensemble_likes_curr,
+#                 cam_ensemble_stacks_curr,
+#             ) = ensemble(markers_list_cameras[camera], keys, avg_mode=avg_mode, var_mode=var_mode)
+#
+#             cam_ensemble_preds.append(cam_ensemble_preds_curr)
+#             cam_ensemble_vars.append(cam_ensemble_vars_curr)
+#             cam_ensemble_likes.append(cam_ensemble_likes_curr)
+#             cam_ensemble_stacks.append(cam_ensemble_stacks_curr)
+#
+#         # Filter by low ensemble variances
+#         hstacked_vars = np.hstack(cam_ensemble_vars)
+#         max_vars = np.max(hstacked_vars, 1)
+#         good_frames = np.where(max_vars <= np.percentile(max_vars, quantile_keep_pca))[0]
+#
+#         good_cam_ensemble_preds = [
+#             cam_ensemble_preds[camera][good_frames] for camera in range(num_cameras)
+#         ]
+#
+#         good_ensemble_preds = np.hstack(good_cam_ensemble_preds)
+#         means_camera = [good_ensemble_preds[:, i].mean() for i in
+#                         range(good_ensemble_preds.shape[1])]
+#         ensemble_preds = np.hstack(cam_ensemble_preds)
+#         ensemble_vars = np.hstack(cam_ensemble_vars)
+#         ensemble_likes = np.hstack(cam_ensemble_likes)
+#         ensemble_stacks = np.concatenate(cam_ensemble_stacks, 2)
+#         remove_camera_means(ensemble_stacks, means_camera)
+#         good_scaled_ensemble_preds = remove_camera_means(
+#             good_ensemble_preds[None, :, :], means_camera
+#         )[0]
+#         ensemble_pca, ensemble_ex_var = pca(good_scaled_ensemble_preds, 3)
+#         scaled_ensemble_preds = remove_camera_means(
+#             ensemble_preds[None, :, :], means_camera
+#         )[0]
+#
+#         ensemble_pcs = ensemble_pca.transform(scaled_ensemble_preds)
+#         good_ensemble_pcs = ensemble_pcs[good_frames]
+#         y_obs = scaled_ensemble_preds
+#         if inflate_vars:
+#             inflated = True
+#             tmp_vars = ensemble_vars
+#             while inflated:
+#                 # Compute Mahalanobis distances
+#                 maha_results = compute_mahalanobis(
+#                     y_obs, tmp_vars,
+#                     likelihoods=ensemble_likes,
+#                     likelihood_threshold=inflate_vars_likelihood_thresh,
+#                     v_quantile_threshold=inflate_vars_v_quantile_thresh,
+#                 )
+#                 # Inflate variances based on Mahalanobis distances
+#                 inflated_ens_vars, inflated = inflate_variance(
+#                     tmp_vars, maha_results['mahalanobis'], threshold=5, scalar=2,
+#                 )
+#                 tmp_vars = inflated_ens_vars
+#         else:
+#             inflated_ens_vars = ensemble_vars
+#         print(good_ensemble_pcs.shape)
+#         # Kalman Filter
+#         m0 = np.asarray([0.0, 0.0, 0.0])
+#         S0 = np.asarray([[np.var(good_ensemble_pcs[:, 0]), 0.0, 0.0],
+#                          [0.0, np.var(good_ensemble_pcs[:, 1]), 0.0],
+#                          [0.0, 0.0, np.var(good_ensemble_pcs[:, 2])]])  # diagonal: var
+#         A = np.eye(3)
+#         d_t = good_ensemble_pcs[1:] - good_ensemble_pcs[:-1]
+#         C = ensemble_pca.components_.T
+#         R = np.eye(ensemble_pca.components_.shape[1])
+#         cov_matrix = np.cov(d_t.T)
+#         smooth_param_final, ms, Vs, _, _ = multicam_optimize_smooth(
+#             cov_matrix, y_obs, m0, S0, C, A, R, inflated_ens_vars, s_frames, smooth_param
+#         )
+#         if verbose:
+#             print(f"Smoothed {keypoint} at smooth_param={smooth_param_final}")
+#
+#         y_m_smooth = np.dot(C, ms.T).T
+#         y_v_smooth = np.swapaxes(np.dot(C, np.dot(Vs, C.T)), 0, 1)
+#
+#         # Final cleanup
+#         c_i = [[camera * 2, camera * 2 + 1] for camera in range(num_cameras)]
+#         for c, camera in enumerate(camera_names):
+#             data_arr = camera_arrs[c]
+#             x_i, y_i = c_i[c]
+#
+#             data_arr.extend([
+#                 y_m_smooth.T[x_i] + means_camera[x_i],
+#                 y_m_smooth.T[y_i] + means_camera[y_i],
+#                 ensemble_likes[:, x_i],
+#                 ensemble_preds[:, x_i],
+#                 ensemble_preds[:, y_i],
+#                 inflated_ens_vars[:, x_i],
+#                 inflated_ens_vars[:, y_i],
+#                 y_v_smooth[:, x_i, x_i],
+#                 y_v_smooth[:, y_i, y_i],
+#             ])
+#
+#     labels = [
+#         'x', 'y', 'likelihood', 'x_ens_median', 'y_ens_median',
+#         'x_ens_var', 'y_ens_var', 'x_posterior_var', 'y_posterior_var'
+#     ]
+#
+#     pdindex = make_dlc_pandas_index(keypoint_names, labels=labels)
+#     camera_dfs = []
+#
+#     for c, camera in enumerate(camera_names):
+#         camera_arr = np.asarray(camera_arrs[c])
+#         camera_df = pd.DataFrame(camera_arr.T, columns=pdindex)
+#         camera_dfs.append(camera_df)
+#
+#     return camera_dfs, smooth_param_final
+
+
 @typechecked
-def ensemble_kalman_smoother_multicam(
-    markers_list: list,
-    keypoint_names: list,
-    smooth_param: float | list | None = None,
-    quantile_keep_pca: float = 95.0,
-    camera_names: list | None = None,
-    s_frames: list | None = None,
-    avg_mode: str = 'median',
-    var_mode: str = 'confidence_weighted_var',
-    inflate_vars: bool = False,
-    inflate_vars_likelihood_thresh: float | None = 0.9,
-    inflate_vars_v_quantile_thresh: float | None = 50.0,
-    verbose: bool = False,
-) -> tuple:
-    """
-    Use multi-view constraints to fit a 3D latent subspace for each body part.
-
-    Args:
-        markers_list: List of lists of pd.DataFrames, where each inner list contains
-            DataFrame predictions for a single camera.
-        keypoint_names: List of body parts to run smoothing on
-        smooth_param: Value in (0, Inf); smaller values lead to more smoothing (default: None).
-        quantile_keep_pca: Percentage of points kept for PCA (default: 95).
-        camera_names: List of camera names corresponding to the input data (default: None).
-        s_frames: Frames for auto-optimization if smooth_param is not provided (default: None).
-        avg_mode: mode for averaging across ensemble
-            'median' | 'mean'
-        var_mode: mode for computing ensemble variance
-            'var' | 'confidence_weighted_var'
-        inflate_vars: True to use Mahalanobis distance thresholding to inflate ensemble variance
-        inflate_vars_likelihood_thresh: Minimum likelihood for a row to be used in FA fitting when
-            inflating variance.
-        inflate_vars_v_quantile_thresh: maximum variance (percentage) for a row to be used in FA
-            fitting when inflating variance.
-
-        verbose: True to print out details
-
-    Returns:
-        tuple: Dataframes with smoothed predictions, final smoothing parameters.
-    """
-
-    # Collection array for marker output by camera view
-    camera_arrs = [[] for _ in camera_names]
-    # Loop over keypoints; apply EKS to each individually
-    for k, keypoint in enumerate(keypoint_names):
-        # Setup: Interpolate right cam markers to left cam timestamps
-        markers_list_cameras = markers_list[k]
-        num_cameras = len(camera_names)
-
-        markers_list_stacked_interp = []
-        markers_list_interp = [[] for _ in range(num_cameras)]
-        camera_likelihoods_stacked = []
-
-        for model_id in range(len(markers_list_cameras[0])):
-            bl_markers_curr = []
-            camera_markers_curr = [[] for _ in range(num_cameras)]
-            camera_likelihoods = [[] for _ in range(num_cameras)]
-
-            for i in range(markers_list_cameras[0][0].shape[0]):
-                curr_markers = []
-
-                for camera in range(num_cameras):
-                    markers = np.array(
-                        markers_list_cameras[camera][model_id].to_numpy()[i, [0, 1]]
-                    )
-                    likelihood = np.array(
-                        markers_list_cameras[camera][model_id].to_numpy()[i, [2]]
-                    )[0]
-
-                    camera_markers_curr[camera].append(markers)
-                    curr_markers.append(markers)
-                    camera_likelihoods[camera].append(likelihood)
-
-                # Combine predictions for all cameras
-                bl_markers_curr.append(np.concatenate(curr_markers))
-            markers_list_stacked_interp.append(bl_markers_curr)
-            camera_likelihoods_stacked.append(camera_likelihoods)
-
-            camera_likelihoods = np.asarray(camera_likelihoods)
-            for camera in range(num_cameras):
-                markers_list_interp[camera].append(camera_markers_curr[camera])
-                camera_likelihoods[camera] = np.asarray(camera_likelihoods[camera])
-
-        # Shape (n_models, n_frames, n_coords * n_cameras)
-        markers_list_stacked_interp = np.asarray(markers_list_stacked_interp)
-
-        # Shape (n_cameras, n_models, n_frames, n_coords)
-        markers_list_interp = np.asarray(markers_list_interp)
-
-        # Shape (n_models, n_cameras, n_frames)
-        camera_likelihoods_stacked = np.asarray(camera_likelihoods_stacked)
-
-        keys = [f"{keypoint}_x", f"{keypoint}_y"]
-        markers_list_cams = [[] for _ in range(num_cameras)]
-
-        for k in range(len(markers_list_interp[0])):
-            for camera in range(num_cameras):
-                markers_cam = pd.DataFrame(markers_list_interp[camera][k], columns=keys)
-                markers_cam[f'{keypoint}_likelihood'] = camera_likelihoods_stacked[k][camera]
-                markers_list_cams[camera].append(markers_cam)
-
-        # Compute ensemble median for each camera
-        cam_ensemble_preds = []
-        cam_ensemble_vars = []
-        cam_ensemble_likes = []
-        cam_ensemble_stacks = []
-
-        for camera in range(num_cameras):
-            (
-                cam_ensemble_preds_curr,
-                cam_ensemble_vars_curr,
-                cam_ensemble_likes_curr,
-                cam_ensemble_stacks_curr,
-            ) = ensemble(markers_list_cameras[camera], keys, avg_mode=avg_mode, var_mode=var_mode)
-
-            cam_ensemble_preds.append(cam_ensemble_preds_curr)
-            cam_ensemble_vars.append(cam_ensemble_vars_curr)
-            cam_ensemble_likes.append(cam_ensemble_likes_curr)
-            cam_ensemble_stacks.append(cam_ensemble_stacks_curr)
-
-        # Filter by low ensemble variances
-        hstacked_vars = np.hstack(cam_ensemble_vars)
-        max_vars = np.max(hstacked_vars, 1)
-        good_frames = np.where(max_vars <= np.percentile(max_vars, quantile_keep_pca))[0]
-
-        good_cam_ensemble_preds = [
-            cam_ensemble_preds[camera][good_frames] for camera in range(num_cameras)
-        ]
-
-        good_ensemble_preds = np.hstack(good_cam_ensemble_preds)
-        means_camera = [good_ensemble_preds[:, i].mean() for i in
-                        range(good_ensemble_preds.shape[1])]
-        ensemble_preds = np.hstack(cam_ensemble_preds)
-        ensemble_vars = np.hstack(cam_ensemble_vars)
-        ensemble_likes = np.hstack(cam_ensemble_likes)
-        ensemble_stacks = np.concatenate(cam_ensemble_stacks, 2)
-        remove_camera_means(ensemble_stacks, means_camera)
-        good_scaled_ensemble_preds = remove_camera_means(
-            good_ensemble_preds[None, :, :], means_camera
-        )[0]
-        ensemble_pca, ensemble_ex_var = pca(good_scaled_ensemble_preds, 3)
-        scaled_ensemble_preds = remove_camera_means(
-            ensemble_preds[None, :, :], means_camera
-        )[0]
-
-        ensemble_pcs = ensemble_pca.transform(scaled_ensemble_preds)
-        good_ensemble_pcs = ensemble_pcs[good_frames]
-        y_obs = scaled_ensemble_preds
-        if inflate_vars:
-            inflated = True
-            tmp_vars = ensemble_vars
-            while inflated:
-                # Compute Mahalanobis distances
-                maha_results = compute_mahalanobis(
-                    y_obs, tmp_vars,
-                    likelihoods=ensemble_likes,
-                    likelihood_threshold=inflate_vars_likelihood_thresh,
-                    v_quantile_threshold=inflate_vars_v_quantile_thresh,
-                )
-                # Inflate variances based on Mahalanobis distances
-                inflated_ens_vars, inflated = inflate_variance(
-                    tmp_vars, maha_results['mahalanobis'], threshold=5, scalar=2,
-                )
-                tmp_vars = inflated_ens_vars
-        else:
-            inflated_ens_vars = ensemble_vars
-        print(good_ensemble_pcs.shape)
-        # Kalman Filter
-        m0 = np.asarray([0.0, 0.0, 0.0])
-        S0 = np.asarray([[np.var(good_ensemble_pcs[:, 0]), 0.0, 0.0],
-                         [0.0, np.var(good_ensemble_pcs[:, 1]), 0.0],
-                         [0.0, 0.0, np.var(good_ensemble_pcs[:, 2])]])  # diagonal: var
-        A = np.eye(3)
-        d_t = good_ensemble_pcs[1:] - good_ensemble_pcs[:-1]
-        C = ensemble_pca.components_.T
-        R = np.eye(ensemble_pca.components_.shape[1])
-        cov_matrix = np.cov(d_t.T)
-        smooth_param_final, ms, Vs, _, _ = multicam_optimize_smooth(
-            cov_matrix, y_obs, m0, S0, C, A, R, inflated_ens_vars, s_frames, smooth_param
-        )
-        if verbose:
-            print(f"Smoothed {keypoint} at smooth_param={smooth_param_final}")
-
-        y_m_smooth = np.dot(C, ms.T).T
-        y_v_smooth = np.swapaxes(np.dot(C, np.dot(Vs, C.T)), 0, 1)
-
-        # Final cleanup
-        c_i = [[camera * 2, camera * 2 + 1] for camera in range(num_cameras)]
-        for c, camera in enumerate(camera_names):
-            data_arr = camera_arrs[c]
-            x_i, y_i = c_i[c]
-
-            data_arr.extend([
-                y_m_smooth.T[x_i] + means_camera[x_i],
-                y_m_smooth.T[y_i] + means_camera[y_i],
-                ensemble_likes[:, x_i],
-                ensemble_preds[:, x_i],
-                ensemble_preds[:, y_i],
-                inflated_ens_vars[:, x_i],
-                inflated_ens_vars[:, y_i],
-                y_v_smooth[:, x_i, x_i],
-                y_v_smooth[:, y_i, y_i],
-            ])
-
-    labels = [
-        'x', 'y', 'likelihood', 'x_ens_median', 'y_ens_median',
-        'x_ens_var', 'y_ens_var', 'x_posterior_var', 'y_posterior_var'
-    ]
-
-    pdindex = make_dlc_pandas_index(keypoint_names, labels=labels)
-    camera_dfs = []
-
-    for c, camera in enumerate(camera_names):
-        camera_arr = np.asarray(camera_arrs[c])
-        camera_df = pd.DataFrame(camera_arr.T, columns=pdindex)
-        camera_dfs.append(camera_df)
-
-    return camera_dfs, smooth_param_final
-
-
-@typechecked
-def jax_ensemble_kalman_smoother_multicam(
+def mA_ensemble_kalman_smoother_multicam(
         markerArray: MarkerArray,
         keypoint_names: list,
         smooth_param: float | list | None = None,
@@ -452,43 +452,34 @@ def jax_ensemble_kalman_smoother_multicam(
         tuple: Dataframes with smoothed predictions, final smoothing parameters.
     """
 
-    n_models, n_cameras, n_frames, n_keypoints, _ = markerArray.get_shape()
+    n_models, n_cameras, n_frames, n_keypoints, _ = markerArray.array.shape
 
     # MarkerArray (1, n_cameras, n_frames, n_keypoints, 5 (x, y, var_x, var_y, likelihood))
     ensemble_markerArray = jax_ensemble(markerArray, avg_mode=avg_mode, var_mode=var_mode)
 
-    emA_preds = ensemble_markerArray.get_fields(["x", "y"])
-    emA_vars = ensemble_markerArray.get_fields(["var_x", "var_y"])
-    emA_likes = ensemble_markerArray.get_fields(["likelihood"])
+    emA_preds = ensemble_markerArray.slice_fields("x", "y")
+    emA_vars = ensemble_markerArray.slice_fields("var_x", "var_y")
+    emA_likes = ensemble_markerArray.slice_fields("likelihood")
 
     (
         ensemble_pca,
         ensemble_ex_var,
-        good_pcs_list,  # List-by-keypoint of (n_good_frames, n_components)
+        good_pcs_list,  # List-by-keypoint of (n_good_frames, n_pca_components)
         pcs_list,
         means_camera,
-        scaled_emA_preds  # MarkerArray containing scaled predictions
+        emA_scaled_preds,  # MarkerArray containing scaled predictions
+        emA_means  # MarkerArray containing means across frames.
+                   # Shape: (1, n_cameras, 1, n_keypoints, 2)
     ) = compute_pca(emA_preds, emA_vars, quantile_keep_pca, n_components=3)
+
+    maha_results_list = mA_compute_maha(emA_scaled_preds, emA_vars, emA_likes,
+                                        inflate_vars=inflate_vars)
+
+# ------ Haven't really changed to MarkerArrays further than here ----- #
 
     # Collection array for marker output by camera view
     camera_arrs = [[] for _ in camera_names]
     for k, keypoint in enumerate(keypoint_names):
-        preds, vars, likes = \
-            reshape_markerarray_for_mahalanobis(scaled_emA_preds, emA_vars, emA_likes, k)
-        if inflate_vars:
-            inflated = True
-            tmp_vars = vars[0]
-            while inflated:
-                # Compute Mahalanobis distances
-                maha_results = compute_mahalanobis(
-                    preds[0], tmp_vars, likelihoods=likes[0])
-                # Inflate variances based on Mahalanobis distances
-                inflated_ens_vars, inflated = inflate_variance(
-                    tmp_vars, maha_results['mahalanobis'], threshold=5, scalar=2,
-                )
-                tmp_vars = inflated_ens_vars
-        else:
-            inflated_ens_vars = preds[0]
 
         # Kalman Filter
         m0 = np.asarray([0.0, 0.0, 0.0])
@@ -500,8 +491,9 @@ def jax_ensemble_kalman_smoother_multicam(
         C = ensemble_pca[k].components_.T
         R = np.eye(ensemble_pca[k].components_.shape[1])
         cov_matrix = np.cov(d_t.T)
+
         smooth_param_final, ms, Vs, _, _ = multicam_optimize_smooth(
-            cov_matrix, preds[0], m0, S0, C, A, R, inflated_ens_vars, s_frames, smooth_param
+            cov_matrix, emA_preds, m0, S0, C, A, R, maha_results_list, s_frames, smooth_param
         )
         if verbose:
             print(f"Smoothed {keypoint} at smooth_param={smooth_param_final}")
@@ -516,13 +508,13 @@ def jax_ensemble_kalman_smoother_multicam(
             x_i, y_i = c_i[c]
 
             data_arr.extend([
-                y_m_smooth.T[x_i] + means_camera[c, 0],
-                y_m_smooth.T[y_i] + means_camera[c, 1],
-                likes[0][:, c],
-                preds[0][:, x_i],
-                preds[0][:, y_i],
-                inflated_ens_vars[:, x_i],
-                inflated_ens_vars[:, y_i],
+                y_m_smooth.T[x_i] + emA_means.slice("cameras", c).slice_fields("x"),
+                y_m_smooth.T[y_i] + emA_means.slice("cameras", c).slice_fields("y"),
+                emA_likes[:, c],
+                emA_preds[:, x_i],
+                emA_preds[:, y_i],
+                maha_results_list[:, x_i],
+                maha_results_list[:, y_i],
                 y_v_smooth[:, x_i, x_i],
                 y_v_smooth[:, y_i, y_i],
             ])
@@ -615,6 +607,50 @@ def multicam_smooth_min(smooth_param, cov_matrix, y, m0, S0, C, A, R, ensemble_v
     # Compute the negative log-likelihood based on innovations and their covariance
     nll, nll_values = compute_nll(innovs, innov_cov)
     return nll
+
+
+def mA_compute_maha(scaled_emA_preds, emA_vars, emA_likes,
+                    inflate_vars=False, threshold=5, scalar=2):
+    """
+    Reshape marker arrays for Mahalanobis computation, compute Mahalanobis distances,
+    and optionally inflate variances for all keypoints.
+
+    Args:
+        scaled_emA_preds (numpy.ndarray): Scaled predicted marker positions.
+        emA_vars (numpy.ndarray): Variance values associated with predictions.
+        emA_likes (numpy.ndarray): Likelihood values associated with predictions.
+        inflate_vars (bool, optional): Whether to inflate variances based on Mahalanobis distances.
+        threshold (float, optional): Mahalanobis distance threshold for inflation.
+        scalar (float, optional): Factor by which to inflate variance.
+
+    Returns:
+        list: A list of tuples, where each tuple contains (maha_results, inflated_ens_vars) for a keypoint.
+    """
+    n_keypoints = scaled_emA_preds.get_shape()[3]  # Extract number of keypoints
+    results = []
+
+    for k in range(n_keypoints):
+        # Reshape marker arrays for Mahalanobis computation
+        preds, vars, likes = reshape_markerarray_for_mahalanobis(
+            scaled_emA_preds, emA_vars, emA_likes, k)
+
+        if inflate_vars:
+            inflated = True
+            tmp_vars = vars[0]
+            while inflated:
+                # Compute Mahalanobis distances
+                maha_results = compute_mahalanobis(preds[0], tmp_vars, likelihoods=likes[0])
+                # Inflate variances based on Mahalanobis distances
+                inflated_ens_vars, inflated = inflate_variance(tmp_vars, maha_results['mahalanobis'], threshold, scalar)
+                tmp_vars = inflated_ens_vars
+        else:
+            maha_results = compute_mahalanobis(preds[0], vars[0], likelihoods=likes[0])
+            inflated_ens_vars = vars[0]
+
+        # Store results as a list of tuples
+        results.append((maha_results, inflated_ens_vars))
+
+    return results
 
 
 @typechecked

@@ -268,16 +268,15 @@ def jax_ensemble(
     """
     Compute ensemble mean/median and variance of a marker array using JAX.
     """
-    marker_array = marker_array.jaxify()  # Convert to JAX array
-    n_models, n_cameras, n_frames, n_keypoints, _ = marker_array.get_shape()
+    n_models, n_cameras, n_frames, n_keypoints, _ = marker_array.array.shape
 
     avg_func = jnp.nanmedian if avg_mode == 'median' else jnp.nanmean
 
-    def compute_stats(data_x, data_y, data_likelihood):
+    def compute_stats(data_x, data_y, data_lh):
         avg_x = avg_func(data_x, axis=0)
         avg_y = avg_func(data_y, axis=0)
 
-        conf_per_keypoint = jnp.sum(data_likelihood, axis=0)
+        conf_per_keypoint = jnp.sum(data_lh, axis=0)
         mean_conf_per_keypoint = conf_per_keypoint / n_models
 
         var_x = jnp.nanvar(data_x, axis=0) / mean_conf_per_keypoint if var_mode in [
@@ -289,12 +288,13 @@ def jax_ensemble(
 
     compute_stats_jit = jax.jit(compute_stats)
 
-    data_x = marker_array.get_field("x")  # Extract x values
-    data_y = marker_array.get_field("y")  # Extract y values
-    data_likelihood = marker_array.get_field("likelihood")  # Extract likelihood values
+    # Unwrap MarkerArrays to jax arrays and remove singleton field axis
+    data_x = jnp.squeeze(jnp.array(marker_array.slice_fields("x").array), axis=-1)
+    data_y = jnp.squeeze(jnp.array(marker_array.slice_fields("y").array), axis=-1)
+    data_lh = jnp.squeeze(jnp.array(marker_array.slice_fields("likelihood").array), axis=-1)
 
     # Apply compute_stats in a single JIT call
-    ensemble_array = compute_stats_jit(data_x, data_y, data_likelihood)
+    ensemble_array = np.array(compute_stats_jit(data_x, data_y, data_lh))
     ensemble_marker_array = MarkerArray(ensemble_array[None, ...],  # add n_models dim
                                         data_fields=['x', 'y', 'var_x', 'var_y', 'likelihood'])
 

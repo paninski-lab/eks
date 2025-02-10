@@ -1,89 +1,159 @@
+from typing import Optional, Union, List, Tuple
 import numpy as np
 import jax.numpy as jnp
 
 class MarkerArray:
-    def __init__(self, array: np.ndarray | jnp.ndarray, data_fields: list[str]):
+    def __init__(
+        self,
+        array: Optional[Union[np.ndarray, jnp.ndarray]] = None,
+        shape: Optional[Tuple[int, int, int, int, int]] = None,
+        data_fields: Optional[List[str]] = None,
+        marker_array: Optional["MarkerArray"] = None,
+        dtype: type = np.float32
+    ):
         """
-        Initialize MarkerArray with a structured numpy or JAX array.
+        Initialize a MarkerArray with a structured NumPy or JAX array.
+
+        Supports:
+        - Initializing from an existing array.
+        - Creating an empty array with a specified shape.
+        - Cloning an existing MarkerArray.
 
         Args:
-            array: NumPy/JAX array of shape (n_models, n_cameras, n_frames, n_keypoints, n_fields).
-            data_fields: List of strings specifying what each channel in the last axis represents.
-                         ['x', 'y', 'likelihood'] or ['x', 'y', 'var_x', 'var_y', 'likelihood'].
+            array (Optional[Union[np.ndarray, jnp.ndarray]]): NumPy/JAX array with shape
+                (n_models, n_cameras, n_frames, n_keypoints, n_fields).
+            shape (Optional[Tuple[int, int, int, int, int]]): If `array` is None, this specifies
+                the shape of the new array.
+            data_fields (Optional[List[str]]): Field names (e.g., ["x", "y", "likelihood"]).
+            marker_array (Optional[MarkerArray]): Existing MarkerArray to copy.
+            dtype (type): Data type for the new array if created from `shape`.
+            Defaults to np.float32.
 
         Raises:
-            AssertionError: If array dimensions do not match expected format.
+            AssertionError: If neither `array`, `shape`, nor `marker_array` is provided.
         """
-        assert isinstance(array, (np.ndarray, jnp.ndarray)), "Input must be a NumPy or JAX array."
-        assert array.ndim == 5, \
-            "Expected shape (n_models, n_cameras, n_frames, n_keypoints, n_fields)."
-        assert len(data_fields) == array.shape[-1], \
-            "data_fields length must match last axis of array."
+        if marker_array is not None:
+            # Clone an existing MarkerArray
+            assert isinstance(marker_array, MarkerArray), "marker_array must be a MarkerArray."
+            self.array: np.ndarray = np.array(marker_array.array, dtype=dtype)
+            self.data_fields = marker_array.data_fields if data_fields is None else data_fields
 
-        self.array = array
-        self.data_fields = data_fields
-        self.n_models, self.n_cameras, self.n_frames, self.n_keypoints, self.n_fields = array.shape
+        elif array is not None:
+            assert isinstance(array, (np.ndarray, jnp.ndarray)), \
+                "Input must be a NumPy or JAX array."
+            assert array.ndim == 5, \
+                "Expected shape (n_models, n_cameras, n_frames, n_keypoints, n_fields)."
+            self.array: Union[np.ndarray, jnp.ndarray] = array
+            self.data_fields: List[str] = data_fields
 
-    ## --- Data Access Methods --- ##
+        elif shape is not None:
+            assert len(shape) == 5, \
+                "Shape must be (n_models, n_cameras, n_frames, n_keypoints, n_fields)."
+            self.array: np.ndarray = np.zeros(shape, dtype=dtype)
+            self.data_fields: List[str] = data_fields
 
-    def get_shape(self):
-        """Retrieve shape of array. """
-        return self.array.shape
+        else:
+            raise AssertionError("Provide either `array`, `shape`, or `marker_array`.")
 
-    def get_model(self, model_idx: int):
-        """Retrieve data for a specific model. """
-        tmp_array = self.array[model_idx]
-        tmp_array = tmp_array[None]
-        return MarkerArray(tmp_array, self.data_fields)
-        # Shape: (n_cameras, n_frames, n_keypoints, n_fields)
+        self.n_models, self.n_cameras, self.n_frames, self.n_keypoints, self.n_fields = \
+            self.array.shape
 
-    def get_camera(self, camera_idx: int):
-        """Retrieve data for a specific camera."""
-        tmp_array = self.array[:, camera_idx]
-        tmp_array = tmp_array[:, None]
-        return MarkerArray(tmp_array, self.data_fields)
-        # Shape: (n_models, n_frames, n_keypoints, n_fields)
+        # Create a dictionary mapping names to indices
+        self.axis_map: dict[str, int] = {
+            "models": 0,
+            "cameras": 1,
+            "frames": 2,
+            "keypoints": 3,
+            "fields": 4
+        }
 
-    def get_frame(self, frame_idx: int):
-        """Retrieve all data for a specific frame across all models and cameras."""
-        tmp_array = self.array[:, :, frame_idx]
-        tmp_array = tmp_array[:, :, None]
-        return MarkerArray(tmp_array, self.data_fields)
-        # Shape: (n_models, n_cameras, n_keypoints, n_fields)
+    def slice(self, axis: str, indices: Union[int, List[int], np.ndarray]) -> "MarkerArray":
+        """
+        Slice the MarkerArray dynamically along a single named axis.
 
-    def get_keypoint(self, keypoint_idx: int):
-        """Retrieve all data for a specific keypoint across all models, cameras, and frames."""
-        tmp_array = self.array[:, :, :, keypoint_idx]
-        tmp_array = tmp_array[:, :, :, None]
-        return MarkerArray(tmp_array, self.data_fields)
-        # Shape: (n_models, n_cameras, n_frames, n_fields)
+        Args:
+            axis (str): One of "models", "cameras", "frames", "keypoints", or a field name.
+            indices (Union[int, List[int], np.ndarray]): Single index or list of indices to keep.
 
-    def get_point(self, model_idx: int, camera_idx: int, frame_idx: int, keypoint_idx: int):
-        """Retrieve all stored values for a specific keypoint at a given frame."""
-        return self.array[model_idx, camera_idx, frame_idx, keypoint_idx]
-        # Shape: (n_fields,)
+        Returns:
+            MarkerArray: A new sliced MarkerArray.
+        """
+        assert axis in self.axis_map, \
+            f"Invalid slice axis: {axis}. Must be one of {list(self.axis_map.keys())}."
 
-    ## --- Data Field Specific Methods --- ##
-    def get_field(self, field_name: str):
-        """Retrieve all data for a specific field (e.g., 'x', 'y', 'likelihood', 'var_x', 'var_y')."""
-        assert field_name in self.data_fields, f"Field '{field_name}' not found in data_fields."
-        field_idx = self.data_fields.index(field_name)
-        return self.array[..., field_idx]
-        # Shape: (n_models, n_cameras, n_frames, n_keypoints)
+        # Convert single integer index to a list
+        if isinstance(indices, int):
+            indices = [indices]
 
-    def get_fields(self, field_names: list[str]):
-        """Retrieve multiple fields as a new MarkerArray."""
-        field_indices = [self.data_fields.index(f) for f in field_names]
-        return MarkerArray(self.array[..., field_indices], field_names)
+        sliced_array = np.take(self.array, indices, axis=self.axis_map[axis])
+        return MarkerArray(sliced_array, data_fields=self.data_fields)
 
-    ## --- Convert to JAX Array --- ##
-    def jaxify(self):
-        """Return a JAX version of the MarkerArray."""
-        return MarkerArray(jnp.array(self.array), self.data_fields)
+    def slice_fields(self, *fields: str) -> "MarkerArray":
+        """
+        Slice the MarkerArray to keep only specific fields.
 
-    def __repr__(self):
-        return f"MarkerArray(shape={self.array.shape}, data_fields={self.data_fields}, " \
-               f"type={'JAX' if isinstance(self.array, jnp.ndarray) else 'NumPy'})"
+        Args:
+            *fields (str): Field names to keep. Pass multiple fields as separate arguments.
+
+        Returns:
+            MarkerArray: A new MarkerArray with only the selected fields.
+        """
+        # Validate fields
+        for field in fields:
+            assert field in self.data_fields, \
+                f"Field '{field}' not found in data_fields: {self.data_fields}"
+
+        # Get field indices
+        field_indices = [self.data_fields.index(field) for field in fields]
+
+        # Slice the last axis (fields)
+        sliced_array = np.take(self.array, field_indices, axis=4)
+
+        return MarkerArray(sliced_array, data_fields=list(fields))
+
+    @staticmethod
+    def stack(others: List["MarkerArray"], axis: str) -> "MarkerArray":
+        """
+        Stack multiple MarkerArrays along a specified axis.
+
+        Args:
+            others (List[MarkerArray]): List of MarkerArrays to stack together.
+            axis (str): One of "models", "cameras", "frames", "keypoints", or a field name.
+
+        Returns:
+            MarkerArray: A new MarkerArray with stacked arrays along the specified axis.
+        """
+        assert len(others) > 0, "At least one MarkerArray must be provided for stacking."
+
+        # Use the first element as reference for shape and data fields
+        reference = others[0]
+        assert axis in reference.axis_map, \
+            f"Invalid stack axis: {axis}. Must be one of {list(reference.axis_map.keys())}."
+
+        # Ensure all MarkerArrays have the same shape except for the stacking axis
+        for other in others[1:]:
+            assert isinstance(other,
+                              MarkerArray), "All elements in 'others' must be MarkerArray instances."
+            assert reference.array.shape[:reference.axis_map[axis]] + \
+                   reference.array.shape[reference.axis_map[axis] + 1:] \
+                   == other.array.shape[:reference.axis_map[axis]] + \
+                   other.array.shape[reference.axis_map[axis] + 1:], \
+                f"Shape mismatch: Cannot stack along '{axis}' due to differing dimensions."
+
+        # Stack all arrays along the specified axis
+        stacked_array = np.concatenate([other.array for other in others],
+                                       axis=reference.axis_map[axis])
+
+        return MarkerArray(stacked_array, data_fields=reference.data_fields)
+
+    def __repr__(self) -> str:
+        axis_names = ["models", "cameras", "frames", "keypoints", "fields"]
+        shape_str = ", ".join(f"{name}={size}" for name, size in zip(axis_names, self.array.shape))
+
+        return (
+            f"MarkerArray({shape_str}, data_fields={self.data_fields}, "
+            f"type={'JAX' if isinstance(self.array, jnp.ndarray) else 'NumPy'})"
+        )
 
 
 def input_dfs_to_markerArray(input_dfs_list, bodypart_list, camera_names):

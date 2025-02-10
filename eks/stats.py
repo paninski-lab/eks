@@ -6,8 +6,8 @@ from typing import Optional
 
 
 def compute_pca(
-        ema_preds: MarkerArray,
-        ema_vars: MarkerArray,
+        emA_preds: MarkerArray,
+        emA_vars: MarkerArray,
         quantile_keep_pca: float,
         n_components: int = 3
 ):
@@ -15,9 +15,9 @@ def compute_pca(
     Perform PCA for each keypoint while filtering frames with high variance.
 
     Args:
-        ema_preds: Ensemble MarkerArray containing predicted keypoint positions.
+        emA_preds: Ensemble MarkerArray containing predicted keypoint positions.
             Shape: (1, n_cameras, n_frames, n_keypoints, 2)
-        ema_vars: Ensemble MarkerArray containing variance data.
+        emA_vars: Ensemble MarkerArray containing variance data.
             Shape: (1, n_cameras, n_frames, n_keypoints, 2)
         quantile_keep_pca: Threshold percentage for filtering low-variance frames.
         n_components: Number of principal components to keep.
@@ -32,58 +32,73 @@ def compute_pca(
             scaled_ema (MarkerArray): Centered ensemble predictions.
     """
 
-    n_models, n_cameras, n_frames, n_keypoints, _ = ema_preds.array.shape
+    n_models, n_cameras, n_frames, n_keypoints, _ = emA_preds.array.shape
     assert n_models == 1, "MarkerArray should have n_models = 1 after ensembling."
 
-    preds_array = np.array(ema_preds.array[0])  # (n_cameras, n_frames, n_keypoints, 2)
-    vars_array = np.array(ema_vars.array[0])
+    # Maximum variance for each keypoint in each frame, independent of camera
+    max_vars_per_frame = np.max(emA_vars.array, axis=(0, 1, 4))  # Shape: (n_frames, n_keypoints)
+    # Compute variance threshold for each keypoint
+    thresholds = np.percentile(max_vars_per_frame, quantile_keep_pca, axis=0)
 
-    # Initialize storage lists
+    valid_frames_mask = max_vars_per_frame <= thresholds
+    good_preds = emA_preds.array[:, :, valid_frames_mask, :]
+
+    # Compute valid frame mask per (frame, keypoint)
+    valid_frames_mask = max_vars_per_frame <= thresholds  # Shape: (n_frames, n_keypoints)
+
     ensemble_pca = []
     ensemble_ex_var = []
     good_pcs_list = []
     pcs_list = []
-    scaled_preds_array = np.zeros(
-        (n_models, n_cameras, n_frames, n_keypoints, 2))
-
+    emA_scaled_preds_list = []
+    emA_means_list = []
     for k in range(n_keypoints):
-        # Filter by low ensemble variances
-        hstacked_vars = np.hstack(vars_array[:, :, k])  # Shape: (n_frames, n_cameras * 2)
-        max_vars = np.max(hstacked_vars, axis=1)  # Shape: (n_frames, n_cameras * 2)
-        good_frames = np.where(max_vars <= np.percentile(max_vars, quantile_keep_pca))[0]
-        good_preds = preds_array[:, good_frames, k]
-        means_camera = np.mean(good_preds, axis=1)
-        good_scaled_preds = good_preds - means_camera[:, None, :]
+        # Find valid frame indices for the current keypoint
+        good_frame_indices = np.where(valid_frames_mask[:, k])[0]  # Shape: (n_filtered_frames,)
+
+        # Extract valid frames for this keypoint
+        # Shape: (n_models, n_cameras, n_filtered_frames, n_fields)
+        good_preds_k = emA_preds.array[:, :, good_frame_indices, k, :]
+        # Shape: (n_models, n_cameras, n_filtered_frames, 1, n_fields)
+        good_preds_k = np.expand_dims(good_preds_k, axis=3)
+
+        # Scale predictions by subtracting means (over frames) from predictions
+        means_k = np.mean(good_preds_k, axis=2)[:, :, None, :, :]
+        scaled_preds_k = emA_preds.slice("keypoints", k).array - means_k
+        good_scaled_preds_k = good_preds_k - means_k
 
         # Fit PCA per keypoint
         pca = PCA(n_components=n_components)
-        ensemble_pca_curr = pca.fit(good_scaled_preds.transpose(1, 0, 2).reshape(
-            good_scaled_preds.shape[1], good_scaled_preds.shape[0] * good_scaled_preds.shape[2]))
+        ensemble_pca_curr = pca.fit(good_scaled_preds_k.transpose(1, 0, 2).reshape(
+            good_scaled_preds_k.shape[1], good_scaled_preds_k.shape[0] *
+                                          good_scaled_preds_k.shape[2]))
         ensemble_ex_var_curr = pca.explained_variance_ratio_
 
         # Transform full dataset
-        scaled_preds = preds_array[:, :, k] - means_camera[:, None, :]
-        pcs = pca.transform(scaled_preds.transpose(1, 0, 2).reshape(
-            scaled_preds.shape[1], scaled_preds.shape[0] * scaled_preds.shape[2]))
+        pcs = pca.transform(scaled_preds_k.transpose(1, 0, 2).reshape(
+            scaled_preds_k.shape[1], scaled_preds_k.shape[0] * scaled_preds_k.shape[2]))
 
-        good_pcs = pcs[good_frames]
+        good_pcs = pcs[good_frame_indices]
 
         # Store results
         ensemble_pca.append(ensemble_pca_curr)
         ensemble_ex_var.append(ensemble_ex_var_curr)
         good_pcs_list.append(good_pcs)  # Append instead of assigning
         pcs_list.append(pcs)  # Append instead of assigning
-        scaled_preds_array[..., k, :] = scaled_preds  # This stays as an array
+        emA_scaled_preds_list.append(MarkerArray(scaled_preds_k, data_fields=["x", "y"]))
+        emA_means_list.append(MarkerArray(means_k, data_fields=["x", "y"]))
 
-    scaled_ema = MarkerArray(scaled_preds_array, data_fields=['x', 'y'])
+    # Concatenate all keypoint-wise filtered results along the keypoints axis
+    emA_scaled_preds = MarkerArray.stack(emA_scaled_preds_list, "keypoints")
+    emA_means = MarkerArray.stack(emA_means_list, "keypoints")
 
     return (
         ensemble_pca,
         ensemble_ex_var,
         good_pcs_list,
         pcs_list,
-        means_camera,
-        scaled_ema
+        emA_scaled_preds,
+        emA_means
     )
 
 

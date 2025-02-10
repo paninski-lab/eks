@@ -119,7 +119,7 @@ def ensemble_kalman_smoother_singlecam(
     """
 
     # Convert list of DataFrames to a 3D NumPy array
-    data_arrays = [df.to_numpy() for df in markers_list]
+    data_arrays = [df.to_np() for df in markers_list]
     markers_3d_array = np.stack(data_arrays, axis=0)
 
     # Map keypoint names to indices and crop markers_3d_array
