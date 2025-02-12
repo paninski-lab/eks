@@ -189,8 +189,7 @@ def ensemble_kalman_smoother_multicam(
     avg_mode: str = 'median',
     var_mode: str = 'confidence_weighted_var',
     inflate_vars: bool = False,
-    inflate_vars_likelihood_thresh: float | None = 0.9,
-    inflate_vars_v_quantile_thresh: float | None = 50.0,
+    inflate_vars_kwargs: dict = {},
     verbose: bool = False,
 ) -> tuple:
     """
@@ -209,10 +208,7 @@ def ensemble_kalman_smoother_multicam(
         var_mode: mode for computing ensemble variance
             'var' | 'confidence_weighted_var'
         inflate_vars: True to use Mahalanobis distance thresholding to inflate ensemble variance
-        inflate_vars_likelihood_thresh: Minimum likelihood for a row to be used in FA fitting when
-            inflating variance.
-        inflate_vars_v_quantile_thresh: maximum variance (percentage) for a row to be used in FA
-            fitting when inflating variance.
+        inflate_vars_kwargs: kwargs for compute_mahalanobis function when running variance inflation
 
         verbose: True to print out details
 
@@ -328,6 +324,11 @@ def ensemble_kalman_smoother_multicam(
         y_obs = scaled_ensemble_preds
 
         if inflate_vars:
+            # set some maha defaults
+            if 'likelihood_threshold' not in inflate_vars_kwargs:
+                inflate_vars_kwargs['likelihood_threshold'] = 0.9
+            if 'v_quantile_threshold' not in inflate_vars_kwargs:
+                inflate_vars_kwargs['v_quantile_threshold'] = 50.0
             inflated = True
             tmp_vars = ensemble_vars
             while inflated:
@@ -335,8 +336,7 @@ def ensemble_kalman_smoother_multicam(
                 maha_results = compute_mahalanobis(
                     y_obs, tmp_vars,
                     likelihoods=ensemble_likes,
-                    likelihood_threshold=inflate_vars_likelihood_thresh,
-                    v_quantile_threshold=inflate_vars_v_quantile_thresh,
+                    **inflate_vars_kwargs,
                 )
                 # Inflate variances based on Mahalanobis distances
                 inflated_ens_vars, inflated = inflate_variance(

@@ -34,8 +34,51 @@ def test_ensemble_kalman_smoother_multicam():
         avg_mode='median',
         inflate_vars=False,
     )
+    assert isinstance(camera_dfs, list), "Expected output to be a dictionary"
+    assert len(camera_dfs) == len(camera_names), \
+        f"Expected {len(camera_names)} entries in camera_dfs, got {len(camera_dfs)}"
+    assert isinstance(smooth_params_final, float), \
+        f"Expected smooth_param_final to be a float, got {type(smooth_params_final)}"
+    assert smooth_params_final == smooth_param, \
+        f"Expected smooth_param_final to match input smooth_param ({smooth_param}), " \
+        f"got {smooth_params_final}"
 
-    # Assertions
+    # Run with variance inflation
+    camera_dfs, smooth_params_final = ensemble_kalman_smoother_multicam(
+        markers_list=markers_list_cameras,
+        keypoint_names=keypoint_names,
+        smooth_param=smooth_param,
+        quantile_keep_pca=quantile_keep_pca,
+        camera_names=camera_names,
+        s_frames=s_frames,
+        avg_mode='median',
+        inflate_vars=True,
+        inflate_vars_kwargs={'likelihood_threshold': None}
+    )
+    assert isinstance(camera_dfs, list), "Expected output to be a dictionary"
+    assert len(camera_dfs) == len(camera_names), \
+        f"Expected {len(camera_names)} entries in camera_dfs, got {len(camera_dfs)}"
+    assert isinstance(smooth_params_final, float), \
+        f"Expected smooth_param_final to be a float, got {type(smooth_params_final)}"
+    assert smooth_params_final == smooth_param, \
+        f"Expected smooth_param_final to match input smooth_param ({smooth_param}), " \
+        f"got {smooth_params_final}"
+
+    # Run with variance inflation + more maha kwargs
+    camera_dfs, smooth_params_final = ensemble_kalman_smoother_multicam(
+        markers_list=markers_list_cameras,
+        keypoint_names=keypoint_names,
+        smooth_param=smooth_param,
+        quantile_keep_pca=quantile_keep_pca,
+        camera_names=camera_names,
+        s_frames=s_frames,
+        avg_mode='mean',
+        inflate_vars=True,
+        inflate_vars_kwargs={
+            'loading_matrix': np.random.randn(2 * len(camera_names), 3),
+            'mean': np.random.randn(2 * len(camera_names))
+        }
+    )
     assert isinstance(camera_dfs, list), "Expected output to be a dictionary"
     assert len(camera_dfs) == len(camera_names), \
         f"Expected {len(camera_names)} entries in camera_dfs, got {len(camera_dfs)}"
