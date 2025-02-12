@@ -70,6 +70,13 @@ def test_compute_mahalanobis():
     assert np.isclose(out['mahalanobis'][0][0], s * out['mahalanobis'][0][0 + n_t])
     assert np.allclose(s * out['posterior_variance'][0][0], out['posterior_variance'][0][0 + n_t])
 
+    # test when loading matrix/mean are passed in
+    compute_mahalanobis(
+        x, v, n_latent=n_latent,
+        loading_matrix=np.random.randn(2 * n_cams, n_latent),
+        mean=np.random.randn(2 * n_cams)
+    )
+
 
 def test_compute_mahalanobis_singular_matrix():
     """Test compute_mahalanobis behavior with a variance matrix that would be singular."""
