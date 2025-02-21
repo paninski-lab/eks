@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from eks.core import backward_pass, compute_nll, ensemble, forward_pass, jax_ensemble, kalman_dot
+from eks.core import backward_pass, compute_nll, ensemble, forward_pass, jax_ensemble_old, kalman_dot
 
 
 def test_ensemble():
@@ -551,7 +551,7 @@ def test_compute_nll_random_values():
         np.isfinite(nll_val) for nll_val in nll_values), "Expected all nll_values to be finite"
 
 
-def test_jax_ensemble():
+def test_jax_ensemble_old():
 
     # Basic test data
     n_models = 4
@@ -562,7 +562,7 @@ def test_jax_ensemble():
     # ---------------------------------------------
     # Run jax_ensemble in median mode
     # ---------------------------------------------
-    ensemble_preds, ensemble_vars, ensemble_likes = jax_ensemble(
+    ensemble_preds, ensemble_vars, ensemble_likes = jax_ensemble_old(
         markers_3d_array, avg_mode='median')
     # Check output shapes
     assert ensemble_preds.shape == (n_timepoints, n_keypoints, 2), \
@@ -578,7 +578,7 @@ def test_jax_ensemble():
     # ---------------------------------------------
     # Run jax_ensemble in mean mode
     # ---------------------------------------------
-    ensemble_preds, ensemble_vars, ensemble_likes = jax_ensemble(
+    ensemble_preds, ensemble_vars, ensemble_likes = jax_ensemble_old(
         markers_3d_array, avg_mode='mean')
     # Check output shapes
     assert ensemble_preds.shape == (n_timepoints, n_keypoints, 2), \
@@ -595,4 +595,4 @@ def test_jax_ensemble():
     # Test that unsupported mode raises ValueError
     # ---------------------------------------------
     with pytest.raises(ValueError, match="averaging not supported"):
-        jax_ensemble(markers_3d_array, avg_mode='unsupported')
+        jax_ensemble_old(markers_3d_array, avg_mode='unsupported')
