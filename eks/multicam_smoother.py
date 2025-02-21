@@ -207,6 +207,8 @@ def ensemble_kalman_smoother_multicam(
         var_mode: mode for computing ensemble variance
             'var' | 'confidence_weighted_var'
         inflate_vars: True to use Mahalanobis distance thresholding to inflate ensemble variance
+        inflate_vars_kwargs: kwargs for compute_mahalanobis function when running variance inflation
+
         verbose: True to print out details
 
     Returns:

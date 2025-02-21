@@ -110,7 +110,9 @@ def compute_mahalanobis(
     v_quantile_threshold: float | None = 50.0,
     likelihoods: np.ndarray | None = None,
     likelihood_threshold: float | None = 0.9,
-    epsilon: float | None = 1e-6
+    epsilon: float | None = 1e-6,
+    loading_matrix: np.ndarray | None = None,
+    mean: np.ndarray | None = None,
 ) -> dict:
     """Compute Mahalanobis distance and posterior predictive variance for observations.
 
@@ -128,29 +130,35 @@ def compute_mahalanobis(
         likelihoods: Likelihoods for each row and view (NxC array).
         likelihood_threshold: Minimum likelihood for a row to be used in FA fitting.
         epsilon: Specifies epsilon added to prevent singular matrices.
+        loading_matrix: shape (2C x n_latent)
+        mean: shape (2C,)
 
     Returns:
         dict: Mahalanobis distances, posterior predictive variance, and reconstructed data.
 
     """
 
-    # Filter rows based on likelihood threshold if likelihoods are provided
-    if likelihoods is not None and likelihood_threshold is not None:
-        valid_rows = np.min(likelihoods, axis=1) >= likelihood_threshold
+    if loading_matrix is None or mean is None:
+        # Filter rows based on likelihood threshold if likelihoods are provided
+        if likelihoods is not None and likelihood_threshold is not None:
+            valid_rows = np.min(likelihoods, axis=1) >= likelihood_threshold
+        else:
+            valid_rows = np.ones(x.shape[0], dtype=bool)
+
+        # Filter rows based on ensemble variance (we want low variance predictions for FA)
+        if v_quantile_threshold is not None:
+            ev_max = v.max(axis=1)
+            valid_rows_ev = ev_max < np.percentile(ev_max, v_quantile_threshold)
+            valid_rows = valid_rows & valid_rows_ev
+
+        # Perform Factor Analysis to estimate W and mu_x using valid rows
+        fa = FactorAnalysis(n_components=n_latent)
+        fa.fit(x[valid_rows])
+        W = fa.components_.T  # W is (2C x n_latent)
+        mu_x = fa.mean_       # Mean of the observations (2C array)
     else:
-        valid_rows = np.ones(x.shape[0], dtype=bool)
-
-    # Filter rows based on ensemble variance (we want low variance predictions for FA)
-    if v_quantile_threshold is not None:
-        ev_max = v.max(axis=1)
-        valid_rows_ev = ev_max < np.percentile(ev_max, v_quantile_threshold)
-        valid_rows = valid_rows & valid_rows_ev
-
-    # Perform Factor Analysis to estimate W and mu_x using valid rows
-    fa = FactorAnalysis(n_components=n_latent)
-    fa.fit(x[valid_rows])
-    W = fa.components_.T  # W is (2C x n_latent)
-    mu_x = fa.mean_       # Mean of the observations (2C array)
+        W = loading_matrix
+        mu_x = mean
 
     # Posterior variance (B)
     B = np.zeros((v.shape[0], W.shape[1], W.shape[1]))
