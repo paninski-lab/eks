@@ -86,8 +86,8 @@ def ensemble_kalman_smoother_ibl_paw(
         bl_markers_curr = []
         left_markers_curr = []
         right_markers_curr = []
-        bl_left_np = markers_list_left_cam[model_id].to_np()
-        bl_right_np = markers_list_right_cam[model_id].to_np()
+        bl_left_np = markers_list_left_cam[model_id].to_numpy()
+        bl_right_np = markers_list_right_cam[model_id].to_numpy()
         bl_right_interp = []
         n_beg_nans = 0
         n_end_nans = 0
@@ -332,27 +332,27 @@ def ensemble_kalman_smoother_ibl_paw(
 
     # make left cam dataframe
     pred_arr = np.hstack([
-        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_l', 'x')].to_np()
+        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_l', 'x')].to_numpy()
         [:, None],
-        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_l', 'y')].to_np()
+        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_l', 'y')].to_numpy()
         [:, None],
-        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_l', 'likelihood')].to_np()
+        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_l', 'likelihood')].to_numpy()
         [:, None],
-        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_l', 'x_var')].to_np()
+        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_l', 'x_var')].to_numpy()
         [:, None],
-        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_l', 'y_var')].to_np()
+        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_l', 'y_var')].to_numpy()
         [:, None],
-        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_l', 'zscore')].to_np()
+        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_l', 'zscore')].to_numpy()
         [:, None],
-        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_r', 'x')].to_np()[:, None],
-        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_r', 'y')].to_np()[:, None],
-        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_r', 'likelihood')].to_np()
+        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_r', 'x')].to_numpy()[:, None],
+        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_r', 'y')].to_numpy()[:, None],
+        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_r', 'likelihood')].to_numpy()
         [:, None],
-        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_r', 'x_var')].to_np()
+        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_r', 'x_var')].to_numpy()
         [:, None],
-        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_r', 'y_var')].to_np()
+        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_r', 'y_var')].to_numpy()
         [:, None],
-        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_r', 'zscore')].to_np()
+        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_r', 'zscore')].to_numpy()
         [:, None],
     ])
     df_left = pd.DataFrame(pred_arr, columns=pdindex)
@@ -361,29 +361,29 @@ def ensemble_kalman_smoother_ibl_paw(
     # note we swap left and right paws to match dlc/lp convention
     # note we flip the paws horizontally to match lp convention
     pred_arr = np.hstack([
-        img_width - dfs['right'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_r', 'x')].to_np()
+        img_width - dfs['right'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_r', 'x')].to_numpy()
         [:, None],
-        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_r', 'y')].to_np()
+        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_r', 'y')].to_numpy()
         [:, None],
-        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_r', 'likelihood')].to_np()
+        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_r', 'likelihood')].to_numpy()
         [:, None],
-        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_r', 'x_var')].to_np()
+        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_r', 'x_var')].to_numpy()
         [:, None],
-        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_r', 'y_var')].to_np()
+        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_r', 'y_var')].to_numpy()
         [:, None],
-        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_r', 'zscore')].to_np()
+        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_r', 'zscore')].to_numpy()
         [:, None],
-        img_width - dfs['left'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_l', 'x')].to_np()
+        img_width - dfs['left'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_l', 'x')].to_numpy()
         [:, None],
-        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_l', 'y')].to_np()
+        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_l', 'y')].to_numpy()
         [:, None],
-        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_l', 'likelihood')].to_np()
+        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_l', 'likelihood')].to_numpy()
         [:, None],
-        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_l', 'x_var')].to_np()
+        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_l', 'x_var')].to_numpy()
         [:, None],
-        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_l', 'y_var')].to_np()
+        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_l', 'y_var')].to_numpy()
         [:, None],
-        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_l', 'zscore')].to_np()
+        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_l', 'zscore')].to_numpy()
         [:, None],
     ])
     df_right = pd.DataFrame(pred_arr, columns=pdindex)

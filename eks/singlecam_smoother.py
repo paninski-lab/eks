@@ -13,7 +13,7 @@ from eks.core import (
     compute_covariance_matrix,
     compute_initial_guesses,
     jax_backward_pass,
-    jax_ensemble,
+    jax_ensemble_old,
     jax_forward_pass,
     jax_forward_pass_nlls,
 )
@@ -119,7 +119,7 @@ def ensemble_kalman_smoother_singlecam(
     """
 
     # Convert list of DataFrames to a 3D NumPy array
-    data_arrays = [df.to_np() for df in markers_list]
+    data_arrays = [df.to_numpy() for df in markers_list]
     markers_3d_array = np.stack(data_arrays, axis=0)
 
     # Map keypoint names to indices and crop markers_3d_array
@@ -140,7 +140,7 @@ def ensemble_kalman_smoother_singlecam(
 
     # Compute ensemble statistics
     print("Ensembling models")
-    ensemble_preds, ensemble_vars, ensemble_likes = jax_ensemble(
+    ensemble_preds, ensemble_vars, ensemble_likes = jax_ensemble_old(
         markers_3d_array, avg_mode=avg_mode, var_mode=var_mode,
     )
 
