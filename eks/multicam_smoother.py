@@ -189,6 +189,7 @@ def ensemble_kalman_smoother_multicam(
         avg_mode: str = 'median',
         var_mode: str = 'confidence_weighted_var',
         inflate_vars: bool = False,
+        inflate_vars_kwargs: dict = {},
         verbose: bool = False,
 ) -> tuple:
     """
@@ -235,7 +236,8 @@ def ensemble_kalman_smoother_multicam(
     ) = compute_pca(emA_preds, emA_vars, quantile_keep_pca, n_components=3)
 
     emA_inflated_vars = mA_compute_maha(emA_scaled_preds, emA_vars, emA_likes,
-                                        inflate_vars=inflate_vars)
+                                        inflate_vars=inflate_vars,
+                                        inflate_vars_kwargs=inflate_vars_kwargs)
     # Kalman Filter Section ------------------------------------------
 
     # Collection array for marker output by camera view
@@ -375,7 +377,7 @@ def multicam_smooth_min(smooth_param, cov_matrix, y, m0, S0, C, A, R, ensemble_v
 
 
 def mA_compute_maha(scaled_emA_preds, emA_vars, emA_likes,
-                    inflate_vars=False, threshold=5, scalar=2):
+                    inflate_vars=False, inflate_vars_kwargs={}, threshold=5, scalar=2):
     """
     Reshape marker arrays for Mahalanobis computation, compute Mahalanobis distances,
     and optionally inflate variances for all keypoints.
@@ -401,11 +403,18 @@ def mA_compute_maha(scaled_emA_preds, emA_vars, emA_likes,
         likes = mA_to_stacked_array(emA_likes, k)
 
         if inflate_vars:
+            # set some maha defaults
+            if 'likelihood_threshold' not in inflate_vars_kwargs:
+                inflate_vars_kwargs['likelihood_threshold'] = 0.9
+            if 'v_quantile_threshold' not in inflate_vars_kwargs:
+                inflate_vars_kwargs['v_quantile_threshold'] = 50.0
             inflated = True
             tmp_vars = vars
             while inflated:
                 # Compute Mahalanobis distances
-                maha_results = compute_mahalanobis(preds, tmp_vars, likelihoods=likes)
+                maha_results = compute_mahalanobis(preds, tmp_vars,
+                                                   likelihoods=likes,
+                                                   **inflate_vars_kwargs)
                 # Inflate variances based on Mahalanobis distances
                 inflated_ens_vars_k, inflated = inflate_variance(
                     tmp_vars, maha_results['mahalanobis'], threshold, scalar)
