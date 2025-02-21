@@ -67,6 +67,14 @@ class MarkerArray:
             "fields": 4
         }
 
+    def shape(self):
+        """Returns shape of array."""
+        return self.array.shape
+
+    def get_array(self, squeeze=False):
+        """Returns array with squeezed singleton axes if squeeze=True."""
+        return np.squeeze(self.array) if squeeze else self.array
+
     def slice(self, axis: str, indices: Union[int, List[int], np.ndarray]) -> "MarkerArray":
         """
         Slice the MarkerArray dynamically along a single named axis.
@@ -97,6 +105,8 @@ class MarkerArray:
 
         Returns:
             MarkerArray: A new MarkerArray with only the selected fields.
+
+        MAYBE build-in array extractor + maybe squeezer as well (based on usage)
         """
         # Validate fields
         for field in fields:
@@ -183,3 +193,55 @@ def input_dfs_to_markerArray(input_dfs_list, bodypart_list, camera_names):
     # Convert to MarkerArray
     marker_array = MarkerArray(marker_array, data_fields=["x", "y", "likelihood"])
     return marker_array
+
+
+def mA_to_stacked_array(marker_array, keypoint_idx):
+    """
+    Reshapes a single-model MarkerArray object into the required format for compute_mahalanobis,
+    selecting only a specific keypoint index.
+
+    Args:
+        marker_array (np.ndarray): MarkerArray containing multiple fields for keypoints.
+            Expected shape: (1, n_cameras, n_frames, n_keypoints, n_fields).
+        keypoint_idx (int): Index of the keypoint to extract.
+
+    Returns:
+        np.ndarray: Reshaped array with shape (n_frames, n_cameras * n_fields).
+    """
+    n_models, n_cameras, n_frames, n_keypoints, num_fields = marker_array.shape()
+
+    assert 0 <= keypoint_idx < n_keypoints, \
+        f"keypoint_idx {keypoint_idx} is out of range (0-{n_keypoints - 1})"
+
+    # Slice by keypoint_idx and extract array Shape: (n_cameras, n_frames, 1, n_fields)
+    selected_array = marker_array.slice("keypoints", keypoint_idx).get_array()[0]
+    # Reshape into (n_frames, n_cameras * num_fields)
+    reshaped_array = selected_array.transpose(1, 0, 2, 3).reshape(-1, n_cameras * num_fields)
+    return reshaped_array
+
+
+def stacked_array_to_mA(reshaped_x, n_cameras, data_fields):
+    """
+    Reshapes a (n_frames, n_cameras * num_fields) array back into a MarkerArray format of shape
+    (1, n_cameras, n_frames, 1, num_fields).
+
+    Args:
+        reshaped_x (np.ndarray): Array of shape (n_frames, n_cameras * num_fields),
+            where each frame contains concatenated fields (e.g., x, y) for all cameras.
+        n_cameras (int): Number of cameras.
+        data_fields (str): names of data_fields in MarkerArray output
+
+    Returns:
+        np.ndarray: MarkerArray with shape (1, n_cameras, n_frames, 1, num_fields).
+    """
+    n_frames, total_fields = reshaped_x.shape
+    num_fields = total_fields // n_cameras
+    assert total_fields % n_cameras == 0, \
+        "Input shape mismatch: total fields must be divisible by n_cameras."
+
+    # Reshape into (n_cameras, n_frames, num_fields)
+    reshaped_x = reshaped_x.reshape(n_frames, n_cameras, num_fields).transpose(1, 0, 2)
+    # Add extra dimensions for model and keypoint
+    reshaped_x = reshaped_x[None, :, :, None, :]
+    mA_x = MarkerArray(reshaped_x, data_fields=data_fields)
+    return mA_x

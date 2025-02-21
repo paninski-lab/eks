@@ -1,7 +1,7 @@
 import numpy as np
 from sklearn.decomposition import FactorAnalysis, PCA
 from typeguard import typechecked
-from eks.marker_array import MarkerArray
+from eks.marker_array import MarkerArray, mA_to_stacked_array, stacked_array_to_mA
 from typing import Optional
 
 
@@ -32,7 +32,7 @@ def compute_pca(
             scaled_ema (MarkerArray): Centered ensemble predictions.
     """
 
-    n_models, n_cameras, n_frames, n_keypoints, _ = emA_preds.array.shape
+    n_models, n_cameras, n_frames, n_keypoints, _ = emA_preds.shape()
     assert n_models == 1, "MarkerArray should have n_models = 1 after ensembling."
 
     # Maximum variance for each keypoint in each frame, independent of camera
@@ -67,22 +67,22 @@ def compute_pca(
         scaled_preds_k = emA_preds.slice("keypoints", k).array - means_k
         good_scaled_preds_k = good_preds_k - means_k
 
+        # Reshape good_scaled_preds_k and scaled_preds_k for PCA
+        reshaped_gsp_k = mA_to_stacked_array(MarkerArray(good_scaled_preds_k, data_fields=["x", "y"]), 0)
+        reshaped_sp_k = mA_to_stacked_array(MarkerArray(scaled_preds_k, data_fields=["x", "y"]), 0)
+
         # Fit PCA per keypoint
         pca = PCA(n_components=n_components)
-        ensemble_pca_curr = pca.fit(good_scaled_preds_k.transpose(1, 0, 2).reshape(
-            good_scaled_preds_k.shape[1], good_scaled_preds_k.shape[0] *
-                                          good_scaled_preds_k.shape[2]))
-        ensemble_ex_var_curr = pca.explained_variance_ratio_
+        ensemble_pca_k = pca.fit(reshaped_gsp_k)
+        ensemble_ex_var_k = pca.explained_variance_ratio_
 
         # Transform full dataset
-        pcs = pca.transform(scaled_preds_k.transpose(1, 0, 2).reshape(
-            scaled_preds_k.shape[1], scaled_preds_k.shape[0] * scaled_preds_k.shape[2]))
+        pcs = ensemble_pca_k.transform(reshaped_sp_k)
 
         good_pcs = pcs[good_frame_indices]
-
         # Store results
-        ensemble_pca.append(ensemble_pca_curr)
-        ensemble_ex_var.append(ensemble_ex_var_curr)
+        ensemble_pca.append(ensemble_pca_k)
+        ensemble_ex_var.append(ensemble_ex_var_k)
         good_pcs_list.append(good_pcs)  # Append instead of assigning
         pcs_list.append(pcs)  # Append instead of assigning
         emA_scaled_preds_list.append(MarkerArray(scaled_preds_k, data_fields=["x", "y"]))
