@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 
 from eks.multicam_smoother import ensemble_kalman_smoother_multicam, inflate_variance
+from eks.marker_array import MarkerArray
 
 
 def test_ensemble_kalman_smoother_multicam():
@@ -9,23 +10,23 @@ def test_ensemble_kalman_smoother_multicam():
 
     # Mock inputs
     keypoint_names = ['kp1', 'kp2']
-    columns = [f'{kp}_{coord}' for kp in keypoint_names for coord in ['x', 'y', 'likelihood']]
-    markers_list_cameras = [
-        [
-            [
-                pd.DataFrame(np.random.randn(100, len(columns)), columns=columns),
-                pd.DataFrame(np.random.randn(100, len(columns)), columns=columns),
-            ] for _ in range(2)
-        ] for _ in range(2)]
-    camera_names = ['cam1', 'cam2']
+    data_fields = ['x', 'y', 'likelihood']
+    n_cameras = 2
+    n_frames = 100
+    num_fields = len(data_fields)
 
+    # Create mock MarkerArray with explicit data_fields
+    markers_array = np.random.randn(5, n_cameras, n_frames, len(keypoint_names), num_fields)
+    marker_array = MarkerArray(markers_array, data_fields=data_fields)
+
+    camera_names = ['cam1', 'cam2']
     smooth_param = 0.1
     quantile_keep_pca = 95
     s_frames = None
 
     # Run the smoother
     camera_dfs, smooth_params_final = ensemble_kalman_smoother_multicam(
-        markers_list=markers_list_cameras,
+        marker_array=marker_array,
         keypoint_names=keypoint_names,
         smooth_param=smooth_param,
         quantile_keep_pca=quantile_keep_pca,
@@ -34,7 +35,7 @@ def test_ensemble_kalman_smoother_multicam():
         avg_mode='median',
         inflate_vars=False,
     )
-    assert isinstance(camera_dfs, list), "Expected output to be a dictionary"
+    assert isinstance(camera_dfs, list), "Expected output to be a list"
     assert len(camera_dfs) == len(camera_names), \
         f"Expected {len(camera_names)} entries in camera_dfs, got {len(camera_dfs)}"
     assert isinstance(smooth_params_final, float), \
@@ -45,7 +46,7 @@ def test_ensemble_kalman_smoother_multicam():
 
     # Run with variance inflation
     camera_dfs, smooth_params_final = ensemble_kalman_smoother_multicam(
-        markers_list=markers_list_cameras,
+        marker_array=marker_array,
         keypoint_names=keypoint_names,
         smooth_param=smooth_param,
         quantile_keep_pca=quantile_keep_pca,
@@ -55,7 +56,8 @@ def test_ensemble_kalman_smoother_multicam():
         inflate_vars=True,
         inflate_vars_kwargs={'likelihood_threshold': None}
     )
-    assert isinstance(camera_dfs, list), "Expected output to be a dictionary"
+    # Assertions
+    assert isinstance(camera_dfs, list), "Expected output to be a list"
     assert len(camera_dfs) == len(camera_names), \
         f"Expected {len(camera_names)} entries in camera_dfs, got {len(camera_dfs)}"
     assert isinstance(smooth_params_final, float), \
@@ -66,7 +68,7 @@ def test_ensemble_kalman_smoother_multicam():
 
     # Run with variance inflation + more maha kwargs
     camera_dfs, smooth_params_final = ensemble_kalman_smoother_multicam(
-        markers_list=markers_list_cameras,
+        marker_array=marker_array,
         keypoint_names=keypoint_names,
         smooth_param=smooth_param,
         quantile_keep_pca=quantile_keep_pca,
@@ -79,7 +81,7 @@ def test_ensemble_kalman_smoother_multicam():
             'mean': np.random.randn(2 * len(camera_names))
         }
     )
-    assert isinstance(camera_dfs, list), "Expected output to be a dictionary"
+    assert isinstance(camera_dfs, list), "Expected output to be a list"
     assert len(camera_dfs) == len(camera_names), \
         f"Expected {len(camera_names)} entries in camera_dfs, got {len(camera_dfs)}"
     assert isinstance(smooth_params_final, float), \
@@ -93,22 +95,22 @@ def test_ensemble_kalman_smoother_multicam_no_smooth_param():
     """Test ensemble_kalman_smoother_multicam with no smooth_param provided."""
     # Mock inputs
     keypoint_names = ['kp1', 'kp2']
-    columns = [f'{kp}_{coord}' for kp in keypoint_names for coord in ['x', 'y', 'likelihood']]
-    markers_list_cameras = [
-        [
-            [
-                pd.DataFrame(np.random.randn(100, len(columns)), columns=columns),
-                pd.DataFrame(np.random.randn(100, len(columns)), columns=columns),
-            ] for _ in range(2)
-        ] for _ in range(2)]
-    camera_names = ['cam1', 'cam2']
+    data_fields = ['x', 'y', 'likelihood']
+    n_cameras = 2
+    n_frames = 100
+    num_fields = len(data_fields)
 
+    # Create mock MarkerArray with explicit data_fields
+    markers_array = np.random.randn(3, n_cameras, n_frames, len(keypoint_names), num_fields)
+    markerArray = MarkerArray(markers_array, data_fields=data_fields)  # Ensure data_fields is set
+
+    camera_names = ['cam1', 'cam2']
     quantile_keep_pca = 90
     s_frames = [(0, 10)]
 
     # Run the smoother without providing smooth_param
     camera_dfs, smooth_params_final = ensemble_kalman_smoother_multicam(
-        markers_list=markers_list_cameras,
+        marker_array=markerArray,
         keypoint_names=keypoint_names,
         smooth_param=None,
         quantile_keep_pca=quantile_keep_pca,

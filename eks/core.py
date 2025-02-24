@@ -7,6 +7,8 @@ from jax import jit
 from jax import numpy as jnp
 from typeguard import typechecked
 
+from eks.marker_array import MarkerArray
+
 # ------------------------------------------------------------------------------------------
 # Original Core Functions: These functions are still in use for the multicam and IBL scripts
 # as of this update, but will eventually be replaced the with faster versions used in
@@ -259,6 +261,48 @@ def compute_nll(innovations, innovation_covs, epsilon=1e-6):
 
 @typechecked
 def jax_ensemble(
+    marker_array: MarkerArray,
+    avg_mode: str = 'median',
+    var_mode: str = 'confidence_weighted_var',
+) -> MarkerArray:
+    """
+    Compute ensemble mean/median and variance of a marker array using JAX.
+    """
+    n_models, n_cameras, n_frames, n_keypoints, _ = marker_array.shape
+
+    avg_func = jnp.nanmedian if avg_mode == 'median' else jnp.nanmean
+
+    def compute_stats(data_x, data_y, data_lh):
+        avg_x = avg_func(data_x, axis=0)
+        avg_y = avg_func(data_y, axis=0)
+
+        conf_per_keypoint = jnp.sum(data_lh, axis=0)
+        mean_conf_per_keypoint = conf_per_keypoint / n_models
+
+        var_x = jnp.nanvar(data_x, axis=0) / mean_conf_per_keypoint if var_mode in [
+            'conf_weighted_var', 'confidence_weighted_var'] else jnp.nanvar(data_x, axis=0)
+        var_y = jnp.nanvar(data_y, axis=0) / mean_conf_per_keypoint if var_mode in [
+            'conf_weighted_var', 'confidence_weighted_var'] else jnp.nanvar(data_y, axis=0)
+
+        return jnp.stack([avg_x, avg_y, var_x, var_y, mean_conf_per_keypoint], axis=-1)
+
+    compute_stats_jit = jax.jit(compute_stats)
+
+    # Unwrap MarkerArrays to jax arrays and remove singleton field axis
+    data_x = jnp.squeeze(jnp.array(marker_array.slice_fields("x").array), axis=-1)
+    data_y = jnp.squeeze(jnp.array(marker_array.slice_fields("y").array), axis=-1)
+    data_lh = jnp.squeeze(jnp.array(marker_array.slice_fields("likelihood").array), axis=-1)
+
+    # Apply compute_stats in a single JIT call
+    ensemble_array = np.array(compute_stats_jit(data_x, data_y, data_lh))
+    ensemble_marker_array = MarkerArray(ensemble_array[None, ...],  # add n_models dim
+                                        data_fields=['x', 'y', 'var_x', 'var_y', 'likelihood'])
+
+    return ensemble_marker_array
+
+
+@typechecked
+def jax_ensemble_old(
     markers_3d_array: np.ndarray | jnp.ndarray,
     avg_mode: str = 'median',
     var_mode: str = 'confidence_weighted_var',
@@ -342,6 +386,7 @@ def jax_ensemble(
     ensemble_vars = jnp.array(ensemble_vars)
 
     return ensemble_preds, ensemble_vars, ensemble_likes
+
 
 
 def kalman_filter_step(carry, curr_y):
