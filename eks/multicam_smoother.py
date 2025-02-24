@@ -72,11 +72,11 @@ def fit_eks_mirrored_multicam(
             # Store in the structured list
             camera_model_dfs[cam_idx][model_idx] = camera_df
 
-    markerArray = input_dfs_to_markerArray(camera_model_dfs, bodypart_list, camera_names)
+    marker_array = input_dfs_to_markerArray(camera_model_dfs, bodypart_list, camera_names)
 
     # Run the ensemble Kalman smoother for multi-camera data
     camera_dfs, smooth_params_final = ensemble_kalman_smoother_multicam(
-        markerArray=markerArray,
+        marker_array=marker_array,
         keypoint_names=bodypart_list,
         smooth_param=smooth_param,
         quantile_keep_pca=quantile_keep_pca,
@@ -152,7 +152,7 @@ def fit_eks_multicam(
 
     # Run the ensemble Kalman smoother for multi-camera data
     camera_dfs, smooth_params_final = ensemble_kalman_smoother_multicam(
-        markerArray=markerArray,
+        marker_array=markerArray,
         keypoint_names=bodypart_list,
         smooth_param=smooth_param,
         quantile_keep_pca=quantile_keep_pca,
@@ -167,12 +167,6 @@ def fit_eks_multicam(
     # Save output DataFrames to CSVs (one per camera view)
     os.makedirs(save_dir, exist_ok=True)
     for c, camera in enumerate(camera_names):
-        save_filename = f'multicam_{camera}_results_new.csv'
-        camera_dfs[c].to_csv(os.path.join(save_dir, save_filename))
-
-    # Save output DataFrames to CSVs (one per camera view)
-    os.makedirs(save_dir, exist_ok=True)
-    for c, camera in enumerate(camera_names):
         save_filename = f'multicam_{camera}_results.csv'
         camera_dfs[c].to_csv(os.path.join(save_dir, save_filename))
     return camera_dfs, smooth_params_final, input_dfs_list, bodypart_list
@@ -180,7 +174,7 @@ def fit_eks_multicam(
 
 @typechecked
 def ensemble_kalman_smoother_multicam(
-        markerArray: MarkerArray,
+        marker_array: MarkerArray,
         keypoint_names: list,
         smooth_param: float | list | None = None,
         quantile_keep_pca: float = 95.0,
@@ -216,14 +210,14 @@ def ensemble_kalman_smoother_multicam(
         tuple: Dataframes with smoothed predictions, final smoothing parameters.
     """
 
-    n_models, n_cameras, n_frames, n_keypoints, _ = markerArray.shape()
+    n_models, n_cameras, n_frames, n_keypoints, _ = marker_array.shape
 
     # MarkerArray (1, n_cameras, n_frames, n_keypoints, 5 (x, y, var_x, var_y, likelihood))
-    ensemble_markerArray = jax_ensemble(markerArray, avg_mode=avg_mode, var_mode=var_mode)
+    ensemble_marker_array = jax_ensemble(marker_array, avg_mode=avg_mode, var_mode=var_mode)
 
-    emA_preds = ensemble_markerArray.slice_fields("x", "y")
-    emA_vars = ensemble_markerArray.slice_fields("var_x", "var_y")
-    emA_likes = ensemble_markerArray.slice_fields("likelihood")
+    emA_preds = ensemble_marker_array.slice_fields("x", "y")
+    emA_vars = ensemble_marker_array.slice_fields("var_x", "var_y")
+    emA_likes = ensemble_marker_array.slice_fields("likelihood")
 
     (
         ensemble_pca,
@@ -235,9 +229,12 @@ def ensemble_kalman_smoother_multicam(
                    # Shape: (1, n_cameras, 1, n_keypoints, 2)
     ) = compute_pca(emA_preds, emA_vars, quantile_keep_pca, n_components=3)
 
-    emA_inflated_vars = mA_compute_maha(emA_scaled_preds, emA_vars, emA_likes,
-                                        inflate_vars=inflate_vars,
-                                        inflate_vars_kwargs=inflate_vars_kwargs)
+    if inflate_vars:
+        emA_inflated_vars = mA_compute_maha(emA_scaled_preds, emA_vars, emA_likes,
+                                            inflate_vars_kwargs=inflate_vars_kwargs)
+    else:
+        emA_inflated_vars = emA_vars
+
     # Kalman Filter Section ------------------------------------------
 
     # Collection array for marker output by camera view
@@ -377,7 +374,7 @@ def multicam_smooth_min(smooth_param, cov_matrix, y, m0, S0, C, A, R, ensemble_v
 
 
 def mA_compute_maha(scaled_emA_preds, emA_vars, emA_likes,
-                    inflate_vars=False, inflate_vars_kwargs={}, threshold=5, scalar=2):
+                    inflate_vars_kwargs={}, threshold=5, scalar=2):
     """
     Reshape marker arrays for Mahalanobis computation, compute Mahalanobis distances,
     and optionally inflate variances for all keypoints.
@@ -386,14 +383,13 @@ def mA_compute_maha(scaled_emA_preds, emA_vars, emA_likes,
         scaled_emA_preds (numpy.ndarray): Scaled predicted marker positions.
         emA_vars (numpy.ndarray): Variance values associated with predictions.
         emA_likes (numpy.ndarray): Likelihood values associated with predictions.
-        inflate_vars (bool, optional): Whether to inflate variances based on Mahalanobis distances.
         threshold (float, optional): Mahalanobis distance threshold for inflation.
         scalar (float, optional): Factor by which to inflate variance.
 
     Returns:
         list: A list of tuples, where each tuple contains (maha_results, inflated_ens_vars) for a keypoint.
     """
-    _, n_cameras, _, n_keypoints, _ = scaled_emA_preds.shape()
+    _, n_cameras, _, n_keypoints, _ = scaled_emA_preds.shape
 
     emA_inflated_vars_list = []
     for k in range(n_keypoints):
@@ -402,25 +398,24 @@ def mA_compute_maha(scaled_emA_preds, emA_vars, emA_likes,
         vars = mA_to_stacked_array(emA_vars, k)
         likes = mA_to_stacked_array(emA_likes, k)
 
-        if inflate_vars:
-            # set some maha defaults
-            if 'likelihood_threshold' not in inflate_vars_kwargs:
-                inflate_vars_kwargs['likelihood_threshold'] = 0.9
-            if 'v_quantile_threshold' not in inflate_vars_kwargs:
-                inflate_vars_kwargs['v_quantile_threshold'] = 50.0
-            inflated = True
-            tmp_vars = vars
-            while inflated:
-                # Compute Mahalanobis distances
-                maha_results = compute_mahalanobis(preds, tmp_vars,
-                                                   likelihoods=likes,
-                                                   **inflate_vars_kwargs)
-                # Inflate variances based on Mahalanobis distances
-                inflated_ens_vars_k, inflated = inflate_variance(
-                    tmp_vars, maha_results['mahalanobis'], threshold, scalar)
-                tmp_vars = inflated_ens_vars_k
-        else:
-            inflated_ens_vars_k = vars
+        # set some maha defaults
+        if 'likelihood_threshold' not in inflate_vars_kwargs:
+            inflate_vars_kwargs['likelihood_threshold'] = 0.9
+        if 'v_quantile_threshold' not in inflate_vars_kwargs:
+            inflate_vars_kwargs['v_quantile_threshold'] = 50.0
+        inflated = True
+        tmp_vars = vars
+
+        while inflated:
+            # Compute Mahalanobis distances
+            maha_results = compute_mahalanobis(preds, tmp_vars,
+                                               likelihoods=likes,
+                                               **inflate_vars_kwargs)
+            # Inflate variances based on Mahalanobis distances
+            inflated_ens_vars_k, inflated = inflate_variance(
+                tmp_vars, maha_results['mahalanobis'], threshold, scalar)
+            tmp_vars = inflated_ens_vars_k
+
         # Reshape array back into mA
         emA_inflated_vars_k = stacked_array_to_mA(
             inflated_ens_vars_k, n_cameras, data_fields=["var_x", "var_y"])

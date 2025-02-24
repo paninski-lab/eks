@@ -268,7 +268,7 @@ def jax_ensemble(
     """
     Compute ensemble mean/median and variance of a marker array using JAX.
     """
-    n_models, n_cameras, n_frames, n_keypoints, _ = marker_array.array.shape
+    n_models, n_cameras, n_frames, n_keypoints, _ = marker_array.shape
 
     avg_func = jnp.nanmedian if avg_mode == 'median' else jnp.nanmean
 

@@ -3,7 +3,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from eks.core import backward_pass, compute_nll, ensemble, forward_pass, jax_ensemble_old, kalman_dot
+from eks.core import backward_pass, compute_nll, ensemble, \
+    forward_pass, jax_ensemble_old, jax_ensemble, kalman_dot
+from eks.marker_array import MarkerArray
 
 
 def test_ensemble():
@@ -596,3 +598,55 @@ def test_jax_ensemble_old():
     # ---------------------------------------------
     with pytest.raises(ValueError, match="averaging not supported"):
         jax_ensemble_old(markers_3d_array, avg_mode='unsupported')
+
+
+def test_jax_ensemble():
+    # Basic test data
+    n_models = 4
+    n_cameras = 2
+    n_frames = 5
+    n_keypoints = 3
+
+    # Creating a random MarkerArray
+    markers_5d_array = np.random.rand(n_models, n_cameras, n_frames, n_keypoints, 3)
+    marker_array = MarkerArray(markers_5d_array, data_fields=['x', 'y', 'likelihood'])
+
+    # ---------------------------------------------
+    # Run jax_ensemble in median mode
+    # ---------------------------------------------
+    ensemble_marker_array = jax_ensemble(marker_array, avg_mode='median')
+
+    # Check output shape
+    expected_shape = (1, n_cameras, n_frames, n_keypoints, 5)
+    assert ensemble_marker_array.array.shape == expected_shape, \
+        f"Expected shape {expected_shape}, got {ensemble_marker_array.array.shape}"
+
+    # Check that output values are finite
+    assert jnp.isfinite(
+        ensemble_marker_array.array).all(), "Expected finite values in ensemble output"
+
+    # ---------------------------------------------
+    # Run jax_ensemble in mean mode
+    # ---------------------------------------------
+    ensemble_marker_array = jax_ensemble(marker_array, avg_mode='mean')
+
+    # Check output shape
+    assert ensemble_marker_array.array.shape == expected_shape, \
+        f"Expected shape {expected_shape}, got {ensemble_marker_array.array.shape}"
+
+    # Check that output values are finite
+    assert jnp.isfinite(
+        ensemble_marker_array.array).all(), "Expected finite values in ensemble output"
+
+    # ---------------------------------------------
+    # Test confidence-weighted variance mode
+    # ---------------------------------------------
+    ensemble_marker_array = jax_ensemble(marker_array, var_mode='confidence_weighted_var')
+
+    # Check output shape
+    assert ensemble_marker_array.array.shape == expected_shape, \
+        f"Expected shape {expected_shape}, got {ensemble_marker_array.array.shape}"
+
+    # Check that output values are finite
+    assert jnp.isfinite(
+        ensemble_marker_array.array).all(), "Expected finite values in ensemble output"

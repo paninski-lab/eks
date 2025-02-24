@@ -17,7 +17,7 @@ def test_ensemble_kalman_smoother_multicam():
 
     # Create mock MarkerArray with explicit data_fields
     markers_array = np.random.randn(5, n_cameras, n_frames, len(keypoint_names), num_fields)
-    markerArray = MarkerArray(markers_array, data_fields=data_fields)
+    marker_array = MarkerArray(markers_array, data_fields=data_fields)
 
     camera_names = ['cam1', 'cam2']
     smooth_param = 0.1
@@ -26,7 +26,7 @@ def test_ensemble_kalman_smoother_multicam():
 
     # Run the smoother
     camera_dfs, smooth_params_final = ensemble_kalman_smoother_multicam(
-        markerArray=markerArray,
+        marker_array=marker_array,
         keypoint_names=keypoint_names,
         smooth_param=smooth_param,
         quantile_keep_pca=quantile_keep_pca,
@@ -46,7 +46,7 @@ def test_ensemble_kalman_smoother_multicam():
 
     # Run with variance inflation
     camera_dfs, smooth_params_final = ensemble_kalman_smoother_multicam(
-        markerArray=markerArray,
+        marker_array=marker_array,
         keypoint_names=keypoint_names,
         smooth_param=smooth_param,
         quantile_keep_pca=quantile_keep_pca,
@@ -68,7 +68,7 @@ def test_ensemble_kalman_smoother_multicam():
 
     # Run with variance inflation + more maha kwargs
     camera_dfs, smooth_params_final = ensemble_kalman_smoother_multicam(
-        markerArray=markerArray,
+        marker_array=marker_array,
         keypoint_names=keypoint_names,
         smooth_param=smooth_param,
         quantile_keep_pca=quantile_keep_pca,
@@ -110,7 +110,7 @@ def test_ensemble_kalman_smoother_multicam_no_smooth_param():
 
     # Run the smoother without providing smooth_param
     camera_dfs, smooth_params_final = ensemble_kalman_smoother_multicam(
-        markerArray=markerArray,
+        marker_array=markerArray,
         keypoint_names=keypoint_names,
         smooth_param=None,
         quantile_keep_pca=quantile_keep_pca,

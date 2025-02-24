@@ -67,6 +67,7 @@ class MarkerArray:
             "fields": 4
         }
 
+    @property
     def shape(self):
         """Returns shape of array."""
         return self.array.shape
@@ -208,7 +209,7 @@ def mA_to_stacked_array(marker_array, keypoint_idx):
     Returns:
         np.ndarray: Reshaped array with shape (n_frames, n_cameras * n_fields).
     """
-    n_models, n_cameras, n_frames, n_keypoints, num_fields = marker_array.shape()
+    n_models, n_cameras, n_frames, n_keypoints, num_fields = marker_array.shape
 
     assert 0 <= keypoint_idx < n_keypoints, \
         f"keypoint_idx {keypoint_idx} is out of range (0-{n_keypoints - 1})"

@@ -32,7 +32,7 @@ def compute_pca(
             scaled_ema (MarkerArray): Centered ensemble predictions.
     """
 
-    n_models, n_cameras, n_frames, n_keypoints, _ = emA_preds.shape()
+    n_models, n_cameras, n_frames, n_keypoints, _ = emA_preds.shape
     assert n_models == 1, "MarkerArray should have n_models = 1 after ensembling."
 
     # Maximum variance for each keypoint in each frame, independent of camera
