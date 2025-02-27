@@ -10,15 +10,15 @@ from jax import jit, vmap
 from typeguard import typechecked
 
 from eks.core import (
-    compute_covariance_matrix,
     compute_initial_guesses,
     jax_backward_pass,
-    jax_ensemble_old,
+    jax_ensemble,
     jax_forward_pass,
     jax_forward_pass_nlls,
 )
 from eks.utils import crop_frames, format_data, make_dlc_pandas_index
-
+from eks.marker_array import MarkerArray, input_dfs_to_markerArray
+from eks.multicam_smoother import scale_predictions
 
 @typechecked
 def fit_eks_singlecam(
@@ -65,9 +65,10 @@ def fit_eks_singlecam(
         bodypart_list = keypoint_names
         print(f'Input data loaded for keypoints:\n{bodypart_list}')
 
+    marker_array = input_dfs_to_markerArray([input_dfs_list], bodypart_list, [""])
     # Run the ensemble Kalman smoother
     df_smoothed, smooth_params_final = ensemble_kalman_smoother_singlecam(
-        markers_list=input_dfs_list,
+        marker_array=marker_array,
         keypoint_names=bodypart_list,
         smooth_param=smooth_param,
         s_frames=s_frames,
@@ -87,7 +88,7 @@ def fit_eks_singlecam(
 
 @typechecked
 def ensemble_kalman_smoother_singlecam(
-    markers_list: list,
+    marker_array: MarkerArray,
     keypoint_names: list,
     smooth_param: float | list | None = None,
     s_frames: list | None = None,
@@ -99,8 +100,8 @@ def ensemble_kalman_smoother_singlecam(
     """Perform Ensemble Kalman Smoothing for single-camera data.
 
     Args:
-        markers_list: pd.DataFrames
-            each list element is a dataframe of predictions from one ensemble member
+        marker_array: MarkerArray object containing marker data.
+            Shape (n_models, n_cameras, n_frames, n_keypoints, 3 (for x, y, likelihood))
         keypoint_names: List of body parts to run smoothing on
         smooth_param: value in (0, Inf); smaller values lead to more smoothing
         s_frames: List of frames for automatic computation of smoothing parameter
@@ -118,232 +119,155 @@ def ensemble_kalman_smoother_singlecam(
 
     """
 
-    # Convert list of DataFrames to a 3D NumPy array
-    data_arrays = [df.to_numpy() for df in markers_list]
-    markers_3d_array = np.stack(data_arrays, axis=0)
+    n_models, n_cameras, n_frames, n_keypoints, n_data_fields = marker_array.shape
 
-    # Map keypoint names to indices and crop markers_3d_array
-    keypoint_is = {}
-    keys = []
-    for i, col in enumerate(markers_list[0].columns):
-        keypoint_is[col] = i
-    for part in keypoint_names:
-        keys.append(keypoint_is[part + '_x'])
-        keys.append(keypoint_is[part + '_y'])
-        keys.append(keypoint_is[part + '_likelihood'])
-    key_cols = np.array(keys)
-    markers_3d_array = markers_3d_array[:, :, key_cols]
+    # MarkerArray (1, 1, n_frames, n_keypoints, 5 (x, y, var_x, var_y, likelihood))
+    ensemble_marker_array = jax_ensemble(marker_array, avg_mode=avg_mode, var_mode=var_mode)
 
-    n_frames = markers_3d_array.shape[1]
-    n_keypoints = markers_3d_array.shape[2] // 3
-    n_coords = 2
+    # Save ensemble medians for output
+    emA_medians = MarkerArray(
+        marker_array=ensemble_marker_array.slice_fields("x", "y"),
+        data_fields=["x_median", "y_median"])
 
-    # Compute ensemble statistics
-    print("Ensembling models")
-    ensemble_preds, ensemble_vars, ensemble_likes = jax_ensemble_old(
-        markers_3d_array, avg_mode=avg_mode, var_mode=var_mode,
-    )
+    _, emA_scaled_preds, _, emA_means = scale_predictions(
+        ensemble_marker_array, quantile_keep_pca=100)  # Should we filter by variance?
 
-    # Calculate mean and adjusted observations
-    mean_obs_dict, adjusted_obs_dict, scaled_ensemble_preds = adjust_observations(
-        ensemble_preds.copy(), n_keypoints,
-    )
+    (
+        m0s, S0s, As, cov_mats, Cs, Rs
+    ) = initialize_kalman_filter(emA_scaled_preds)
 
-    # Initialize Kalman filter values
-    m0s, S0s, As, cov_mats, Cs, Rs, ys = initialize_kalman_filter(
-        scaled_ensemble_preds, adjusted_obs_dict, n_keypoints)
+    # MarkerArray data_fields=["x", "y", "likelihood", "var_x", "var_y"]
+    ensemble_marker_array = MarkerArray.stack_fields(
+        emA_scaled_preds,
+        ensemble_marker_array.slice_fields("likelihood", "var_x", "var_y"))
+
+    # Prepare params for singlecam_optimize_smooth()
+    ensemble_vars = ensemble_marker_array.slice_fields("var_x", "var_y").get_array(squeeze=True)
+    ys = ensemble_marker_array.slice_fields("x", "y").get_array(squeeze=True)
+    ys = ys.transpose(1, 0, 2)
 
     # Main smoothing function
     s_finals, ms, Vs, nlls = singlecam_optimize_smooth(
         cov_mats, ys, m0s, S0s, Cs, As, Rs, ensemble_vars,
         s_frames, smooth_param, blocks, verbose)
 
-    y_m_smooths = np.zeros((n_keypoints, n_frames, n_coords))
-    y_v_smooths = np.zeros((n_keypoints, n_frames, n_coords, n_coords))
+    y_m_smooths = np.zeros((n_keypoints, n_frames, 2))
+    y_v_smooths = np.zeros((n_keypoints, n_frames, 2, 2))
 
-    data_arr = []
-
-    # Process each keypoint
+    # Make emAs for smoothed preds and posterior variances -- TODO: refactor into a function
+    emA_smoothed_preds_list = []
+    emA_postvars_list = []
     for k in range(n_keypoints):
         y_m_smooths[k] = np.dot(Cs[k], ms[k].T).T
         y_v_smooths[k] = np.swapaxes(np.dot(Cs[k], np.dot(Vs[k], Cs[k].T)), 0, 1)
-        mean_x_obs = mean_obs_dict[3 * k]
-        mean_y_obs = mean_obs_dict[3 * k + 1]
+        mean_x_obs = emA_means.slice("keypoints", k).slice_fields("x").get_array(squeeze=True)
+        mean_y_obs = emA_means.slice("keypoints", k).slice_fields("y").get_array(squeeze=True)
 
-        # Computing z-score
-        # eks_preds_array = np.zeros(y_m_smooths.shape)
-        # eks_preds_array[k] = y_m_smooths[k].copy()
-        # eks_preds_array[k] = np.asarray([
-        #     eks_preds_array[k].T[0] + mean_x_obs,
-        #     eks_preds_array[k].T[1] + mean_y_obs,
-        # ]).T
-        # zscore, ensemble_std = eks_zscore(
-        #     eks_preds_array[k],
-        #     ensemble_preds[:, k, :],
-        #     ensemble_vars[:, k, :],
-        #     min_ensemble_std=zscore_threshold,
-        # )
-        # nll = nlls[k]
+        # Unscale (re-add means to) smoothed x and y
+        smoothed_xs_k = y_m_smooths[k].T[0] + mean_x_obs
+        smoothed_ys_k = y_m_smooths[k].T[1] + mean_y_obs
 
-        # keep track of labels for each data entry
-        labels = []
+        # Reshape into MarkerArray format
+        smoothed_xs_k = smoothed_xs_k[None, None, :, None, None]
+        smoothed_ys_k = smoothed_ys_k[None, None, :, None, None]
 
-        # smoothed x vals
-        data_arr.append(y_m_smooths[k].T[0] + mean_x_obs)
-        labels.append('x')
-        # smoothed y vals
-        data_arr.append(y_m_smooths[k].T[1] + mean_y_obs)
-        labels.append('y')
-        # mean likelihood
-        data_arr.append(ensemble_likes[:, k, 0])
-        labels.append('likelihood')
-        # x vals ensemble median
-        data_arr.append(ensemble_preds[:, k, 0])
-        labels.append('x_ens_median')
-        # y vals ensemble median
-        data_arr.append(ensemble_preds[:, k, 1])
-        labels.append('y_ens_median')
-        # x vals ensemble variance
-        data_arr.append(ensemble_vars[:, k, 0])
-        labels.append('x_ens_var')
-        # y vals ensemble variance
-        data_arr.append(ensemble_vars[:, k, 1])
-        labels.append('y_ens_var')
-        # x vals posterior variance
-        data_arr.append(y_v_smooths[k][:, 0, 0])
-        labels.append('x_posterior_var')
-        # y vals posterior variance
-        data_arr.append(y_v_smooths[k][:, 1, 1])
-        labels.append('y_posterior_var')
+        # Create smoothed preds emA for current keypoint
+        emA_smoothed_xs_k = MarkerArray(smoothed_xs_k, data_fields=["x"])
+        emA_smoothed_ys_k = MarkerArray(smoothed_ys_k, data_fields=["y"])
+        emA_smoothed_preds_k = MarkerArray.stack_fields(emA_smoothed_xs_k, emA_smoothed_ys_k)
+        emA_smoothed_preds_list.append(emA_smoothed_preds_k)
 
-    data_arr = np.asarray(data_arr)
+        # Create posterior variance emA for current keypoint
+        postvar_xs_k = y_v_smooths[k][:, 0, 0]
+        postvar_ys_k = y_v_smooths[k][:, 1, 1]
+        postvar_xs_k = postvar_xs_k[None, None, :, None, None]
+        postvar_ys_k = postvar_ys_k[None, None, :, None, None]
+        emA_postvar_xs_k = MarkerArray(postvar_xs_k, data_fields=["postvar_x"])
+        emA_postvar_ys_k = MarkerArray(postvar_ys_k, data_fields=["postvar_y"])
+        emA_postvars_k = MarkerArray.stack_fields(emA_postvar_xs_k, emA_postvar_ys_k)
+        emA_postvars_list.append(emA_postvars_k)
 
-    # put data into dataframe
+    emA_smoothed_preds = MarkerArray.stack(emA_smoothed_preds_list, "keypoints")
+    emA_postvars = MarkerArray.stack(emA_postvars_list, "keypoints")
+
+    # Create Final MarkerArray
+    emA_final = MarkerArray.stack_fields(
+        emA_smoothed_preds,  # x, y
+        ensemble_marker_array.slice_fields("likelihood"), # likelihood
+        emA_medians, # x_median, y_median
+        ensemble_marker_array.slice_fields("var_x", "var_y"), # var_x, var_y
+        emA_postvars  # postvar_x, postvar_y
+    )
+
+    labels = [
+        'x', 'y', 'likelihood', 'x_ens_median', 'y_ens_median',
+        'x_ens_var', 'y_ens_var', 'x_posterior_var', 'y_posterior_var'
+    ]
+
+    final_array = emA_final.get_array(squeeze=True)
+
+    # Put data into dataframe
     pdindex = make_dlc_pandas_index(keypoint_names, labels=labels)
-    markers_df = pd.DataFrame(data_arr.T, columns=pdindex)
+    final_array = final_array.reshape(n_frames, n_keypoints * len(labels))
+    markers_df = pd.DataFrame(final_array, columns=pdindex)
 
     return markers_df, s_finals
 
 
-@typechecked
-def adjust_observations(
-    scaled_ensemble_preds: jnp.ndarray | np.ndarray,
-    n_keypoints: int,
-) -> tuple:
-    """
-    Adjust observations by computing mean and adjusted observations for each keypoint.
-
-    Args:
-        scaled_ensemble_preds: shape (n_timepoints, n_keypoints, n_coordinates)
-        n_keypoints: Number of keypoints.
-
-    Returns:
-        tuple: Mean observations dict, adjusted observations dict, scaled ensemble preds
-
-    """
-
-    # Ensure scaled_ensemble_preds is a JAX array
-    scaled_ensemble_preds = jnp.array(scaled_ensemble_preds)
-
-    # Convert dictionaries to JAX arrays
-    keypoints_avg_array = scaled_ensemble_preds.reshape((scaled_ensemble_preds.shape[0], -1)).T
-    x_keys = jnp.array([3 * i for i in range(n_keypoints)])
-    y_keys = jnp.array([3 * i + 1 for i in range(n_keypoints)])
-
-    def compute_adjusted_means(i):
-        mean_x_obs = jnp.nanmean(keypoints_avg_array[2 * i])
-        mean_y_obs = jnp.nanmean(keypoints_avg_array[2 * i + 1])
-        adjusted_x_obs = keypoints_avg_array[2 * i] - mean_x_obs
-        adjusted_y_obs = keypoints_avg_array[2 * i + 1] - mean_y_obs
-        return mean_x_obs, mean_y_obs, adjusted_x_obs, adjusted_y_obs
-
-    means_and_adjustments = jax.vmap(compute_adjusted_means)(jnp.arange(n_keypoints))
-
-    mean_x_obs, mean_y_obs, adjusted_x_obs, adjusted_y_obs = means_and_adjustments
-
-    # Convert JAX arrays to NumPy arrays for dictionary keys
-    x_keys_np = np.array(x_keys)
-    y_keys_np = np.array(y_keys)
-
-    mean_obs_dict = {x_keys_np[i]: mean_x_obs[i] for i in range(n_keypoints)}
-    mean_obs_dict.update({y_keys_np[i]: mean_y_obs[i] for i in range(n_keypoints)})
-
-    adjusted_obs_dict = {x_keys_np[i]: adjusted_x_obs[i] for i in range(n_keypoints)}
-    adjusted_obs_dict.update({y_keys_np[i]: adjusted_y_obs[i] for i in range(n_keypoints)})
-
-    def scale_ensemble_preds(mean_x_obs, mean_y_obs, scaled_ensemble_preds, i):
-        scaled_ensemble_preds = scaled_ensemble_preds.at[:, i, 0].add(-mean_x_obs)
-        scaled_ensemble_preds = scaled_ensemble_preds.at[:, i, 1].add(-mean_y_obs)
-        return scaled_ensemble_preds
-
-    for i in range(n_keypoints):
-        mean_x = mean_obs_dict[x_keys_np[i]]
-        mean_y = mean_obs_dict[y_keys_np[i]]
-        scaled_ensemble_preds = scale_ensemble_preds(mean_x, mean_y, scaled_ensemble_preds, i)
-
-    return mean_obs_dict, adjusted_obs_dict, scaled_ensemble_preds
-
-
-@typechecked
 def initialize_kalman_filter(
-    scaled_ensemble_preds: jnp.ndarray | np.ndarray,
-    adjusted_obs_dict: dict,
-    n_keypoints: int
+    emA_scaled_preds: MarkerArray,
 ) -> tuple:
     """
     Initialize the Kalman filter values.
 
     Parameters:
-        scaled_ensemble_preds: Scaled ensemble predictions.
-        adjusted_obs_dict: Adjusted observations dictionary.
-        n_keypoints: Number of keypoints.
+        scaled_ensemble_preds (MarkerArray): Scaled ensemble predictions.
 
     Returns:
         tuple: Initial Kalman filter values and covariance matrices.
-
     """
+    _, _, _, n_keypoints, _ = emA_scaled_preds.shape
 
-    # Convert inputs to JAX arrays
-    scaled_ensemble_preds = jnp.array(scaled_ensemble_preds)
+    # Shape: (n_frames, n_keypoints, 2 (for x, y))
+    scaled_preds = emA_scaled_preds.slice_fields("x", "y").get_array(squeeze=True)
 
-    # Extract the necessary values from adjusted_obs_dict
-    adjusted_x_obs_list = [adjusted_obs_dict[3 * i] for i in range(n_keypoints)]
-    adjusted_y_obs_list = [adjusted_obs_dict[3 * i + 1] for i in range(n_keypoints)]
+    m0s = np.zeros((n_keypoints, 2))  # Initial state means: (n_keypoints, 2)
+    S0s = np.array([
+        [[np.nanvar(scaled_preds[:, k, 0]), 0.0],  # [var(x)  0 ]
+         [0.0, np.nanvar(scaled_preds[:, k, 1])]]  # [ 0  var(y)]
+        for k in range(n_keypoints)
+    ])  # Initial covariance matrices: (n_keypoints, 2, 2)
 
-    # Convert these lists to JAX arrays
-    adjusted_x_obs_array = jnp.array(adjusted_x_obs_list)
-    adjusted_y_obs_array = jnp.array(adjusted_y_obs_list)
+    # State-transition and measurement matrices
+    As = np.tile(np.eye(2), (n_keypoints, 1, 1))  # (n_keypoints, 2, 2)
+    Cs = np.tile(np.eye(2), (n_keypoints, 1, 1))  # (n_keypoints, 2, 2)
+    Rs = np.tile(np.eye(2), (n_keypoints, 1, 1))  # (n_keypoints, 2, 2)
 
-    def init_kalman(i, adjusted_x_obs, adjusted_y_obs):
-        m0 = jnp.array([0.0, 0.0])  # initial state: mean
-        S0 = jnp.array([[jnp.nanvar(adjusted_x_obs), 0.0],
-                        [0.0, jnp.nanvar(adjusted_y_obs)]])  # diagonal: var
-        A = jnp.array([[1.0, 0], [0, 1.0]])  # state-transition matrix
-        C = jnp.array([[1, 0], [0, 1]])  # Measurement function
-        R = jnp.eye(2)  # placeholder diagonal matrix for ensemble variance
-        y_obs = scaled_ensemble_preds[:, i, :]
+    # Compute covariance matrices
+    cov_mats = []
+    for i in range(n_keypoints):
+        cov_mats.append([[1, 0], [0, 1]])
+    cov_mats = np.array(cov_mats)
 
-        return m0, S0, A, C, R, y_obs
-
-    # Use vmap to vectorize the initialization over all keypoints
-    init_kalman_vmap = jax.vmap(init_kalman, in_axes=(0, 0, 0))
-    m0s, S0s, As, Cs, Rs, y_obs_array = init_kalman_vmap(jnp.arange(n_keypoints),
-                                                         adjusted_x_obs_array,
-                                                         adjusted_y_obs_array)
-    cov_mats = compute_covariance_matrix(scaled_ensemble_preds)
-    return m0s, S0s, As, cov_mats, Cs, Rs, y_obs_array
+    return (
+        jnp.array(m0s),
+        jnp.array(S0s),
+        jnp.array(As),
+        jnp.array(cov_mats),
+        jnp.array(Cs),
+        jnp.array(Rs),
+    )
 
 
-@typechecked
 def singlecam_optimize_smooth(
-    cov_mats: jnp.ndarray,
-    ys: jnp.ndarray,
-    m0s: jnp.ndarray,
-    S0s: jnp.ndarray,
-    Cs: jnp.ndarray,
-    As: jnp.ndarray,
-    Rs: jnp.ndarray,
-    ensemble_vars: jnp.ndarray,
+    cov_mats: np.ndarray,
+    ys: np.ndarray,
+    m0s: np.ndarray,
+    S0s: np.ndarray,
+    Cs: np.ndarray,
+    As: np.ndarray,
+    Rs: np.ndarray,
+    ensemble_vars: np.ndarray,
     s_frames: list | None,
     smooth_param: float | list | None,
     blocks: list = [],
@@ -464,7 +388,6 @@ def singlecam_optimize_smooth(
     )
 
     return s_finals, ms, Vs, nlls
-
 
 # ------------------------------------------------------------------------------------------------
 # Routines that use the sequential kalman filter implementation to arrive at the NLL function

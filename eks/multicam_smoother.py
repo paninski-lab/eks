@@ -4,8 +4,7 @@ import pandas as pd
 from scipy.optimize import minimize
 from typeguard import typechecked
 
-from eks.core import backward_pass, compute_initial_guesses, compute_nll, forward_pass, \
-    jax_ensemble
+from eks.core import backward_pass, compute_initial_guesses, compute_nll, forward_pass, jax_ensemble
 from eks.stats import compute_mahalanobis, compute_pca
 from eks.utils import crop_frames, format_data, make_dlc_pandas_index
 from eks.marker_array import MarkerArray, input_dfs_to_markerArray, mA_to_stacked_array, stacked_array_to_mA
@@ -53,6 +52,7 @@ def fit_eks_mirrored_multicam(
     input_dfs_list, keypoint_names = format_data(input_source)
     if bodypart_list is None:
         bodypart_list = keypoint_names
+        print(f'Input data loaded for keypoints:\n{bodypart_list}')
 
     n_models = len(input_dfs_list)
     n_cameras = len(camera_names)
@@ -215,19 +215,24 @@ def ensemble_kalman_smoother_multicam(
     # MarkerArray (1, n_cameras, n_frames, n_keypoints, 5 (x, y, var_x, var_y, likelihood))
     ensemble_marker_array = jax_ensemble(marker_array, avg_mode=avg_mode, var_mode=var_mode)
 
-    emA_preds = ensemble_marker_array.slice_fields("x", "y")
+    emA_unsmoothed_preds = ensemble_marker_array.slice_fields("x", "y")
     emA_vars = ensemble_marker_array.slice_fields("var_x", "var_y")
     emA_likes = ensemble_marker_array.slice_fields("likelihood")
 
     (
+        valid_frames_mask,
+        emA_scaled_preds,
+        emA_good_scaled_preds,
+        emA_means
+    ) = scale_predictions(ensemble_marker_array, quantile_keep_pca)
+
+    (
         ensemble_pca,
-        ensemble_ex_var,
         good_pcs_list,  # List-by-keypoint of (n_good_frames, n_pca_components)
-        pcs_list,
-        emA_scaled_preds,  # MarkerArray containing scaled predictions
-        emA_means  # MarkerArray containing means across frames.
-                   # Shape: (1, n_cameras, 1, n_keypoints, 2)
-    ) = compute_pca(emA_preds, emA_vars, quantile_keep_pca, n_components=3)
+    ) = compute_pca(valid_frames_mask,
+                     emA_scaled_preds,
+                     emA_good_scaled_preds,
+                     n_components=3)
 
     if inflate_vars:
         emA_inflated_vars = mA_compute_maha(emA_scaled_preds, emA_vars, emA_likes,
@@ -275,8 +280,8 @@ def ensemble_kalman_smoother_multicam(
                 y_m_smooth.T[x_i] + [emA_means.slice("keypoints", k).slice("cameras", c).slice_fields("x").get_array(squeeze=True)],
                 y_m_smooth.T[y_i] + [emA_means.slice("keypoints", k).slice("cameras", c).slice_fields("y").get_array(squeeze=True)],
                 emA_likes.slice("keypoints", k).slice("cameras", c).get_array(squeeze=True),
-                emA_preds.slice("keypoints", k).slice("cameras", c).slice_fields("x").get_array(squeeze=True),
-                emA_preds.slice("keypoints", k).slice("cameras", c).slice_fields("y").get_array(squeeze=True),
+                emA_unsmoothed_preds.slice("keypoints", k).slice("cameras", c).slice_fields("x").get_array(squeeze=True),
+                emA_unsmoothed_preds.slice("keypoints", k).slice("cameras", c).slice_fields("y").get_array(squeeze=True),
                 emA_inflated_vars.slice("keypoints", k).slice("cameras", c).slice_fields("var_x").get_array(squeeze=True),
                 emA_inflated_vars.slice("keypoints", k).slice("cameras", c).slice_fields("var_y").get_array(squeeze=True),
                 y_v_smooth[:, x_i, x_i],
@@ -371,6 +376,70 @@ def multicam_smooth_min(smooth_param, cov_matrix, y, m0, S0, C, A, R, ensemble_v
     # Compute the negative log-likelihood based on innovations and their covariance
     nll, nll_values = compute_nll(innovs, innov_cov)
     return nll
+
+
+def scale_predictions(
+        ensemble_marker_array: MarkerArray,
+        quantile_keep_pca: float
+):
+    """
+    Filter frames based on variance, compute mean coordinates, and scale predictions.
+
+    Args:
+        ensemble_marker_array: Ensemble MarkerArray containing predicted positions and variances.
+        quantile_keep_pca: Threshold percentage for filtering low-variance frames.
+
+    Returns:
+        tuple:
+            valid_frames_mask (np.ndarray): Boolean mask of valid frames per keypoint.
+            emA_scaled_preds (MarkerArray): Centered ensemble predictions.
+            emA_good_scaled_preds (MarkerArray): Centered ensemble predictions for valid frames.
+            emA_means (MarkerArray): Mean x and y coords for each camera.
+    """
+    n_models, n_cameras, n_frames, n_keypoints, _ = ensemble_marker_array.shape
+    assert n_models == 1, "MarkerArray should have n_models = 1 after ensembling."
+
+    emA_preds = ensemble_marker_array.slice_fields("x", "y")
+    emA_vars = ensemble_marker_array.slice_fields("var_x", "var_y")
+
+    # Maximum variance for each keypoint in each frame, independent of camera
+    max_vars_per_frame = np.max(emA_vars.array, axis=(0, 1, 4))  # Shape: (n_frames, n_keypoints)
+    # Compute variance threshold for each keypoint
+    thresholds = np.percentile(max_vars_per_frame, quantile_keep_pca, axis=0)
+
+    valid_frames_mask = max_vars_per_frame <= thresholds
+
+    # Compute valid frame mask per (frame, keypoint)
+    valid_frames_mask = max_vars_per_frame <= thresholds  # Shape: (n_frames, n_keypoints)
+
+    emA_scaled_preds_list = []
+    emA_good_scaled_preds_list = []
+    emA_means_list = []
+    for k in range(n_keypoints):
+        # Find valid frame indices for the current keypoint
+        good_frame_indices = np.where(valid_frames_mask[:, k])[0]  # Shape: (n_filtered_frames,)
+
+        # Extract valid frames for this keypoint
+        # Shape: (n_models, n_cameras, n_filtered_frames, n_fields)
+        good_preds_k = emA_preds.array[:, :, good_frame_indices, k, :]
+        # Shape: (n_models, n_cameras, n_filtered_frames, 1, n_fields)
+        good_preds_k = np.expand_dims(good_preds_k, axis=3)
+
+        # Scale predictions by subtracting means (over frames) from predictions
+        means_k = np.mean(good_preds_k, axis=2)[:, :, None, :, :]
+        scaled_preds_k = emA_preds.slice("keypoints", k).array - means_k
+        good_scaled_preds_k = good_preds_k - means_k
+
+        emA_scaled_preds_list.append(MarkerArray(scaled_preds_k, data_fields=["x", "y"]))
+        emA_good_scaled_preds_list.append(MarkerArray(good_scaled_preds_k, data_fields=["x", "y"]))
+        emA_means_list.append(MarkerArray(means_k, data_fields=["x", "y"]))
+
+    # Concatenate all keypoint-wise filtered results along the keypoints axis
+    emA_scaled_preds = MarkerArray.stack(emA_scaled_preds_list, "keypoints")
+    emA_good_scaled_preds = MarkerArray.stack(emA_good_scaled_preds_list, "keypoints")
+    emA_means = MarkerArray.stack(emA_means_list, "keypoints")
+
+    return valid_frames_mask, emA_scaled_preds, emA_good_scaled_preds, emA_means
 
 
 def mA_compute_maha(scaled_emA_preds, emA_vars, emA_likes,
