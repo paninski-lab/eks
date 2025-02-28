@@ -3,8 +3,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from eks.core import backward_pass, compute_nll, ensemble, \
-    forward_pass, jax_ensemble, kalman_dot
+from eks.core import backward_pass, compute_nll, ensemble, forward_pass, jax_ensemble, kalman_dot
 from eks.marker_array import MarkerArray
 
 

@@ -1,6 +1,8 @@
-from typing import Optional, Union, List, Tuple
-import numpy as np
+from typing import List, Optional, Tuple, Union
+
 import jax.numpy as jnp
+import numpy as np
+
 
 class MarkerArray:
     def __init__(
@@ -143,13 +145,13 @@ class MarkerArray:
 
         # Ensure all MarkerArrays have the same shape except for the stacking axis
         for other in others[1:]:
-            assert isinstance(other,
-                              MarkerArray), "All elements in 'others' must be MarkerArray instances."
+            assert isinstance(other, MarkerArray), \
+                "All elements in 'others' must be MarkerArray instances."
             assert reference.array.shape[:reference.axis_map[axis]] + \
                    reference.array.shape[reference.axis_map[axis] + 1:] \
                    == other.array.shape[:reference.axis_map[axis]] + \
                    other.array.shape[reference.axis_map[axis] + 1:], \
-                f"Shape mismatch: Cannot stack along '{axis}' due to differing dimensions."
+                   f"Shape mismatch: Cannot stack along '{axis}' due to differing dimensions."
 
         # Stack all arrays along the specified axis
         stacked_array = np.concatenate([other.array for other in others],
@@ -169,7 +171,7 @@ class MarkerArray:
             MarkerArray: A new MarkerArray with the stacked data along the fields axis.
 
         Raises:
-            AssertionError: If input MarkerArrays have mismatched shapes in any axis except 'fields'.
+            AssertionError: If input MarkerArrays have mismatched shapes in axis besides 'fields'.
         """
         assert len(marker_arrays) > 0, "At least one MarkerArray must be provided for stacking."
 
@@ -180,7 +182,7 @@ class MarkerArray:
         for other in marker_arrays[1:]:
             assert isinstance(other, MarkerArray), "All inputs must be MarkerArray instances."
             assert reference.array.shape[:4] == other.array.shape[:4], \
-                f"Shape mismatch: Cannot stack along 'fields' due to differing dimensions."
+                "Shape mismatch: Cannot stack along 'fields' due to differing dimensions."
 
         # Stack all arrays along the fields axis (last axis, index 4)
         stacked_array = np.concatenate([other.array for other in marker_arrays], axis=4)
@@ -204,7 +206,7 @@ class MarkerArray:
             MarkerArray: A new MarkerArray with reordered data fields.
 
         Raises:
-            AssertionError: If `new_order` does not contain exactly the same fields as the existing `data_fields`.
+            AssertionError: If `new_order` does not have exactly the same fields as `data_fields`.
         """
         assert set(new_order) == set(self.data_fields), \
             f"Mismatch in data fields: Expected {self.data_fields}, but got {new_order}"

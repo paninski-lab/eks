@@ -16,9 +16,10 @@ from eks.core import (
     jax_forward_pass,
     jax_forward_pass_nlls,
 )
-from eks.utils import crop_frames, format_data, make_dlc_pandas_index
 from eks.marker_array import MarkerArray, input_dfs_to_markerArray
-from eks.multicam_smoother import scale_predictions
+from eks.multicam_smoother import center_predictions
+from eks.utils import crop_frames, format_data, make_dlc_pandas_index
+
 
 @typechecked
 def fit_eks_singlecam(
@@ -129,16 +130,16 @@ def ensemble_kalman_smoother_singlecam(
         marker_array=ensemble_marker_array.slice_fields("x", "y"),
         data_fields=["x_median", "y_median"])
 
-    _, emA_scaled_preds, _, emA_means = scale_predictions(
+    _, emA_centered_preds, _, emA_means = center_predictions(
         ensemble_marker_array, quantile_keep_pca=100)  # Should we filter by variance?
 
     (
         m0s, S0s, As, cov_mats, Cs, Rs
-    ) = initialize_kalman_filter(emA_scaled_preds)
+    ) = initialize_kalman_filter(emA_centered_preds)
 
     # MarkerArray data_fields=["x", "y", "likelihood", "var_x", "var_y"]
     ensemble_marker_array = MarkerArray.stack_fields(
-        emA_scaled_preds,
+        emA_centered_preds,
         ensemble_marker_array.slice_fields("likelihood", "var_x", "var_y"))
 
     # Prepare params for singlecam_optimize_smooth()
@@ -193,9 +194,9 @@ def ensemble_kalman_smoother_singlecam(
     # Create Final MarkerArray
     emA_final = MarkerArray.stack_fields(
         emA_smoothed_preds,  # x, y
-        ensemble_marker_array.slice_fields("likelihood"), # likelihood
-        emA_medians, # x_median, y_median
-        ensemble_marker_array.slice_fields("var_x", "var_y"), # var_x, var_y
+        ensemble_marker_array.slice_fields("likelihood"),  # likelihood
+        emA_medians,  # x_median, y_median
+        ensemble_marker_array.slice_fields("var_x", "var_y"),  # var_x, var_y
         emA_postvars  # postvar_x, postvar_y
     )
 
@@ -215,26 +216,26 @@ def ensemble_kalman_smoother_singlecam(
 
 
 def initialize_kalman_filter(
-    emA_scaled_preds: MarkerArray,
+    emA_centered_preds: MarkerArray,
 ) -> tuple:
     """
     Initialize the Kalman filter values.
 
     Parameters:
-        scaled_ensemble_preds (MarkerArray): Scaled ensemble predictions.
+        centered_ensemble_preds (MarkerArray): centered ensemble predictions.
 
     Returns:
         tuple: Initial Kalman filter values and covariance matrices.
     """
-    _, _, _, n_keypoints, _ = emA_scaled_preds.shape
+    _, _, _, n_keypoints, _ = emA_centered_preds.shape
 
     # Shape: (n_frames, n_keypoints, 2 (for x, y))
-    scaled_preds = emA_scaled_preds.slice_fields("x", "y").get_array(squeeze=True)
+    centered_preds = emA_centered_preds.slice_fields("x", "y").get_array(squeeze=True)
 
     m0s = np.zeros((n_keypoints, 2))  # Initial state means: (n_keypoints, 2)
     S0s = np.array([
-        [[np.nanvar(scaled_preds[:, k, 0]), 0.0],  # [var(x)  0 ]
-         [0.0, np.nanvar(scaled_preds[:, k, 1])]]  # [ 0  var(y)]
+        [[np.nanvar(centered_preds[:, k, 0]), 0.0],  # [var(x)  0 ]
+         [0.0, np.nanvar(centered_preds[:, k, 1])]]  # [ 0  var(y)]
         for k in range(n_keypoints)
     ])  # Initial covariance matrices: (n_keypoints, 2, 2)
 
@@ -393,6 +394,7 @@ def singlecam_optimize_smooth(
 # Routines that use the sequential kalman filter implementation to arrive at the NLL function
 # Note: this code is set up to always run on CPU.
 # ------------------------------------------------------------------------------------------------
+
 
 def inner_smooth_min_routine(y, m0, S0, A, Q, C, R, ensemble_vars):
     # Run filtering with the current smooth_param

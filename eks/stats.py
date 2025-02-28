@@ -1,34 +1,34 @@
 import numpy as np
-from sklearn.decomposition import FactorAnalysis, PCA
+from sklearn.decomposition import PCA, FactorAnalysis
 from typeguard import typechecked
-from eks.marker_array import MarkerArray, mA_to_stacked_array, stacked_array_to_mA
-from typing import Optional
+
+from eks.marker_array import MarkerArray, mA_to_stacked_array
 
 
 def compute_pca(
         valid_frames_mask,
-        emA_scaled_preds: MarkerArray,
-        emA_good_scaled_preds: MarkerArray,
+        emA_centered_preds: MarkerArray,
+        emA_good_centered_preds: MarkerArray,
         n_components: int = 3
 ):
     """
-    Performs Principal Component Analysis (PCA) for each keypoint using filtered and scaled predictions.
+    Performs Principal Component Analysis (PCA) per keypoint using filtered + centered predictions.
 
     Args:
         valid_frames_mask (np.ndarray): Boolean mask indicating valid frames per keypoint.
             Shape: (n_frames, n_keypoints).
-        emA_scaled_preds (MarkerArray): Centered ensemble predictions for all frames.
+        emA_centered_preds (MarkerArray): Centered ensemble predictions for all frames.
             Shape: (1, n_cameras, n_frames, n_keypoints, 2).
-        emA_good_scaled_preds (MarkerArray): Centered ensemble predictions for frames passing the variance filter.
+        emA_good_centered_preds (MarkerArray): Centered predictions for variance-filtered frames.
             Shape: (1, n_cameras, n_filtered_frames, n_keypoints, 2).
         n_components (int, optional): Number of principal components to retain. Defaults to 3.
 
     Returns:
         tuple:
             ensemble_pca (list): List of trained PCA models, one per keypoint.
-            good_pcs_list (list): List of PCA-transformed coordinates for frames that passed filtering.
+            good_pcs_list (list): List of PCA-transformed coordinates for variance-filtered frames.
     """
-    n_models, n_cameras, n_frames, n_keypoints, _ = emA_scaled_preds.shape
+    n_models, n_cameras, n_frames, n_keypoints, _ = emA_centered_preds.shape
     assert n_models == 1, "MarkerArray should have n_models = 1 after ensembling."
 
     ensemble_pca = []
@@ -37,12 +37,12 @@ def compute_pca(
         # Find valid frame indices for the current keypoint
         good_frame_indices = np.where(valid_frames_mask[:, k])[0]  # Shape: (n_filtered_frames,)
 
-        emA_scaled_preds_k = emA_scaled_preds.slice("keypoints", k)
-        emA_good_scaled_preds_k = emA_good_scaled_preds.slice("keypoints", k)
+        emA_centered_preds_k = emA_centered_preds.slice("keypoints", k)
+        emA_good_centered_preds_k = emA_good_centered_preds.slice("keypoints", k)
 
-        # Reshape good_scaled_preds_k and scaled_preds_k for PCA
-        reshaped_gsp_k = mA_to_stacked_array(emA_good_scaled_preds_k, 0)
-        reshaped_sp_k = mA_to_stacked_array(emA_scaled_preds_k, 0)
+        # Reshape good_centered_preds_k and centered_preds_k for PCA
+        reshaped_gsp_k = mA_to_stacked_array(emA_good_centered_preds_k, 0)
+        reshaped_sp_k = mA_to_stacked_array(emA_centered_preds_k, 0)
 
         # Fit PCA per keypoint
         pca = PCA(n_components=n_components)
@@ -153,4 +153,3 @@ def compute_mahalanobis(
         'posterior_variance': Q,
         'reconstructed': xhat
     }
-

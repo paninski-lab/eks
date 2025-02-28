@@ -2,11 +2,8 @@ import jax.numpy as jnp
 import numpy as np
 import pandas as pd
 
-from eks.singlecam_smoother import (
-    ensemble_kalman_smoother_singlecam,
-    initialize_kalman_filter,
-)
 from eks.marker_array import MarkerArray, input_dfs_to_markerArray
+from eks.singlecam_smoother import ensemble_kalman_smoother_singlecam, initialize_kalman_filter
 
 
 def test_ensemble_kalman_smoother_singlecam():
@@ -94,23 +91,19 @@ def test_ensemble_kalman_smoother_singlecam():
     _check_outputs(df_smoothed, s_finals)
 
 
-import pytest
-import numpy as np
-import jax.numpy as jnp
-
 def test_initialize_kalman_filter():
     # Define test parameters
     n_frames = 10
     n_keypoints = 3
 
-    # Generate random scaled ensemble predictions
-    scaled_ensemble_preds = np.random.randn(1, 1, n_frames, n_keypoints, 2)  # Shape (1, 1, T, K, 2)
+    # Generate random centered ensemble predictions, Shape (1, 1, T, K, 2)
+    centered_ensemble_preds = np.random.randn(1, 1, n_frames, n_keypoints, 2)
 
     # Convert to MarkerArray
-    emA_scaled_preds = MarkerArray(scaled_ensemble_preds, data_fields=["x", "y"])
+    emA_centered_preds = MarkerArray(centered_ensemble_preds, data_fields=["x", "y"])
 
     # Run the function
-    m0s, S0s, As, cov_mats, Cs, Rs = initialize_kalman_filter(emA_scaled_preds)
+    m0s, S0s, As, cov_mats, Cs, Rs = initialize_kalman_filter(emA_centered_preds)
 
     # Assertions to verify the function output
     assert m0s.shape == (n_keypoints, 2), \

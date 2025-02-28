@@ -1,6 +1,7 @@
+import warnings
+
 import numpy as np
 import pytest
-import warnings
 
 from eks.stats import compute_mahalanobis
 
@@ -110,4 +111,3 @@ def test_compute_mahalanobis_singular_matrix():
         assert result['posterior_variance'][view_idx].shape == (N, 2, 2)
 
     assert result['reconstructed'].shape == (N, 2 * C)
-

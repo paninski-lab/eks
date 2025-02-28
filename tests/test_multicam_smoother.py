@@ -1,8 +1,7 @@
 import numpy as np
-import pandas as pd
 
-from eks.multicam_smoother import ensemble_kalman_smoother_multicam, inflate_variance
 from eks.marker_array import MarkerArray
+from eks.multicam_smoother import ensemble_kalman_smoother_multicam, inflate_variance
 
 
 def test_ensemble_kalman_smoother_multicam():
