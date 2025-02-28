@@ -8,21 +8,21 @@ from eks.utils import make_dlc_pandas_index
 
 
 def remove_camera_means(ensemble_stacks, camera_means):
-    scaled_ensemble_stacks = ensemble_stacks.copy()
+    centered_ensemble_stacks = ensemble_stacks.copy()
     for k in range(len(ensemble_stacks)):
         for camera_id, camera_mean in enumerate(camera_means):
-            scaled_ensemble_stacks[k][:, camera_id] = \
+            centered_ensemble_stacks[k][:, camera_id] = \
                 ensemble_stacks[k][:, camera_id] - camera_mean
-    return scaled_ensemble_stacks
+    return centered_ensemble_stacks
 
 
 def add_camera_means(ensemble_stacks, camera_means):
-    scaled_ensemble_stacks = ensemble_stacks.copy()
+    centered_ensemble_stacks = ensemble_stacks.copy()
     for k in range(len(ensemble_stacks)):
         for camera_id, camera_mean in enumerate(camera_means):
-            scaled_ensemble_stacks[k][:, camera_id] = \
+            centered_ensemble_stacks[k][:, camera_id] = \
                 ensemble_stacks[k][:, camera_id] + camera_mean
-    return scaled_ensemble_stacks
+    return centered_ensemble_stacks
 
 
 def pca(S, n_comps):
@@ -203,18 +203,18 @@ def ensemble_kalman_smoother_ibl_paw(
 
     remove_camera_means(right_paw_ensemble_stacks, means_camera)
 
-    good_scaled_stacked_ensemble_preds = \
+    good_centered_stacked_ensemble_preds = \
         remove_camera_means(good_stacked_ensemble_preds[None, :, :], means_camera)[0]
-    ensemble_pca, ensemble_ex_var = pca(good_scaled_stacked_ensemble_preds, 3)
+    ensemble_pca, ensemble_ex_var = pca(good_centered_stacked_ensemble_preds, 3)
 
-    scaled_left_paw_ensemble_preds = \
+    centered_left_paw_ensemble_preds = \
         remove_camera_means(left_paw_ensemble_preds[None, :, :], means_camera)[0]
-    ensemble_pcs_left_paw = ensemble_pca.transform(scaled_left_paw_ensemble_preds)
+    ensemble_pcs_left_paw = ensemble_pca.transform(centered_left_paw_ensemble_preds)
     good_ensemble_pcs_left_paw = ensemble_pcs_left_paw[good_frames]
 
-    scaled_right_paw_ensemble_preds = \
+    centered_right_paw_ensemble_preds = \
         remove_camera_means(right_paw_ensemble_preds[None, :, :], means_camera)[0]
-    ensemble_pcs_right_paw = ensemble_pca.transform(scaled_right_paw_ensemble_preds)
+    ensemble_pcs_right_paw = ensemble_pca.transform(centered_right_paw_ensemble_preds)
     good_ensemble_pcs_right_paw = ensemble_pcs_right_paw[good_frames]
 
     # --------------------------------------------------------------
@@ -234,14 +234,14 @@ def ensemble_kalman_smoother_ibl_paw(
             save_keypoint_name = keypoint_names[0]
             good_ensemble_pcs = good_ensemble_pcs_left_paw
             ensemble_vars = left_paw_ensemble_vars
-            y = scaled_left_paw_ensemble_preds
-            # ensemble_stacks = scaled_left_paw_ensemble_stacks
+            y = centered_left_paw_ensemble_preds
+            # ensemble_stacks = centered_left_paw_ensemble_stacks
         else:
             save_keypoint_name = keypoint_names[1]
             good_ensemble_pcs = good_ensemble_pcs_right_paw
             ensemble_vars = right_paw_ensemble_vars
-            y = scaled_right_paw_ensemble_preds
-            # ensemble_stacks = scaled_right_paw_ensemble_stacks
+            y = centered_right_paw_ensemble_preds
+            # ensemble_stacks = centered_right_paw_ensemble_stacks
 
         # compute center of mass
         # latent variables (observed)
@@ -299,13 +299,13 @@ def ensemble_kalman_smoother_ibl_paw(
             labels=["x", "y", "likelihood", "x_var", "y_var", "zscore"]
         )
 
-        scaled_y_m_smooth = add_camera_means(y_m_smooth[None, :, :], means_camera)[0]
-        scaled_y = add_camera_means(y[None, :, :], means_camera)[0]
+        centered_y_m_smooth = add_camera_means(y_m_smooth[None, :, :], means_camera)[0]
+        centered_y = add_camera_means(y[None, :, :], means_camera)[0]
         pred_arr = []
         for i in range(len(save_keypoint_names)):
-            pred_arr.append(scaled_y_m_smooth.T[0 + 2 * i])
-            pred_arr.append(scaled_y_m_smooth.T[1 + 2 * i])
-            var = np.empty(scaled_y_m_smooth.T[0 + 2 * i].shape)
+            pred_arr.append(centered_y_m_smooth.T[0 + 2 * i])
+            pred_arr.append(centered_y_m_smooth.T[1 + 2 * i])
+            var = np.empty(centered_y_m_smooth.T[0 + 2 * i].shape)
             var[:] = np.nan
             pred_arr.append(var)
             x_var = y_v_smooth[:, 0 + 2 * i, 0 + 2 * i]
@@ -313,9 +313,9 @@ def ensemble_kalman_smoother_ibl_paw(
             pred_arr.append(x_var)
             pred_arr.append(y_var)
             ###
-            eks_predictions = np.asarray([scaled_y_m_smooth.T[0 + 2 * i],
-                                          scaled_y_m_smooth.T[1 + 2 * i]]).T
-            ensemble_preds = scaled_y[:, 2 * i:2 * (i + 1)]
+            eks_predictions = np.asarray([centered_y_m_smooth.T[0 + 2 * i],
+                                          centered_y_m_smooth.T[1 + 2 * i]]).T
+            ensemble_preds = centered_y[:, 2 * i:2 * (i + 1)]
             ensemble_vars_curr = ensemble_vars[:, 2 * i:2 * (i + 1)]
             zscore, _ = eks_zscore(eks_predictions, ensemble_preds, ensemble_vars_curr,
                                    min_ensemble_std=4)

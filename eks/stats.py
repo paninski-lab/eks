@@ -1,105 +1,62 @@
 import numpy as np
-from sklearn.decomposition import FactorAnalysis, PCA
+from sklearn.decomposition import PCA, FactorAnalysis
 from typeguard import typechecked
-from eks.marker_array import MarkerArray, mA_to_stacked_array, stacked_array_to_mA
-from typing import Optional
+
+from eks.marker_array import MarkerArray, mA_to_stacked_array
 
 
 def compute_pca(
-        emA_preds: MarkerArray,
-        emA_vars: MarkerArray,
-        quantile_keep_pca: float,
+        valid_frames_mask,
+        emA_centered_preds: MarkerArray,
+        emA_good_centered_preds: MarkerArray,
         n_components: int = 3
 ):
     """
-    Perform PCA for each keypoint while filtering frames with high variance.
+    Performs Principal Component Analysis (PCA) per keypoint using filtered + centered predictions.
 
     Args:
-        emA_preds: Ensemble MarkerArray containing predicted keypoint positions.
-            Shape: (1, n_cameras, n_frames, n_keypoints, 2)
-        emA_vars: Ensemble MarkerArray containing variance data.
-            Shape: (1, n_cameras, n_frames, n_keypoints, 2)
-        quantile_keep_pca: Threshold percentage for filtering low-variance frames.
-        n_components: Number of principal components to keep.
+        valid_frames_mask (np.ndarray): Boolean mask indicating valid frames per keypoint.
+            Shape: (n_frames, n_keypoints).
+        emA_centered_preds (MarkerArray): Centered ensemble predictions for all frames.
+            Shape: (1, n_cameras, n_frames, n_keypoints, 2).
+        emA_good_centered_preds (MarkerArray): Centered predictions for variance-filtered frames.
+            Shape: (1, n_cameras, n_filtered_frames, n_keypoints, 2).
+        n_components (int, optional): Number of principal components to retain. Defaults to 3.
 
     Returns:
         tuple:
-            ensemble_pca (list): List of PCA models (1 per keypoint).
-            ensemble_ex_var (np.ndarray): Explained variance ratios for each keypoint.
-            good_ema_pcs (MarkerArray): PCA-transformed coordinates for good frames.
-            ema_pcs (MarkerArray): PCA-transformed coordinates for all frames.
-            means_camera (np.ndarray): Mean x and y coords for each camera (n_cameras, 2)
-            scaled_ema (MarkerArray): Centered ensemble predictions.
+            ensemble_pca (list): List of trained PCA models, one per keypoint.
+            good_pcs_list (list): List of PCA-transformed coordinates for variance-filtered frames.
     """
-
-    n_models, n_cameras, n_frames, n_keypoints, _ = emA_preds.shape
+    n_models, n_cameras, n_frames, n_keypoints, _ = emA_centered_preds.shape
     assert n_models == 1, "MarkerArray should have n_models = 1 after ensembling."
 
-    # Maximum variance for each keypoint in each frame, independent of camera
-    max_vars_per_frame = np.max(emA_vars.array, axis=(0, 1, 4))  # Shape: (n_frames, n_keypoints)
-    # Compute variance threshold for each keypoint
-    thresholds = np.percentile(max_vars_per_frame, quantile_keep_pca, axis=0)
-
-    valid_frames_mask = max_vars_per_frame <= thresholds
-    good_preds = emA_preds.array[:, :, valid_frames_mask, :]
-
-    # Compute valid frame mask per (frame, keypoint)
-    valid_frames_mask = max_vars_per_frame <= thresholds  # Shape: (n_frames, n_keypoints)
-
     ensemble_pca = []
-    ensemble_ex_var = []
     good_pcs_list = []
-    pcs_list = []
-    emA_scaled_preds_list = []
-    emA_means_list = []
     for k in range(n_keypoints):
         # Find valid frame indices for the current keypoint
         good_frame_indices = np.where(valid_frames_mask[:, k])[0]  # Shape: (n_filtered_frames,)
 
-        # Extract valid frames for this keypoint
-        # Shape: (n_models, n_cameras, n_filtered_frames, n_fields)
-        good_preds_k = emA_preds.array[:, :, good_frame_indices, k, :]
-        # Shape: (n_models, n_cameras, n_filtered_frames, 1, n_fields)
-        good_preds_k = np.expand_dims(good_preds_k, axis=3)
+        emA_centered_preds_k = emA_centered_preds.slice("keypoints", k)
+        emA_good_centered_preds_k = emA_good_centered_preds.slice("keypoints", k)
 
-        # Scale predictions by subtracting means (over frames) from predictions
-        means_k = np.mean(good_preds_k, axis=2)[:, :, None, :, :]
-        scaled_preds_k = emA_preds.slice("keypoints", k).array - means_k
-        good_scaled_preds_k = good_preds_k - means_k
-
-        # Reshape good_scaled_preds_k and scaled_preds_k for PCA
-        reshaped_gsp_k = mA_to_stacked_array(MarkerArray(good_scaled_preds_k, data_fields=["x", "y"]), 0)
-        reshaped_sp_k = mA_to_stacked_array(MarkerArray(scaled_preds_k, data_fields=["x", "y"]), 0)
+        # Reshape good_centered_preds_k and centered_preds_k for PCA
+        reshaped_gsp_k = mA_to_stacked_array(emA_good_centered_preds_k, 0)
+        reshaped_sp_k = mA_to_stacked_array(emA_centered_preds_k, 0)
 
         # Fit PCA per keypoint
         pca = PCA(n_components=n_components)
         ensemble_pca_k = pca.fit(reshaped_gsp_k)
-        ensemble_ex_var_k = pca.explained_variance_ratio_
 
         # Transform full dataset
         pcs = ensemble_pca_k.transform(reshaped_sp_k)
-
         good_pcs = pcs[good_frame_indices]
+
         # Store results
         ensemble_pca.append(ensemble_pca_k)
-        ensemble_ex_var.append(ensemble_ex_var_k)
         good_pcs_list.append(good_pcs)  # Append instead of assigning
-        pcs_list.append(pcs)  # Append instead of assigning
-        emA_scaled_preds_list.append(MarkerArray(scaled_preds_k, data_fields=["x", "y"]))
-        emA_means_list.append(MarkerArray(means_k, data_fields=["x", "y"]))
 
-    # Concatenate all keypoint-wise filtered results along the keypoints axis
-    emA_scaled_preds = MarkerArray.stack(emA_scaled_preds_list, "keypoints")
-    emA_means = MarkerArray.stack(emA_means_list, "keypoints")
-
-    return (
-        ensemble_pca,
-        ensemble_ex_var,
-        good_pcs_list,
-        pcs_list,
-        emA_scaled_preds,
-        emA_means
-    )
+    return ensemble_pca, good_pcs_list
 
 
 @typechecked
@@ -196,4 +153,3 @@ def compute_mahalanobis(
         'posterior_variance': Q,
         'reconstructed': xhat
     }
-

@@ -163,7 +163,7 @@ def format_data(input_source: str | list, camera_names: list | None = None) -> t
                     else:
                         continue
                 markers_for_this_camera.append(markers_curr_fmt)
-            input_dfs_list.append(markers_for_this_camera) # list of lists of markers
+            input_dfs_list.append(markers_for_this_camera)  # list of lists of markers
 
     # Check if we found any valid input files
     if len(input_dfs_list) == 0:

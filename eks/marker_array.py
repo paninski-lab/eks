@@ -1,6 +1,8 @@
-from typing import Optional, Union, List, Tuple
-import numpy as np
+from typing import List, Optional, Tuple, Union
+
 import jax.numpy as jnp
+import numpy as np
+
 
 class MarkerArray:
     def __init__(
@@ -143,19 +145,80 @@ class MarkerArray:
 
         # Ensure all MarkerArrays have the same shape except for the stacking axis
         for other in others[1:]:
-            assert isinstance(other,
-                              MarkerArray), "All elements in 'others' must be MarkerArray instances."
+            assert isinstance(other, MarkerArray), \
+                "All elements in 'others' must be MarkerArray instances."
             assert reference.array.shape[:reference.axis_map[axis]] + \
                    reference.array.shape[reference.axis_map[axis] + 1:] \
                    == other.array.shape[:reference.axis_map[axis]] + \
                    other.array.shape[reference.axis_map[axis] + 1:], \
-                f"Shape mismatch: Cannot stack along '{axis}' due to differing dimensions."
+                   f"Shape mismatch: Cannot stack along '{axis}' due to differing dimensions."
 
         # Stack all arrays along the specified axis
         stacked_array = np.concatenate([other.array for other in others],
                                        axis=reference.axis_map[axis])
 
         return MarkerArray(stacked_array, data_fields=reference.data_fields)
+
+    def stack_fields(*marker_arrays: "MarkerArray") -> "MarkerArray":
+        """
+        Stack multiple MarkerArrays along the 'fields' axis, ensuring they are identical
+        in all other dimensions.
+
+        Args:
+            *marker_arrays (MarkerArray): Variable number of MarkerArray instances to stack.
+
+        Returns:
+            MarkerArray: A new MarkerArray with the stacked data along the fields axis.
+
+        Raises:
+            AssertionError: If input MarkerArrays have mismatched shapes in axis besides 'fields'.
+        """
+        assert len(marker_arrays) > 0, "At least one MarkerArray must be provided for stacking."
+
+        # Use the first element as reference for shape and data fields
+        reference = marker_arrays[0]
+
+        # Ensure all MarkerArrays have the same shape except for the fields axis
+        for other in marker_arrays[1:]:
+            assert isinstance(other, MarkerArray), "All inputs must be MarkerArray instances."
+            assert reference.array.shape[:4] == other.array.shape[:4], \
+                "Shape mismatch: Cannot stack along 'fields' due to differing dimensions."
+
+        # Stack all arrays along the fields axis (last axis, index 4)
+        stacked_array = np.concatenate([other.array for other in marker_arrays], axis=4)
+
+        # Concatenate the data_fields from all MarkerArrays
+        stacked_fields = []
+        for other in marker_arrays:
+            assert other.data_fields is not None, "All MarkerArrays must have data_fields defined."
+            stacked_fields.extend(other.data_fields)
+
+        return MarkerArray(stacked_array, data_fields=stacked_fields)
+
+    def reorder_data_fields(self, new_order: List[str]) -> "MarkerArray":
+        """
+        Reorder the fields dimension of the MarkerArray to match the specified order.
+
+        Args:
+            new_order (List[str]): List specifying the new order of the data fields.
+
+        Returns:
+            MarkerArray: A new MarkerArray with reordered data fields.
+
+        Raises:
+            AssertionError: If `new_order` does not have exactly the same fields as `data_fields`.
+        """
+        assert set(new_order) == set(self.data_fields), \
+            f"Mismatch in data fields: Expected {self.data_fields}, but got {new_order}"
+
+        # Get the indices of the new order
+        field_indices = [self.data_fields.index(field) for field in new_order]
+
+        # Reorder the last axis (fields)
+        reordered_array = np.take(self.array, field_indices, axis=4)
+
+        # Clone with reordered fields
+        return MarkerArray(marker_array=self, data_fields=new_order, array=reordered_array)
 
     def __repr__(self) -> str:
         axis_names = ["models", "cameras", "frames", "keypoints", "fields"]

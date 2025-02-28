@@ -3,8 +3,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from eks.core import backward_pass, compute_nll, ensemble, \
-    forward_pass, jax_ensemble_old, jax_ensemble, kalman_dot
+from eks.core import backward_pass, compute_nll, ensemble, forward_pass, jax_ensemble, kalman_dot
 from eks.marker_array import MarkerArray
 
 
@@ -551,53 +550,6 @@ def test_compute_nll_random_values():
     assert np.isfinite(nll), "Expected finite nll"
     assert all(
         np.isfinite(nll_val) for nll_val in nll_values), "Expected all nll_values to be finite"
-
-
-def test_jax_ensemble_old():
-
-    # Basic test data
-    n_models = 4
-    n_timepoints = 5
-    n_keypoints = 3
-    markers_3d_array = np.random.rand(n_models, n_timepoints, n_keypoints * 3)
-
-    # ---------------------------------------------
-    # Run jax_ensemble in median mode
-    # ---------------------------------------------
-    ensemble_preds, ensemble_vars, ensemble_likes = jax_ensemble_old(
-        markers_3d_array, avg_mode='median')
-    # Check output shapes
-    assert ensemble_preds.shape == (n_timepoints, n_keypoints, 2), \
-        f"Expected shape {(n_timepoints, n_keypoints, 2)}, got {ensemble_preds.shape}"
-    assert ensemble_vars.shape == (n_timepoints, n_keypoints, 2), \
-        f"Expected shape {(n_timepoints, n_keypoints, 2)}, got {ensemble_vars.shape}"
-    assert ensemble_likes.shape == (n_timepoints, n_keypoints, 1), \
-        f"Expected shape {(n_timepoints, n_keypoints, 1)}, got {ensemble_likes.shape}"
-    # Check that ensemble_preds and ensemble_vars are finite
-    assert jnp.isfinite(ensemble_preds).all(), "Expected finite values in ensemble_preds"
-    assert jnp.isfinite(ensemble_vars).all(), "Expected finite values in ensemble_vars"
-
-    # ---------------------------------------------
-    # Run jax_ensemble in mean mode
-    # ---------------------------------------------
-    ensemble_preds, ensemble_vars, ensemble_likes = jax_ensemble_old(
-        markers_3d_array, avg_mode='mean')
-    # Check output shapes
-    assert ensemble_preds.shape == (n_timepoints, n_keypoints, 2), \
-        f"Expected shape {(n_timepoints, n_keypoints, 2)}, got {ensemble_preds.shape}"
-    assert ensemble_vars.shape == (n_timepoints, n_keypoints, 2), \
-        f"Expected shape {(n_timepoints, n_keypoints, 2)}, got {ensemble_vars.shape}"
-    assert ensemble_likes.shape == (n_timepoints, n_keypoints, 1), \
-        f"Expected shape {(n_timepoints, n_keypoints, 1)}, got {ensemble_likes.shape}"
-    # Check that ensemble_preds and ensemble_vars are finite
-    assert jnp.isfinite(ensemble_preds).all(), "Expected finite values in ensemble_preds"
-    assert jnp.isfinite(ensemble_vars).all(), "Expected finite values in ensemble_vars"
-
-    # ---------------------------------------------
-    # Test that unsupported mode raises ValueError
-    # ---------------------------------------------
-    with pytest.raises(ValueError, match="averaging not supported"):
-        jax_ensemble_old(markers_3d_array, avg_mode='unsupported')
 
 
 def test_jax_ensemble():

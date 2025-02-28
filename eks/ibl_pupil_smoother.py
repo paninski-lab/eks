@@ -208,14 +208,14 @@ def ensemble_kalman_smoother_ibl_pupil(
     # placeholder diagonal matrix for ensemble variance
     R = np.eye(8)
 
-    scaled_ensemble_preds = ensemble_preds.copy()
+    centered_ensemble_preds = ensemble_preds.copy()
     # subtract COM means from the ensemble predictions
     for i in range(ensemble_preds.shape[1]):
         if i % 2 == 0:
-            scaled_ensemble_preds[:, i] -= mean_x_obs
+            centered_ensemble_preds[:, i] -= mean_x_obs
         else:
-            scaled_ensemble_preds[:, i] -= mean_y_obs
-    y_obs = scaled_ensemble_preds
+            centered_ensemble_preds[:, i] -= mean_y_obs
+    y_obs = centered_ensemble_preds
 
     # --------------------------------------
     # perform filtering
