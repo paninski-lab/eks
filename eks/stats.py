@@ -50,6 +50,7 @@ def compute_pca(
         # Fit PCA per keypoint
         if pca_matrix == None:
             pca = PCA(n_components=n_components)
+            ensemble_pca_k = pca.fit(reshaped_gsp_k)
         else:
             if not hasattr(pca_matrix, "components_"):
                 pca = pca_matrix
