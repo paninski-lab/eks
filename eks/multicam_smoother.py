@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
 from typeguard import typechecked
+from sklearn.decomposition import PCA
 
 from eks.core import (
     backward_pass,
@@ -197,7 +198,7 @@ def ensemble_kalman_smoother_multicam(
         inflate_vars: bool = False,
         inflate_vars_kwargs: dict = {},
         verbose: bool = False,
-        pca_matrix: np.ndarray = None
+        pca_matrix: PCA | None = None
 ) -> tuple:
     """
     Use multi-view constraints to fit a 3D latent subspace for each body part.

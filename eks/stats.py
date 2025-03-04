@@ -10,7 +10,7 @@ def compute_pca(
         emA_centered_preds: MarkerArray,
         emA_good_centered_preds: MarkerArray,
         n_components: int = 3,
-        pca_matrix: np.ndarray = None
+        pca_matrix: PCA | None = None
 ):
     """
     Performs Principal Component Analysis (PCA) per keypoint using filtered + centered predictions.
