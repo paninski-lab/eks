@@ -131,7 +131,7 @@ def ensemble_kalman_smoother_singlecam(
         data_fields=["x_median", "y_median"])
 
     _, emA_centered_preds, _, emA_means = center_predictions(
-        ensemble_marker_array, quantile_keep_pca=100)  # Should we filter by variance?
+        ensemble_marker_array, quantile_keep_pca=95)
 
     (
         m0s, S0s, As, cov_mats, Cs, Rs
