@@ -52,12 +52,7 @@ def compute_pca(
             pca = PCA(n_components=n_components)
             ensemble_pca_k = pca.fit(reshaped_gsp_k)
         else:
-            if not hasattr(pca_matrix, "components_"):
-                pca = pca_matrix
-                ensemble_pca_k = pca.fit(reshaped_gsp_k)
-            else:
-                ensemble_pca_k = pca_matrix
-
+            ensemble_pca_k = pca_matrix
         # Transform full dataset
         pcs = ensemble_pca_k.transform(reshaped_sp_k)
         good_pcs = pcs[good_frame_indices]
