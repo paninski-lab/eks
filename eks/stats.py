@@ -10,7 +10,7 @@ def compute_pca(
         emA_centered_preds: MarkerArray,
         emA_good_centered_preds: MarkerArray,
         n_components: int = 3,
-        pca_matrix: PCA | None = None
+        pca_object: PCA | None = None
 ):
     """
     Performs Principal Component Analysis (PCA) per keypoint using filtered + centered predictions.
@@ -23,7 +23,7 @@ def compute_pca(
         emA_good_centered_preds (MarkerArray): Centered predictions for variance-filtered frames.
             Shape: (1, n_cameras, n_filtered_frames, n_keypoints, 2).
         n_components (int, optional): Number of principal components to retain. Defaults to 3.
-        pca_matrix: pre-computed PCA matrix for PCA computation
+        pca_object: pre-computed PCA matrix for PCA computation
 
     Returns:
         tuple:
@@ -48,11 +48,11 @@ def compute_pca(
 
 
         # Fit PCA per keypoint
-        if pca_matrix == None:
+        if pca_object is None:
             pca = PCA(n_components=n_components)
             ensemble_pca_k = pca.fit(reshaped_gsp_k)
         else:
-            ensemble_pca_k = pca_matrix
+            ensemble_pca_k = pca_object
         # Transform full dataset
         pcs = ensemble_pca_k.transform(reshaped_sp_k)
         good_pcs = pcs[good_frame_indices]

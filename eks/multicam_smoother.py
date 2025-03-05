@@ -198,7 +198,7 @@ def ensemble_kalman_smoother_multicam(
         inflate_vars: bool = False,
         inflate_vars_kwargs: dict = {},
         verbose: bool = False,
-        pca_matrix: PCA | None = None
+        pca_object: PCA | None = None
 ) -> tuple:
     """
     Use multi-view constraints to fit a 3D latent subspace for each body part.
@@ -217,7 +217,7 @@ def ensemble_kalman_smoother_multicam(
             'var' | 'confidence_weighted_var'
         inflate_vars: True to use Mahalanobis distance thresholding to inflate ensemble variance
         inflate_vars_kwargs: kwargs for compute_mahalanobis function for variance inflation
-        pca_matrix: pre-computed PCA matrix for PCA computation
+        pca_object: pre-computed PCA matrix for PCA computation
 
         verbose: True to print out details
 
@@ -249,7 +249,7 @@ def ensemble_kalman_smoother_multicam(
                     emA_centered_preds,
                     emA_good_centered_preds,
                     n_components=3,
-                    pca_matrix = pca_matrix)
+                    pca_object = pca_object)
 
     if inflate_vars:
         emA_inflated_vars = mA_compute_maha(emA_centered_preds, emA_vars, emA_likes,

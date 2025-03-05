@@ -47,7 +47,7 @@ def test_compute_pca_with_precomputed_pca():
 
     # Run PCA computation with precomputed PCA
     ensemble_pca, good_pcs_list = compute_pca(
-        valid_frames_mask, emA_centered_preds, emA_good_centered_preds, pca_matrix=precomputed_pca)
+        valid_frames_mask, emA_centered_preds, emA_good_centered_preds, pca_object=precomputed_pca)
 
     # Assertions
     assert isinstance(ensemble_pca, list)
