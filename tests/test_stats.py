@@ -1,9 +1,62 @@
 import warnings
+from sklearn.decomposition import PCA
 
 import numpy as np
 import pytest
 
-from eks.stats import compute_mahalanobis
+from eks.stats import compute_pca, compute_mahalanobis
+from eks.marker_array import MarkerArray
+
+
+def test_compute_pca_basic():
+    """Test compute_pca with a simple valid input without a precomputed PCA matrix."""
+    n_frames, n_keypoints, n_cameras = 10, 5, 2
+
+    # Create a valid frames mask with True values (all frames are valid for all keypoints)
+    valid_frames_mask = np.ones((n_frames, n_keypoints), dtype=bool)
+
+    # Create synthetic MarkerArray data
+    emA_centered_preds = MarkerArray(np.random.randn(1, n_cameras, n_frames, n_keypoints, 2))
+    emA_good_centered_preds = MarkerArray(np.random.randn(1, n_cameras, n_frames, n_keypoints, 2))
+
+    # Run PCA computation
+    ensemble_pca, good_pcs_list = compute_pca(
+        valid_frames_mask, emA_centered_preds, emA_good_centered_preds)
+
+    # Assertions
+    assert isinstance(ensemble_pca, list)
+    assert isinstance(good_pcs_list, list)
+    assert len(ensemble_pca) == n_keypoints
+    assert len(good_pcs_list) == n_keypoints
+    assert all(isinstance(pca, PCA) for pca in ensemble_pca)
+
+def test_compute_pca_with_precomputed_pca():
+    """Test compute_pca with a precomputed PCA matrix."""
+    n_frames, n_keypoints, n_cameras = 10, 5, 2
+
+    # Create a valid frames mask
+    valid_frames_mask = np.ones((n_frames, n_keypoints), dtype=bool)
+
+    # Create synthetic MarkerArray data
+    emA_centered_preds = MarkerArray(np.random.randn(1, n_cameras, n_frames, n_keypoints, 2))
+    emA_good_centered_preds = MarkerArray(np.random.randn(1, n_cameras, n_frames, n_keypoints, 2))
+
+    # Fit a PCA model for testing
+    sample_data = np.random.randn(n_frames, n_cameras * 2)
+    precomputed_pca = PCA(n_components=3).fit(sample_data)
+
+    # Run PCA computation with precomputed PCA
+    ensemble_pca, good_pcs_list = compute_pca(
+        valid_frames_mask, emA_centered_preds, emA_good_centered_preds, pca_object=precomputed_pca)
+
+    # Assertions
+    assert isinstance(ensemble_pca, list)
+    assert isinstance(good_pcs_list, list)
+    assert len(ensemble_pca) == n_keypoints
+    assert len(good_pcs_list) == n_keypoints
+    assert all(isinstance(pca, PCA) for pca in ensemble_pca)
+    assert all(np.array_equal(
+        pca.components_, precomputed_pca.components_) for pca in ensemble_pca)
 
 
 def test_compute_mahalanobis():
