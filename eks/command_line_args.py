@@ -174,7 +174,7 @@ def add_quantile_keep_pca(parser):
     parser.add_argument(
         '--quantile_keep_pca',
         help='percentage of the points are kept for multi-view PCA (lowest ensemble variance)',
-        default=25,
+        default=95,
         type=float,
     )
     return parser
