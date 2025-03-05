@@ -458,9 +458,6 @@ def center_predictions(
         emA_centered_preds_list.append(MarkerArray(centered_preds_k, data_fields=["x", "y"]))
         emA_good_centered_preds_list.append(MarkerArray(good_centered_preds_k,
                                                         data_fields=["x", "y"]))
-        print(quantile_keep_pca)
-        print(good_centered_preds_k.shape)
-        print(centered_preds_k.shape)
         emA_means_list.append(MarkerArray(means_k, data_fields=["x", "y"]))
 
     # Concatenate all keypoint-wise filtered results along the keypoints axis
