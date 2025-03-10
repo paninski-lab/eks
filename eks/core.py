@@ -264,7 +264,7 @@ def jax_ensemble(
     marker_array: MarkerArray,
     avg_mode: str = 'median',
     var_mode: str = 'confidence_weighted_var',
-    nan_replacement: float = 100.0,  # Default replacement value for NaNs
+    nan_replacement: float = 1000.0,  # Default replacement value for NaNs
 ) -> MarkerArray:
     """
     Compute ensemble mean/median and variance of a marker array using JAX.
