@@ -49,7 +49,7 @@ def convert_lp_dlc(
 
 
 @typechecked
-def convert_slp_dlc(base_dir: str, slp_file: str) -> pd.DataFrame:
+def convert_slp_dlc(base_dir: str, slp_file: str) -> tuple:
     # Read data from .slp file
     filepath = os.path.join(base_dir, slp_file)
     labels = read_labels(filepath)
@@ -57,7 +57,6 @@ def convert_slp_dlc(base_dir: str, slp_file: str) -> pd.DataFrame:
     # Determine the maximum number of instances and keypoints
     max_instances = len(labels[0].instances)
     keypoint_names = [node.name for node in labels[0].instances[0].points.keys()]
-    print(keypoint_names)
     num_keypoints = len(keypoint_names)
 
     # Initialize a NumPy array to store the data
@@ -89,8 +88,7 @@ def convert_slp_dlc(base_dir: str, slp_file: str) -> pd.DataFrame:
     df = pd.DataFrame(reshaped_data, columns=columns)
     df.to_csv(f'{slp_file}.csv', index=False)
     print(f"File read. See read-in data at {slp_file}.csv")
-    return df
-
+    return df, keypoint_names
 
 @typechecked
 def get_keypoint_names(df: pd.DataFrame) -> list:
@@ -131,10 +129,9 @@ def format_data(input_source: str | list, camera_names: list | None = None) -> t
     if camera_names is None:
         for file_path in file_paths:
             if file_path.endswith('.slp'):
-                markers_curr = convert_slp_dlc(
+                markers_curr, keypoint_names = convert_slp_dlc(
                     os.path.dirname(file_path), os.path.basename(file_path),
                 )
-                keypoint_names = get_keypoint_names(markers_curr)
                 markers_curr_fmt = markers_curr
             elif file_path.endswith('.csv'):
                 markers_curr = pd.read_csv(file_path, header=[0, 1, 2], index_col=0)
@@ -151,10 +148,9 @@ def format_data(input_source: str | list, camera_names: list | None = None) -> t
                     continue
                 else:  # file_path matches the camera name, proceed with processing
                     if file_path.endswith('.slp'):
-                        markers_curr = convert_slp_dlc(
+                        markers_curr, keypoint_names = convert_slp_dlc(
                             os.path.dirname(file_path), os.path.basename(file_path),
                         )
-                        keypoint_names = get_keypoint_names(markers_curr)
                         markers_curr_fmt = markers_curr
                     elif file_path.endswith('.csv'):
                         markers_curr = pd.read_csv(file_path, header=[0, 1, 2], index_col=0)
@@ -168,7 +164,6 @@ def format_data(input_source: str | list, camera_names: list | None = None) -> t
     # Check if we found any valid input files
     if len(input_dfs_list) == 0:
         raise FileNotFoundError(f'No valid marker input files found in {input_source}')
-
     return input_dfs_list, keypoint_names
 
 

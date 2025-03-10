@@ -264,10 +264,12 @@ def jax_ensemble(
     marker_array: MarkerArray,
     avg_mode: str = 'median',
     var_mode: str = 'confidence_weighted_var',
+    nan_replacement: float = 1000.0,  # Default replacement value for NaNs
 ) -> MarkerArray:
     """
     Compute ensemble mean/median and variance of a marker array using JAX.
     """
+
     n_models, n_cameras, n_frames, n_keypoints, _ = marker_array.shape
 
     avg_func = jnp.nanmedian if avg_mode == 'median' else jnp.nanmean
@@ -284,19 +286,25 @@ def jax_ensemble(
         var_y = jnp.nanvar(data_y, axis=0) / mean_conf_per_keypoint if var_mode in [
             'conf_weighted_var', 'confidence_weighted_var'] else jnp.nanvar(data_y, axis=0)
 
+        # Replace NaNs in variance with chosen value
+        var_x = jnp.nan_to_num(var_x, nan=nan_replacement)
+        var_y = jnp.nan_to_num(var_y, nan=nan_replacement)
+
         return jnp.stack([avg_x, avg_y, var_x, var_y, mean_conf_per_keypoint], axis=-1)
 
     compute_stats_jit = jax.jit(compute_stats)
 
-    # Unwrap MarkerArrays to jax arrays and remove singleton field axis
+    # Unwrap MarkerArrays to JAX arrays and remove singleton field axis
     data_x = jnp.squeeze(jnp.array(marker_array.slice_fields("x").array), axis=-1)
     data_y = jnp.squeeze(jnp.array(marker_array.slice_fields("y").array), axis=-1)
     data_lh = jnp.squeeze(jnp.array(marker_array.slice_fields("likelihood").array), axis=-1)
 
     # Apply compute_stats in a single JIT call
     ensemble_array = np.array(compute_stats_jit(data_x, data_y, data_lh))
-    ensemble_marker_array = MarkerArray(ensemble_array[None, ...],  # add n_models dim
-                                        data_fields=['x', 'y', 'var_x', 'var_y', 'likelihood'])
+    ensemble_marker_array = MarkerArray(
+        ensemble_array[None, ...],  # add n_models dim
+        data_fields=['x', 'y', 'var_x', 'var_y', 'likelihood']
+    )
 
     return ensemble_marker_array
 
