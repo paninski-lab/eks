@@ -139,6 +139,28 @@ def test_ensemble_kalman_smoother_multicam():
         mask = df.columns.get_level_values("coords").isin(["x_ens_var", "y_ens_var"])
         assert np.allclose(df.iloc[:, mask], 0, atol=1e-4), "should have zero ensemble variance"
 
+    # ---------------------------------------------------
+    # Run with no variance inflation but use PCA object
+    # ---------------------------------------------------
+    camera_dfs, smooth_params_final = ensemble_kalman_smoother_multicam(
+        marker_array=marker_array,
+        keypoint_names=keypoint_names,
+        smooth_param=smooth_param,
+        quantile_keep_pca=quantile_keep_pca,
+        camera_names=camera_names,
+        s_frames=s_frames,
+        inflate_vars=False,
+        pca_object=pca,
+    )
+    assert isinstance(camera_dfs, list), "Expected output to be a list"
+    assert len(camera_dfs) == len(camera_names), \
+        f"Expected {len(camera_names)} entries in camera_dfs, got {len(camera_dfs)}"
+    assert isinstance(smooth_params_final, float), \
+        f"Expected smooth_param_final to be a float, got {type(smooth_params_final)}"
+    assert smooth_params_final == smooth_param, \
+        f"Expected smooth_param_final to match input smooth_param ({smooth_param}), " \
+        f"got {smooth_params_final}"
+
 
 def test_ensemble_kalman_smoother_multicam_no_smooth_param():
     """Test ensemble_kalman_smoother_multicam with no smooth_param provided."""

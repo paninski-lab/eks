@@ -245,7 +245,11 @@ def ensemble_kalman_smoother_multicam(
         emA_centered_preds,
         emA_good_centered_preds,
         emA_means
-    ) = center_predictions(ensemble_marker_array, quantile_keep_pca)
+    ) = center_predictions(
+        ensemble_marker_array,
+        quantile_keep_pca,
+        mean=None if pca_object is None else pca_object.mean_,
+    )
 
     (
         ensemble_pca,
@@ -415,7 +419,8 @@ def multicam_smooth_min(smooth_param, cov_matrix, y, m0, S0, C, A, R, ensemble_v
 
 def center_predictions(
     ensemble_marker_array: MarkerArray,
-    quantile_keep_pca: float
+    quantile_keep_pca: float,
+    mean: np.ndarray | None = None,
 ):
     """
     Filter frames based on variance, compute mean coordinates, and scale predictions.
@@ -423,6 +428,7 @@ def center_predictions(
     Args:
         ensemble_marker_array: Ensemble MarkerArray containing predicted positions and variances.
         quantile_keep_pca: Threshold percentage for filtering low-variance frames.
+        mean: mean to use for centering predictions; for now the same is used across keypoints
 
     Returns:
         tuple:
@@ -437,14 +443,18 @@ def center_predictions(
     emA_preds = ensemble_marker_array.slice_fields("x", "y")
     emA_vars = ensemble_marker_array.slice_fields("var_x", "var_y")
 
-    # Maximum variance for each keypoint in each frame, independent of camera
-    max_vars_per_frame = np.max(emA_vars.array, axis=(0, 1, 4))  # Shape: (n_frames, n_keypoints)
-    # Compute variance threshold for each keypoint
-    thresholds = np.percentile(max_vars_per_frame, quantile_keep_pca, axis=0)
+    if mean is None:
+        # Maximum variance for each keypoint in each frame, independent of camera
+        max_vars_per_frame = np.max(emA_vars.array, axis=(0, 1, 4))  # Shape: (n_frames, n_keypoints)
+        # Compute variance threshold for each keypoint
+        thresholds = np.percentile(max_vars_per_frame, quantile_keep_pca, axis=0)
 
-    valid_frames_mask = max_vars_per_frame <= thresholds  # Shape: (n_frames, n_keypoints)
+        valid_frames_mask = max_vars_per_frame <= thresholds  # Shape: (n_frames, n_keypoints)
 
-    min_frames = float('inf')  # Initialize min_frames to infinity
+        min_frames = float('inf')  # Initialize min_frames to infinity
+    else:
+        valid_frames_mask = np.ones((emA_vars.n_frames, emA_vars.n_keypoints))
+        min_frames = n_frames
 
     emA_centered_preds_list = []
     emA_good_centered_preds_list = []
@@ -470,7 +480,12 @@ def center_predictions(
         good_preds_k = np.expand_dims(good_preds_k, axis=3)
 
         # Scale predictions by subtracting means (over frames) from predictions
-        means_k = np.mean(good_preds_k, axis=2)[:, :, None, :, :]
+        if mean is None:
+            means_k = np.mean(good_preds_k, axis=2, keepdims=True)
+        else:
+            # split pre-computed mean across cameras
+            means_k = mean.copy().reshape((1, emA_preds.n_cameras, 1, 1, 2))
+
         centered_preds_k = emA_preds.slice("keypoints", k).array - means_k
         good_centered_preds_k = good_preds_k - means_k
 
@@ -488,8 +503,14 @@ def center_predictions(
     return valid_frames_mask, emA_centered_preds, emA_good_centered_preds, emA_means
 
 
-def mA_compute_maha(centered_emA_preds, emA_vars, emA_likes, n_latent,
-                    inflate_vars_kwargs={}, threshold=5, scalar=2):
+def mA_compute_maha(
+    centered_emA_preds: MarkerArray,
+    emA_vars: MarkerArray,
+    emA_likes: MarkerArray,
+    inflate_vars_kwargs: dict = {},
+    threshold: float = 5,
+    scalar: float = 2
+) -> MarkerArray:
     """
     Reshape marker arrays for Mahalanobis computation, compute Mahalanobis distances,
     and optionally inflate variances for all keypoints.
