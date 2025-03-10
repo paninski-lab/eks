@@ -1,11 +1,11 @@
 import warnings
-from sklearn.decomposition import PCA
 
 import numpy as np
 import pytest
+from sklearn.decomposition import PCA
 
-from eks.stats import compute_pca, compute_mahalanobis
 from eks.marker_array import MarkerArray
+from eks.stats import compute_mahalanobis, compute_pca
 
 
 def test_compute_pca_basic():
