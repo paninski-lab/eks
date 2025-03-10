@@ -1,8 +1,11 @@
 import numpy as np
 
 from eks.marker_array import MarkerArray
-from eks.multicam_smoother import ensemble_kalman_smoother_multicam, inflate_variance, \
-    center_predictions
+from eks.multicam_smoother import (
+    center_predictions,
+    ensemble_kalman_smoother_multicam,
+    inflate_variance,
+)
 
 
 def test_ensemble_kalman_smoother_multicam():
@@ -179,21 +182,6 @@ def test_inflate_variance():
     assert np.allclose(scalar * v, v_new)
 
 
-def create_mock_marker_array(n_models, n_cameras, n_frames, n_keypoints, n_fields, random_seed=42):
-    """Helper function to create a mock MarkerArray with controlled variance for testing."""
-    np.random.seed(random_seed)
-    shape = (n_models, n_cameras, n_frames, n_keypoints, n_fields)
-
-    # Generate random data for x, y positions and variances
-    data = np.random.randn(*shape) * 10  # Simulate marker positions
-    variance_data = np.abs(np.random.randn(*shape) * 5)  # Ensure positive variance
-
-    marker_array = MarkerArray(data, data_fields=["x", "y"])
-    marker_array_vars = MarkerArray(variance_data, data_fields=["var_x", "var_y"])
-
-    return marker_array, marker_array_vars
-
-
 def test_center_predictions_min_frames():
     """Test that center_predictions correctly handles different initial frame lengths
     post-filtering."""
@@ -248,9 +236,3 @@ def test_center_predictions_min_frames():
     # Ensure the returned good predictions have exactly `min_frames_expected` frames for all kps
     assert emA_good_centered_preds.array.shape[2] == min_frames_expected, \
         f"Expected {min_frames_expected} frames, but got {emA_good_centered_preds.array.shape[2]}"
-
-
-
-
-
-

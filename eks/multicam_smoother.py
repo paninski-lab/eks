@@ -3,8 +3,8 @@ import os
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
-from typeguard import typechecked
 from sklearn.decomposition import PCA
+from typeguard import typechecked
 
 from eks.core import (
     backward_pass,
