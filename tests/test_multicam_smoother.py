@@ -1,3 +1,4 @@
+from sklearn.decomposition import PCA
 import numpy as np
 
 from eks.marker_array import MarkerArray
@@ -14,12 +15,13 @@ def test_ensemble_kalman_smoother_multicam():
     # Mock inputs
     keypoint_names = ['kp1', 'kp2']
     data_fields = ['x', 'y', 'likelihood']
+    n_models = 5
     n_cameras = 2
     n_frames = 100
     num_fields = len(data_fields)
 
     # Create mock MarkerArray with explicit data_fields
-    markers_array = np.random.randn(5, n_cameras, n_frames, len(keypoint_names), num_fields)
+    markers_array = np.random.randn(n_models, n_cameras, n_frames, len(keypoint_names), num_fields)
     marker_array = MarkerArray(markers_array, data_fields=data_fields)
 
     camera_names = ['cam1', 'cam2']
@@ -27,7 +29,9 @@ def test_ensemble_kalman_smoother_multicam():
     quantile_keep_pca = 95
     s_frames = None
 
+    # ---------------------------------------------------
     # Run the smoother
+    # ---------------------------------------------------
     camera_dfs, smooth_params_final = ensemble_kalman_smoother_multicam(
         marker_array=marker_array,
         keypoint_names=keypoint_names,
@@ -47,7 +51,9 @@ def test_ensemble_kalman_smoother_multicam():
         f"Expected smooth_param_final to match input smooth_param ({smooth_param}), " \
         f"got {smooth_params_final}"
 
+    # ---------------------------------------------------
     # Run with variance inflation
+    # ---------------------------------------------------
     camera_dfs, smooth_params_final = ensemble_kalman_smoother_multicam(
         marker_array=marker_array,
         keypoint_names=keypoint_names,
@@ -69,7 +75,9 @@ def test_ensemble_kalman_smoother_multicam():
         f"Expected smooth_param_final to match input smooth_param ({smooth_param}), " \
         f"got {smooth_params_final}"
 
+    # ---------------------------------------------------
     # Run with variance inflation + more maha kwargs
+    # ---------------------------------------------------
     camera_dfs, smooth_params_final = ensemble_kalman_smoother_multicam(
         marker_array=marker_array,
         keypoint_names=keypoint_names,
@@ -92,6 +100,44 @@ def test_ensemble_kalman_smoother_multicam():
     assert smooth_params_final == smooth_param, \
         f"Expected smooth_param_final to match input smooth_param ({smooth_param}), " \
         f"got {smooth_params_final}"
+
+    # ---------------------------------------------------
+    # Run with variance inflation + more maha kwargs
+    # ---------------------------------------------------
+    # create true 3d data (non-centered)
+    np.random.seed(0)
+    data = 5.0 + np.random.randn(n_frames * len(keypoint_names), 2 * n_cameras)
+    pca = PCA(n_components=3).fit(data)
+    data_3d = pca.transform(data)
+    data_reproj = pca.inverse_transform(data_3d)
+    markers_array = np.random.randn(5, n_cameras, n_frames, len(keypoint_names), num_fields)
+    for k in range(len(keypoint_names)):
+        for c in range(n_cameras):
+            xs = data_reproj[n_frames * k: n_frames * (k + 1), 2 * c]
+            ys = data_reproj[n_frames * k: n_frames * (k + 1), 2 * c + 1]
+            for m in range(n_models):
+                markers_array[m, c, :, k, 0] = 0.001 * np.random.randn(*xs.shape) + xs
+                markers_array[m, c, :, k, 1] = 0.001 * np.random.randn(*ys.shape) + ys
+    markers_array[..., 2] = 1.0
+    marker_array = MarkerArray(markers_array, data_fields=data_fields)
+    # run with variance inflation
+    camera_dfs, smooth_params_final = ensemble_kalman_smoother_multicam(
+        marker_array=marker_array,
+        keypoint_names=keypoint_names,
+        smooth_param=smooth_param,
+        quantile_keep_pca=quantile_keep_pca,
+        camera_names=camera_names,
+        s_frames=s_frames,
+        inflate_vars=True,
+        inflate_vars_kwargs={
+            'loading_matrix': pca.components_.T,
+            'mean': pca.mean_,
+        }
+    )
+    # ensemble variance should be very small since the data is a slightly noisy copy of a template
+    for df in camera_dfs:
+        mask = df.columns.get_level_values("coords").isin(["x_ens_var", "y_ens_var"])
+        assert np.allclose(df.iloc[:, mask], 0, atol=1e-4), "should have zero ensemble variance"
 
 
 def test_ensemble_kalman_smoother_multicam_no_smooth_param():
@@ -208,10 +254,11 @@ def test_center_predictions_min_frames():
     num_shared_frames = np.random.randint(5, n_frames,
                                           size=n_keypoints)  # Random frames per keypoint
     for k in range(n_keypoints):
-        random_indices = np.random.choice(np.arange(1, n_frames), num_shared_frames[k],
-                                          replace=False)
-        variance_data[:, :, random_indices, k,
-        :] = shared_variance_value  # Set same variance for these frames
+        random_indices = np.random.choice(
+            np.arange(1, n_frames), num_shared_frames[k], replace=False,
+        )
+        # Set same variance for these frames
+        variance_data[:, :, random_indices, k, :] = shared_variance_value
 
     # Create random likelihood data (values between 0 and 1)
     likelihood_data = np.random.rand(n_models, n_cameras, n_frames, n_keypoints, 1)
@@ -220,15 +267,18 @@ def test_center_predictions_min_frames():
     full_data = np.concatenate([data, variance_data, likelihood_data], axis=-1)
 
     # Construct MarkerArray instance with correct fields
-    ensemble_marker_array = MarkerArray(full_data,
-                                        data_fields=["x", "y", "var_x", "var_y", "likelihood"])
+    ensemble_marker_array = MarkerArray(
+        full_data,
+        data_fields=["x", "y", "var_x", "var_y", "likelihood"],
+    )
 
     # Define variance threshold (50th percentile)
     quantile_keep_pca = 50
 
     # Run the function
-    valid_frames_mask, _, emA_good_centered_preds, _ = center_predictions(ensemble_marker_array,
-                                                                          quantile_keep_pca)
+    valid_frames_mask, _, emA_good_centered_preds, _ = center_predictions(
+        ensemble_marker_array, quantile_keep_pca,
+    )
 
     # Compute expected min_frames by finding the lowest valid frame count across keypoints
     min_frames_expected = min(np.sum(valid_frames_mask, axis=0))  # Count True values per keypoint

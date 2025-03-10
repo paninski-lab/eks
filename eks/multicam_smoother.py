@@ -161,11 +161,11 @@ def fit_eks_multicam(
     if bodypart_list is None:
         bodypart_list = keypoint_names
 
-    markerArray = input_dfs_to_markerArray(input_dfs_list, bodypart_list, camera_names)
+    marker_array = input_dfs_to_markerArray(input_dfs_list, bodypart_list, camera_names)
 
     # Run the ensemble Kalman smoother for multi-camera data
     camera_dfs, smooth_params_final = ensemble_kalman_smoother_multicam(
-        marker_array=markerArray,
+        marker_array=marker_array,
         keypoint_names=bodypart_list,
         smooth_param=smooth_param,
         quantile_keep_pca=quantile_keep_pca,
@@ -174,7 +174,7 @@ def fit_eks_multicam(
         avg_mode=avg_mode,
         var_mode=var_mode,
         verbose=verbose,
-        inflate_vars=inflate_vars
+        inflate_vars=inflate_vars,
     )
 
     # Save output DataFrames to CSVs (one per camera view)
@@ -187,18 +187,18 @@ def fit_eks_multicam(
 
 @typechecked
 def ensemble_kalman_smoother_multicam(
-        marker_array: MarkerArray,
-        keypoint_names: list,
-        smooth_param: float | list | None = None,
-        quantile_keep_pca: float = 95.0,
-        camera_names: list | None = None,
-        s_frames: list | None = None,
-        avg_mode: str = 'median',
-        var_mode: str = 'confidence_weighted_var',
-        inflate_vars: bool = False,
-        inflate_vars_kwargs: dict = {},
-        verbose: bool = False,
-        pca_object: PCA | None = None
+    marker_array: MarkerArray,
+    keypoint_names: list,
+    smooth_param: float | list | None = None,
+    quantile_keep_pca: float = 95.0,
+    camera_names: list | None = None,
+    s_frames: list | None = None,
+    avg_mode: str = 'median',
+    var_mode: str = 'confidence_weighted_var',
+    inflate_vars: bool = False,
+    inflate_vars_kwargs: dict = {},
+    verbose: bool = False,
+    pca_object: PCA | None = None
 ) -> tuple:
     """
     Use multi-view constraints to fit a 3D latent subspace for each body part.
@@ -241,19 +241,25 @@ def ensemble_kalman_smoother_multicam(
         emA_means
     ) = center_predictions(ensemble_marker_array, quantile_keep_pca)
 
-
     (
         ensemble_pca,
         good_pcs_list,  # List-by-keypoint of (n_good_frames, n_pca_components)
-    ) = compute_pca(valid_frames_mask,
-                    emA_centered_preds,
-                    emA_good_centered_preds,
-                    n_components=3,
-                    pca_object = pca_object)
+    ) = compute_pca(
+        valid_frames_mask,
+        emA_centered_preds,
+        emA_good_centered_preds,
+        n_components=3,
+        pca_object=pca_object,
+    )
 
     if inflate_vars:
-        emA_inflated_vars = mA_compute_maha(emA_centered_preds, emA_vars, emA_likes,
-                                            inflate_vars_kwargs=inflate_vars_kwargs)
+        if inflate_vars_kwargs.get("mean", None) is not None:
+            # set mean to zero since we are passing in centered predictions
+            inflate_vars_kwargs["mean"] = np.zeros_like(inflate_vars_kwargs["mean"])
+        emA_inflated_vars = mA_compute_maha(
+            emA_centered_preds, emA_vars, emA_likes,
+            inflate_vars_kwargs=inflate_vars_kwargs,
+        )
     else:
         emA_inflated_vars = emA_vars
 
@@ -404,8 +410,8 @@ def multicam_smooth_min(smooth_param, cov_matrix, y, m0, S0, C, A, R, ensemble_v
 
 
 def center_predictions(
-        ensemble_marker_array: MarkerArray,
-        quantile_keep_pca: float
+    ensemble_marker_array: MarkerArray,
+    quantile_keep_pca: float
 ):
     """
     Filter frames based on variance, compute mean coordinates, and scale predictions.
