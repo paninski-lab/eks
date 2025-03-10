@@ -6,11 +6,11 @@ from eks.marker_array import MarkerArray, mA_to_stacked_array
 
 
 def compute_pca(
-        valid_frames_mask,
-        emA_centered_preds: MarkerArray,
-        emA_good_centered_preds: MarkerArray,
-        n_components: int = 3,
-        pca_object: PCA | None = None
+    valid_frames_mask,
+    emA_centered_preds: MarkerArray,
+    emA_good_centered_preds: MarkerArray,
+    n_components: int = 3,
+    pca_object: PCA | None = None
 ):
     """
     Performs Principal Component Analysis (PCA) per keypoint using filtered + centered predictions.
@@ -31,7 +31,7 @@ def compute_pca(
             good_pcs_list (list): List of PCA-transformed coordinates for variance-filtered frames.
     """
     n_models, n_cameras, n_frames, n_keypoints, _ = emA_centered_preds.shape
-    assert n_models == 1, "MarkerArray should have n_models = 1 after ensembling."
+    assert n_models == 1, "MarkerArray should have n_models = 1 when computing PCA."
 
     ensemble_pca = []
     good_pcs_list = []
@@ -43,14 +43,13 @@ def compute_pca(
         emA_good_centered_preds_k = emA_good_centered_preds.slice("keypoints", k)
 
         # Reshape good_centered_preds_k and centered_preds_k for PCA
-        reshaped_gsp_k = mA_to_stacked_array(emA_good_centered_preds_k, 0)
+        reshaped_gcp_k = mA_to_stacked_array(emA_good_centered_preds_k, 0)
         reshaped_sp_k = mA_to_stacked_array(emA_centered_preds_k, 0)
-
 
         # Fit PCA per keypoint
         if pca_object is None:
             pca = PCA(n_components=n_components)
-            ensemble_pca_k = pca.fit(reshaped_gsp_k)
+            ensemble_pca_k = pca.fit(reshaped_gcp_k)
         else:
             ensemble_pca_k = pca_object
         # Transform full dataset
