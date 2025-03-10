@@ -1,7 +1,8 @@
 import numpy as np
 
 from eks.marker_array import MarkerArray
-from eks.multicam_smoother import ensemble_kalman_smoother_multicam, inflate_variance
+from eks.multicam_smoother import ensemble_kalman_smoother_multicam, inflate_variance, \
+    center_predictions
 
 
 def test_ensemble_kalman_smoother_multicam():
@@ -176,3 +177,80 @@ def test_inflate_variance():
     v_new, inflated = inflate_variance(v=v, maha_dict=maha_dict, threshold=1.5, scalar=scalar)
     assert inflated
     assert np.allclose(scalar * v, v_new)
+
+
+def create_mock_marker_array(n_models, n_cameras, n_frames, n_keypoints, n_fields, random_seed=42):
+    """Helper function to create a mock MarkerArray with controlled variance for testing."""
+    np.random.seed(random_seed)
+    shape = (n_models, n_cameras, n_frames, n_keypoints, n_fields)
+
+    # Generate random data for x, y positions and variances
+    data = np.random.randn(*shape) * 10  # Simulate marker positions
+    variance_data = np.abs(np.random.randn(*shape) * 5)  # Ensure positive variance
+
+    marker_array = MarkerArray(data, data_fields=["x", "y"])
+    marker_array_vars = MarkerArray(variance_data, data_fields=["var_x", "var_y"])
+
+    return marker_array, marker_array_vars
+
+
+def test_center_predictions_min_frames():
+    """Test that center_predictions correctly handles different initial frame lengths
+    post-filtering."""
+
+    # Define dimensions
+    n_models, n_cameras, n_frames, n_keypoints = 1, 2, 20, 5  # Example setup
+    n_fields = 5  # (x, y, var_x, var_y, likelihood)
+
+    # Set random seed for reproducibility
+    np.random.seed(42)
+
+    # Create random data for x, y positions
+    data = np.random.randn(n_models, n_cameras, n_frames, n_keypoints, 2) * 10  # (x, y)
+
+    # Create variance data
+    variance_data = np.abs(
+        np.random.randn(n_models, n_cameras, n_frames, n_keypoints, 2) * 5)  # (var_x, var_y)
+
+    # Set the first frame's variance super high to guarantee filtering
+    variance_data[:, :, 0, :, :] = 1e6
+
+    # Randomly select a number of remaining frames to have the same variance value
+    shared_variance_value = 2.0  # Example variance threshold
+    num_shared_frames = np.random.randint(5, n_frames,
+                                          size=n_keypoints)  # Random frames per keypoint
+    for k in range(n_keypoints):
+        random_indices = np.random.choice(np.arange(1, n_frames), num_shared_frames[k],
+                                          replace=False)
+        variance_data[:, :, random_indices, k,
+        :] = shared_variance_value  # Set same variance for these frames
+
+    # Create random likelihood data (values between 0 and 1)
+    likelihood_data = np.random.rand(n_models, n_cameras, n_frames, n_keypoints, 1)
+
+    # Stack all fields into a single array
+    full_data = np.concatenate([data, variance_data, likelihood_data], axis=-1)
+
+    # Construct MarkerArray instance with correct fields
+    ensemble_marker_array = MarkerArray(full_data,
+                                        data_fields=["x", "y", "var_x", "var_y", "likelihood"])
+
+    # Define variance threshold (50th percentile)
+    quantile_keep_pca = 50
+
+    # Run the function
+    valid_frames_mask, _, emA_good_centered_preds, _ = center_predictions(ensemble_marker_array,
+                                                                          quantile_keep_pca)
+
+    # Compute expected min_frames by finding the lowest valid frame count across keypoints
+    min_frames_expected = min(np.sum(valid_frames_mask, axis=0))  # Count True values per keypoint
+
+    # Ensure the returned good predictions have exactly `min_frames_expected` frames for all kps
+    assert emA_good_centered_preds.array.shape[2] == min_frames_expected, \
+        f"Expected {min_frames_expected} frames, but got {emA_good_centered_preds.array.shape[2]}"
+
+
+
+
+
+

@@ -432,22 +432,31 @@ def center_predictions(
     # Compute variance threshold for each keypoint
     thresholds = np.percentile(max_vars_per_frame, quantile_keep_pca, axis=0)
 
-    valid_frames_mask = max_vars_per_frame <= thresholds
-
-    # Compute valid frame mask per (frame, keypoint)
     valid_frames_mask = max_vars_per_frame <= thresholds  # Shape: (n_frames, n_keypoints)
+
+    min_frames = float('inf')  # Initialize min_frames to infinity
 
     emA_centered_preds_list = []
     emA_good_centered_preds_list = []
     emA_means_list = []
+    good_frame_indices_list = []
+
     for k in range(n_keypoints):
         # Find valid frame indices for the current keypoint
         good_frame_indices = np.where(valid_frames_mask[:, k])[0]  # Shape: (n_filtered_frames,)
 
+        # Update min_frames to track the minimum number of valid frames across keypoints
+        if len(good_frame_indices) < min_frames:
+            min_frames = len(good_frame_indices)
+
+        good_frame_indices_list.append(good_frame_indices)
+
+    # Now, reprocess each keypoint using only `min_frames` frames
+    for k in range(n_keypoints):
+        good_frame_indices = good_frame_indices_list[k][:min_frames]  # Truncate to min_frames
+
         # Extract valid frames for this keypoint
-        # Shape: (n_models, n_cameras, n_filtered_frames, n_fields)
         good_preds_k = emA_preds.array[:, :, good_frame_indices, k, :]
-        # Shape: (n_models, n_cameras, n_filtered_frames, 1, n_fields)
         good_preds_k = np.expand_dims(good_preds_k, axis=3)
 
         # Scale predictions by subtracting means (over frames) from predictions
@@ -455,9 +464,10 @@ def center_predictions(
         centered_preds_k = emA_preds.slice("keypoints", k).array - means_k
         good_centered_preds_k = good_preds_k - means_k
 
-        emA_centered_preds_list.append(MarkerArray(centered_preds_k, data_fields=["x", "y"]))
-        emA_good_centered_preds_list.append(MarkerArray(good_centered_preds_k,
-                                                        data_fields=["x", "y"]))
+        emA_centered_preds_list.append(
+            MarkerArray(centered_preds_k, data_fields=["x", "y"]))
+        emA_good_centered_preds_list.append(
+            MarkerArray(good_centered_preds_k, data_fields=["x", "y"]))
         emA_means_list.append(MarkerArray(means_k, data_fields=["x", "y"]))
 
     # Concatenate all keypoint-wise filtered results along the keypoints axis
