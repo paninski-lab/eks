@@ -65,7 +65,6 @@ def fit_eks_singlecam(
     if bodypart_list is None:
         bodypart_list = keypoint_names
         print(f'Input data loaded for keypoints:\n{bodypart_list}')
-
     marker_array = input_dfs_to_markerArray([input_dfs_list], bodypart_list, [""])
     # Run the ensemble Kalman smoother
     df_smoothed, smooth_params_final = ensemble_kalman_smoother_singlecam(
@@ -131,8 +130,7 @@ def ensemble_kalman_smoother_singlecam(
         data_fields=["x_median", "y_median"])
 
     _, emA_centered_preds, _, emA_means = center_predictions(
-        ensemble_marker_array, quantile_keep_pca=95)
-
+        ensemble_marker_array, quantile_keep_pca=100)
     (
         m0s, S0s, As, cov_mats, Cs, Rs
     ) = initialize_kalman_filter(emA_centered_preds)
