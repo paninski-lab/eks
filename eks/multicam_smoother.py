@@ -507,6 +507,7 @@ def mA_compute_maha(
     centered_emA_preds: MarkerArray,
     emA_vars: MarkerArray,
     emA_likes: MarkerArray,
+    n_latent,
     inflate_vars_kwargs: dict = {},
     threshold: float = 5,
     scalar: float = 2
