@@ -90,6 +90,7 @@ def convert_slp_dlc(base_dir: str, slp_file: str) -> tuple:
     print(f"File read. See read-in data at {slp_file}.csv")
     return df, keypoint_names
 
+
 @typechecked
 def get_keypoint_names(df: pd.DataFrame) -> list:
     kps = df.columns[df.columns.get_level_values('coords') == 'x'].get_level_values('bodyparts')

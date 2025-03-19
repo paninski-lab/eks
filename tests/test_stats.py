@@ -30,6 +30,7 @@ def test_compute_pca_basic():
     assert len(good_pcs_list) == n_keypoints
     assert all(isinstance(pca, PCA) for pca in ensemble_pca)
 
+
 def test_compute_pca_with_precomputed_pca():
     """Test compute_pca with a precomputed PCA matrix."""
     n_frames, n_keypoints, n_cameras = 10, 5, 2
@@ -43,11 +44,12 @@ def test_compute_pca_with_precomputed_pca():
 
     # Fit a PCA model for testing
     sample_data = np.random.randn(n_frames, n_cameras * 2)
-    precomputed_pca = PCA(n_components=3).fit(sample_data)
+    precompute_pca = PCA(n_components=3).fit(sample_data)
 
     # Run PCA computation with precomputed PCA
     ensemble_pca, good_pcs_list = compute_pca(
-        valid_frames_mask, emA_centered_preds, emA_good_centered_preds, pca_object=precomputed_pca)
+        valid_frames_mask, emA_centered_preds, emA_good_centered_preds, pca_object=precompute_pca,
+    )
 
     # Assertions
     assert isinstance(ensemble_pca, list)
@@ -55,8 +57,7 @@ def test_compute_pca_with_precomputed_pca():
     assert len(ensemble_pca) == n_keypoints
     assert len(good_pcs_list) == n_keypoints
     assert all(isinstance(pca, PCA) for pca in ensemble_pca)
-    assert all(np.array_equal(
-        pca.components_, precomputed_pca.components_) for pca in ensemble_pca)
+    assert all(np.array_equal(pca.components_, precompute_pca.components_) for pca in ensemble_pca)
 
 
 def test_compute_mahalanobis():
