@@ -36,6 +36,7 @@ def fit_eks_mirrored_multicam(
     var_mode: str = 'confidence_weighted_var',
     verbose: bool = False,
     inflate_vars: bool = False,
+    pca_dims: int = 3
 ) -> tuple:
     """
     Fit the Ensemble Kalman Smoother for mirrored multi-camera data.
@@ -53,6 +54,7 @@ def fit_eks_mirrored_multicam(
             'var' | 'confidence_weighted_var'
         verbose: True to print out details
         inflate_vars: True to use Mahalanobis distance thresholding to inflate ensemble variance
+        pca_dims: number of dimensions to keep from PCA
 
     Returns:
             tuple:
@@ -98,7 +100,8 @@ def fit_eks_mirrored_multicam(
         avg_mode=avg_mode,
         var_mode=var_mode,
         verbose=verbose,
-        inflate_vars=inflate_vars
+        inflate_vars=inflate_vars,
+        pca_dims=pca_dims
     )
     final_df = None
     for c, camera_df in enumerate(camera_dfs):
@@ -108,8 +111,7 @@ def fit_eks_mirrored_multicam(
         if final_df is None:
             final_df = camera_df
         else:
-            pd.concat([final_df, camera_df], axis=1)
-
+            final_df = pd.concat([final_df, camera_df], axis=1)
     # Save the output DataFrames to CSV file
     os.makedirs(os.path.dirname(save_file), exist_ok=True)
     final_df.to_csv(f"{save_file}")
@@ -129,6 +131,7 @@ def fit_eks_multicam(
     var_mode: str = 'confidence_weighted_var',
     inflate_vars: bool = False,
     verbose: bool = False,
+    pca_dims: int = 3
 ) -> tuple:
     """
     Fit the Ensemble Kalman Smoother for un-mirrored multi-camera data.
@@ -146,6 +149,7 @@ def fit_eks_multicam(
             'var' | 'confidence_weighted_var'
         inflate_vars: True to use Mahalanobis distance thresholding to inflate ensemble variance
         verbose: True to print out details
+        pca_dims: number of dimensions to keep from PCA
 
     Returns:
         tuple:
@@ -175,8 +179,8 @@ def fit_eks_multicam(
         var_mode=var_mode,
         verbose=verbose,
         inflate_vars=inflate_vars,
+        pca_dims=pca_dims
     )
-
     # Save output DataFrames to CSVs (one per camera view)
     os.makedirs(save_dir, exist_ok=True)
     for c, camera in enumerate(camera_names):
@@ -198,7 +202,8 @@ def ensemble_kalman_smoother_multicam(
     inflate_vars: bool = False,
     inflate_vars_kwargs: dict = {},
     verbose: bool = False,
-    pca_object: PCA | None = None
+    pca_object: PCA | None = None,
+    pca_dims: int = 3
 ) -> tuple:
     """
     Use multi-view constraints to fit a 3D latent subspace for each body part.
@@ -218,6 +223,7 @@ def ensemble_kalman_smoother_multicam(
         inflate_vars: True to use Mahalanobis distance thresholding to inflate ensemble variance
         inflate_vars_kwargs: kwargs for compute_mahalanobis function for variance inflation
         pca_object: pre-computed PCA matrix for PCA computation
+        pca_dims: number of dimensions to keep from PCA
 
         verbose: True to print out details
 
@@ -248,7 +254,7 @@ def ensemble_kalman_smoother_multicam(
         valid_frames_mask,
         emA_centered_preds,
         emA_good_centered_preds,
-        n_components=3,
+        n_components=pca_dims,
         pca_object=pca_object,
     )
 
@@ -270,11 +276,9 @@ def ensemble_kalman_smoother_multicam(
     for k, keypoint in enumerate(keypoint_names):
 
         # Initializations
-        m0 = np.asarray([0.0, 0.0, 0.0])
-        S0 = np.asarray([[np.var(good_pcs_list[k][:, 0]), 0.0, 0.0],
-                         [0.0, np.var(good_pcs_list[k][:, 1]), 0.0],
-                         [0.0, 0.0, np.var(good_pcs_list[k][:, 2])]])  # diagonal: var
-        A = np.eye(3)
+        m0 = np.zeros(pca_dims)
+        S0 = np.diag([np.var(good_pcs_list[k][:, i]) for i in range(pca_dims)])
+        A = np.eye(pca_dims)
         d_t = good_pcs_list[k][1:] - good_pcs_list[k][:-1]
         C = ensemble_pca[k].components_.T
         R = np.eye(ensemble_pca[k].components_.shape[1])

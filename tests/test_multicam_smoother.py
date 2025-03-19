@@ -175,6 +175,41 @@ def test_ensemble_kalman_smoother_multicam_no_smooth_param():
         f"Expected smooth_param_final to be a float, got {type(smooth_params_final)}"
 
 
+def test_ensemble_kalman_smoother_multicam_pca_dims():
+    """Test ensemble_kalman_smoother_multicam with different pca_dims values."""
+
+    keypoint_names = ['kp1', 'kp2']
+    data_fields = ['x', 'y', 'likelihood']
+    n_cameras = 4
+    n_frames = 100
+    num_fields = len(data_fields)
+
+    # Create mock MarkerArray with explicit data_fields
+    markers_array = np.random.randn(3, n_cameras, n_frames, len(keypoint_names), num_fields)
+    markerArray = MarkerArray(markers_array, data_fields=data_fields)  # Ensure data_fields is set
+
+    camera_names = ['cam1', 'cam2']
+    quantile_keep_pca = 90
+    s_frames = [(0, 10)]
+
+    for pca_dims in [2, 3, 5]:  # Test different PCA dimensions
+        camera_dfs, _ = ensemble_kalman_smoother_multicam(
+            marker_array=markerArray,
+            keypoint_names=keypoint_names,
+            smooth_param=1,  # Fixed smooth_param to speed up test
+            quantile_keep_pca=quantile_keep_pca,
+            camera_names=camera_names,
+            s_frames=s_frames,
+            avg_mode='median',
+            inflate_vars=False,
+            pca_dims=pca_dims,  # Testing varying PCA dimensions
+        )
+
+        # Ensure the output dataframes exist for each camera
+        assert len(camera_dfs) == len(camera_names), \
+            f"Expected {len(camera_names)} DataFrames, got {len(camera_dfs)}"
+
+
 def test_inflate_variance():
 
     # ------------------------------------------------------------------------
