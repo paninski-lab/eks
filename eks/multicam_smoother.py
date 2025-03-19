@@ -36,7 +36,7 @@ def fit_eks_mirrored_multicam(
     var_mode: str = 'confidence_weighted_var',
     verbose: bool = False,
     inflate_vars: bool = False,
-    pca_dims: int = 3
+    n_latent: int = 3
 ) -> tuple:
     """
     Fit the Ensemble Kalman Smoother for mirrored multi-camera data.
@@ -54,7 +54,7 @@ def fit_eks_mirrored_multicam(
             'var' | 'confidence_weighted_var'
         verbose: True to print out details
         inflate_vars: True to use Mahalanobis distance thresholding to inflate ensemble variance
-        pca_dims: number of dimensions to keep from PCA
+        n_latent: number of dimensions to keep from PCA
 
     Returns:
             tuple:
@@ -101,7 +101,7 @@ def fit_eks_mirrored_multicam(
         var_mode=var_mode,
         verbose=verbose,
         inflate_vars=inflate_vars,
-        pca_dims=pca_dims
+        n_latent=n_latent
     )
     final_df = None
     for c, camera_df in enumerate(camera_dfs):
@@ -131,7 +131,7 @@ def fit_eks_multicam(
     var_mode: str = 'confidence_weighted_var',
     inflate_vars: bool = False,
     verbose: bool = False,
-    pca_dims: int = 3
+    n_latent: int = 3
 ) -> tuple:
     """
     Fit the Ensemble Kalman Smoother for un-mirrored multi-camera data.
@@ -149,7 +149,7 @@ def fit_eks_multicam(
             'var' | 'confidence_weighted_var'
         inflate_vars: True to use Mahalanobis distance thresholding to inflate ensemble variance
         verbose: True to print out details
-        pca_dims: number of dimensions to keep from PCA
+        n_latent: number of dimensions to keep from PCA
 
     Returns:
         tuple:
@@ -179,7 +179,7 @@ def fit_eks_multicam(
         var_mode=var_mode,
         verbose=verbose,
         inflate_vars=inflate_vars,
-        pca_dims=pca_dims
+        n_latent=n_latent
     )
     # Save output DataFrames to CSVs (one per camera view)
     os.makedirs(save_dir, exist_ok=True)
@@ -203,7 +203,7 @@ def ensemble_kalman_smoother_multicam(
     inflate_vars_kwargs: dict = {},
     verbose: bool = False,
     pca_object: PCA | None = None,
-    pca_dims: int = 3
+    n_latent: int = 3
 ) -> tuple:
     """
     Use multi-view constraints to fit a 3D latent subspace for each body part.
@@ -223,7 +223,7 @@ def ensemble_kalman_smoother_multicam(
         inflate_vars: True to use Mahalanobis distance thresholding to inflate ensemble variance
         inflate_vars_kwargs: kwargs for compute_mahalanobis function for variance inflation
         pca_object: pre-computed PCA matrix for PCA computation
-        pca_dims: number of dimensions to keep from PCA
+        n_latent: number of dimensions to keep from PCA
 
         verbose: True to print out details
 
@@ -254,7 +254,7 @@ def ensemble_kalman_smoother_multicam(
         valid_frames_mask,
         emA_centered_preds,
         emA_good_centered_preds,
-        n_components=pca_dims,
+        n_components=n_latent,
         pca_object=pca_object,
     )
 
@@ -263,7 +263,7 @@ def ensemble_kalman_smoother_multicam(
             # set mean to zero since we are passing in centered predictions
             inflate_vars_kwargs["mean"] = np.zeros_like(inflate_vars_kwargs["mean"])
         emA_inflated_vars = mA_compute_maha(
-            emA_centered_preds, emA_vars, emA_likes,
+            emA_centered_preds, emA_vars, emA_likes, n_latent,
             inflate_vars_kwargs=inflate_vars_kwargs,
         )
     else:
@@ -276,9 +276,9 @@ def ensemble_kalman_smoother_multicam(
     for k, keypoint in enumerate(keypoint_names):
 
         # Initializations
-        m0 = np.zeros(pca_dims)
-        S0 = np.diag([np.var(good_pcs_list[k][:, i]) for i in range(pca_dims)])
-        A = np.eye(pca_dims)
+        m0 = np.zeros(n_latent)
+        S0 = np.diag([np.var(good_pcs_list[k][:, i]) for i in range(n_latent)])
+        A = np.eye(n_latent)
         d_t = good_pcs_list[k][1:] - good_pcs_list[k][:-1]
         C = ensemble_pca[k].components_.T
         R = np.eye(ensemble_pca[k].components_.shape[1])
@@ -488,7 +488,7 @@ def center_predictions(
     return valid_frames_mask, emA_centered_preds, emA_good_centered_preds, emA_means
 
 
-def mA_compute_maha(centered_emA_preds, emA_vars, emA_likes,
+def mA_compute_maha(centered_emA_preds, emA_vars, emA_likes, n_latent,
                     inflate_vars_kwargs={}, threshold=5, scalar=2):
     """
     Reshape marker arrays for Mahalanobis computation, compute Mahalanobis distances,
@@ -498,6 +498,7 @@ def mA_compute_maha(centered_emA_preds, emA_vars, emA_likes,
         centered_emA_preds (numpy.ndarray): centered predicted marker positions.
         emA_vars (numpy.ndarray): Variance values associated with predictions.
         emA_likes (numpy.ndarray): Likelihood values associated with predictions.
+        n_latent (int): Number of dimensions to extract from dimensional reduction.
         threshold (float, optional): Mahalanobis distance threshold for inflation.
         scalar (float, optional): Factor by which to inflate variance.
 
@@ -524,6 +525,7 @@ def mA_compute_maha(centered_emA_preds, emA_vars, emA_likes,
         while inflated:
             # Compute Mahalanobis distances
             maha_results = compute_mahalanobis(preds, tmp_vars,
+                                               n_latent=n_latent,
                                                likelihoods=likes,
                                                **inflate_vars_kwargs)
             # Inflate variances based on Mahalanobis distances

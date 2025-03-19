@@ -26,7 +26,7 @@ camera_names = args.camera_names
 quantile_keep_pca = args.quantile_keep_pca
 verbose = True if args.verbose == 'True' else False
 inflate_vars = True if args.inflate_vars == 'True' else False
-pca_dims = args.pca_dims
+n_latent = args.n_latent
 
 
 # Fit EKS using the provided input data
@@ -40,7 +40,7 @@ output_df, s_finals, input_dfs, bodypart_list = fit_eks_mirrored_multicam(
     quantile_keep_pca=quantile_keep_pca,
     verbose=verbose,
     inflate_vars=inflate_vars,
-    pca_dims = args.pca_dims
+    n_latent= args.n_latent
 )
 
 # Plot results for a specific keypoint (default to last keypoint)

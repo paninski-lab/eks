@@ -175,8 +175,8 @@ def test_ensemble_kalman_smoother_multicam_no_smooth_param():
         f"Expected smooth_param_final to be a float, got {type(smooth_params_final)}"
 
 
-def test_ensemble_kalman_smoother_multicam_pca_dims():
-    """Test ensemble_kalman_smoother_multicam with different pca_dims values."""
+def test_ensemble_kalman_smoother_multicam_n_latent():
+    """Test ensemble_kalman_smoother_multicam with different n_latent values."""
 
     keypoint_names = ['kp1', 'kp2']
     data_fields = ['x', 'y', 'likelihood']
@@ -192,7 +192,7 @@ def test_ensemble_kalman_smoother_multicam_pca_dims():
     quantile_keep_pca = 90
     s_frames = [(0, 10)]
 
-    for pca_dims in [2, 3, 5]:  # Test different PCA dimensions
+    for n_latent in [2, 3, 5]:  # Test different PCA dimensions
         camera_dfs, _ = ensemble_kalman_smoother_multicam(
             marker_array=markerArray,
             keypoint_names=keypoint_names,
@@ -202,7 +202,7 @@ def test_ensemble_kalman_smoother_multicam_pca_dims():
             s_frames=s_frames,
             avg_mode='median',
             inflate_vars=False,
-            pca_dims=pca_dims,  # Testing varying PCA dimensions
+            n_latent=n_latent,  # Testing varying PCA dimensions
         )
 
         # Ensure the output dataframes exist for each camera
