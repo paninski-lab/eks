@@ -80,6 +80,7 @@ def handle_parse_args(script_type):
         add_quantile_keep_pca(parser)
         add_s(parser)
         add_inflate_vars(parser)
+        add_n_latent(parser)
     elif script_type == 'ibl_pupil':
         add_diameter_s(parser)
         add_com_s(parser)
@@ -204,5 +205,15 @@ def add_inflate_vars(parser):
         help='if set to true, uses Mahalanobis distances to inflate ensemble variance in multicam',
         default='',
         type=str,
+    )
+    return parser
+
+
+def add_n_latent(parser):
+    parser.add_argument(
+        '--n-latent',
+        help='user-specified number of latent dimensions to keep from PCA',
+        default=3,
+        type=int,
     )
     return parser
