@@ -140,7 +140,7 @@ def forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars):
     K_array, _ = kalman_dot(y[0, :] - np.dot(C, m0), S0, C, R)
     mf[0] = m0 + K_array
     Vf[0, :] = S0 - K_array
-    S[0] = np.eye(3)
+    S[0] = np.eye(m0.shape[0])
     innovations[0] = y[0] - np.dot(C, mf[0])
     innovation_cov[0] = np.dot(C, np.dot(S0, C.T)) + R
 
