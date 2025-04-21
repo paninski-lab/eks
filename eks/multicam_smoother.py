@@ -2,6 +2,7 @@ import os
 
 import numpy as np
 import pandas as pd
+import jax.numpy as jnp
 from scipy.optimize import minimize
 from sklearn.decomposition import PCA
 from typeguard import typechecked
@@ -12,6 +13,7 @@ from eks.core import (
     compute_nll,
     forward_pass,
     jax_ensemble,
+    optimize_smooth_param
 )
 from eks.marker_array import (
     MarkerArray,
@@ -19,6 +21,7 @@ from eks.marker_array import (
     mA_to_stacked_array,
     stacked_array_to_mA,
 )
+#from eks.singlecam_smoother import singlecam_optimize_smooth
 from eks.stats import compute_mahalanobis, compute_pca
 from eks.utils import crop_frames, format_data, make_dlc_pandas_index
 
@@ -235,7 +238,6 @@ def ensemble_kalman_smoother_multicam(
 
     # MarkerArray (1, n_cameras, n_frames, n_keypoints, 5 (x, y, var_x, var_y, likelihood))
     ensemble_marker_array = jax_ensemble(marker_array, avg_mode=avg_mode, var_mode=var_mode)
-
     emA_unsmoothed_preds = ensemble_marker_array.slice_fields("x", "y")
     emA_vars = ensemble_marker_array.slice_fields("var_x", "var_y")
     emA_likes = ensemble_marker_array.slice_fields("likelihood")
@@ -271,38 +273,51 @@ def ensemble_kalman_smoother_multicam(
 
     # Kalman Filter Section ------------------------------------------
 
-    # Collection array for marker output by camera view
+    # Initialize Kalman filter parameters
+    m0s, S0s, As, cov_mats, Cs, Rs = initialize_kalman_filter_pca(
+        good_pcs_list=good_pcs_list,
+        ensemble_pca=ensemble_pca,
+        n_latent=n_latent,
+    )
+
+    # Collect observations and variances
+    ys = np.stack([
+        mA_to_stacked_array(emA_centered_preds, k)
+        for k in range(n_keypoints)
+    ])
+    ensemble_vars = np.stack([
+        mA_to_stacked_array(emA_inflated_vars, k)
+        for k in range(n_keypoints)
+    ])
+
+    # Optimize smoothing
+    s_finals, ms, Vs, _ = optimize_smooth_param(
+        cov_mats=cov_mats,
+        ys=ys,
+        m0s=m0s,
+        S0s=S0s,
+        Cs=Cs,
+        As=As,
+        Rs=Rs,
+        ensemble_vars=np.swapaxes(ensemble_vars, 0, 1),
+        s_frames=s_frames,
+        smooth_param=smooth_param,
+        verbose=verbose
+    )
+    # Reproject from latent space back to observed space
     camera_arrs = [[] for _ in camera_names]
     for k, keypoint in enumerate(keypoint_names):
-
-        # Initializations
-        m0 = np.zeros(n_latent)
-        S0 = np.diag([np.var(good_pcs_list[k][:, i]) for i in range(n_latent)])
-        A = np.eye(n_latent)
-        d_t = good_pcs_list[k][1:] - good_pcs_list[k][:-1]
-        C = ensemble_pca[k].components_.T
-        R = np.eye(ensemble_pca[k].components_.shape[1])
-        cov_matrix = np.cov(d_t.T)
-        # emA to stacked array conversions
-        inflated_vars_k = mA_to_stacked_array(emA_inflated_vars, k)
-        centered_preds_k = mA_to_stacked_array(emA_centered_preds, k)
-        # Smoothing parameter auto-tuning + final smooth
-        smooth_param_final, ms, Vs, _, _ = multicam_optimize_smooth(
-            cov_matrix, centered_preds_k, m0, S0, C, A, R, inflated_vars_k, s_frames, smooth_param
-        )
-
-        if verbose:
-            print(f"Smoothed {keypoint} at smooth_param={smooth_param_final}")
-
-        y_m_smooth = np.dot(C, ms.T).T
-        y_v_smooth = np.swapaxes(np.dot(C, np.dot(Vs, C.T)), 0, 1)
-
+        C = Cs[k]
+        ms_k = ms[k]
+        Vs_k = Vs[k]
+        inflated_vars_k = ensemble_vars[k]
+        y_m_smooth = np.dot(C, ms_k.T).T
+        y_v_smooth = np.swapaxes(np.dot(C, np.dot(Vs_k, C.T)), 0, 1)
         # Final cleanup
         c_i = [[camera * 2, camera * 2 + 1] for camera in range(n_cameras)]
         for c, camera in enumerate(camera_names):
             data_arr = camera_arrs[c]
             x_i, y_i = c_i[c]
-
             data_arr.extend([
                 y_m_smooth.T[x_i] + [
                     emA_means.slice("keypoints", k).slice("cameras", c).slice_fields(
@@ -319,8 +334,8 @@ def ensemble_kalman_smoother_multicam(
                     "var_x").get_array(squeeze=True),
                 emA_inflated_vars.slice("keypoints", k).slice("cameras", c).slice_fields(
                     "var_y").get_array(squeeze=True),
-                y_v_smooth[:, x_i, x_i],
-                y_v_smooth[:, y_i, y_i],
+                y_v_smooth[:, x_i, x_i] + inflated_vars_k[:, x_i],
+                y_v_smooth[:, y_i, y_i] + inflated_vars_k[:, y_i],
             ])
 
     labels = [
@@ -335,8 +350,56 @@ def ensemble_kalman_smoother_multicam(
         camera_arr = np.asarray(camera_arrs[c])
         camera_df = pd.DataFrame(camera_arr.T, columns=pdindex)
         camera_dfs.append(camera_df)
+    print(s_finals)
+    return camera_dfs, s_finals
 
-    return camera_dfs, smooth_param_final
+
+def initialize_kalman_filter_pca(
+    good_pcs_list: list[np.ndarray],
+    ensemble_pca: list[PCA],
+    n_latent: int,
+) -> tuple:
+    """
+    Initialize Kalman filter parameters for PCA-projected keypoints.
+
+    Parameters:
+        good_pcs_list: List of (n_good_frames, n_latent) arrays per keypoint.
+        ensemble_pca: List of PCA objects (one per keypoint).
+        n_latent: Number of latent dimensions (usually <= 3).
+
+    Returns:
+        tuple: (m0s, S0s, As, cov_mats, Cs, Rs) as arrays stacked over keypoints.
+    """
+
+    n_keypoints = len(good_pcs_list)
+
+    m0s = np.zeros((n_keypoints, n_latent))
+    S0s = np.array([
+        np.diag([np.var(good_pcs_list[k][:, i]) for i in range(n_latent)])
+        for k in range(n_keypoints)
+    ])
+    As = np.tile(np.eye(n_latent), (n_keypoints, 1, 1))
+    Cs = np.stack([pca.components_.T for pca in ensemble_pca])
+    Rs = np.tile(np.eye(n_latent), (n_keypoints, 1, 1))
+
+    cov_mats = []
+    for k in range(n_keypoints):
+        pcs = good_pcs_list[k]
+        d_t = pcs[1:] - pcs[:-1]
+        cov = np.cov(d_t.T)
+        cov_norm = cov / np.max(np.abs(cov)) if np.max(np.abs(cov)) > 0 else cov
+        cov_mats.append(cov_norm)
+
+    cov_mats = np.stack(cov_mats)
+
+    return (
+        jnp.array(m0s),
+        jnp.array(S0s),
+        jnp.array(As),
+        jnp.array(cov_mats),
+        jnp.array(Cs),
+        jnp.array(Rs),
+    )
 
 
 def multicam_optimize_smooth(
