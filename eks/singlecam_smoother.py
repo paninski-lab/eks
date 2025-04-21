@@ -7,9 +7,8 @@ from typeguard import typechecked
 
 from eks.core import (
     jax_ensemble,
-    optimize_smooth_param, )
+    optimize_smooth_param, center_predictions, )
 from eks.marker_array import MarkerArray, input_dfs_to_markerArray
-from eks.multicam_smoother import center_predictions
 from eks.utils import format_data, make_dlc_pandas_index
 
 
@@ -139,7 +138,7 @@ def ensemble_kalman_smoother_singlecam(
     (
         m0s, S0s, As, cov_mats, Cs, Rs
     ) = initialize_kalman_filter(emA_centered_preds)
-    print(emA_vars.get_array(squeeze=True).shape)
+
     # Main smoothing function
     s_finals, ms, Vs, nlls = optimize_smooth_param(
         cov_mats, ys, m0s, S0s, Cs, As, Rs, emA_vars.get_array(squeeze=True),

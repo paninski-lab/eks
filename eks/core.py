@@ -4,16 +4,15 @@ import jax
 import jax.scipy as jsc
 import numpy as np
 import optax
-from jax import jit, numpy as jnp, vmap
+from jax import jit, vmap
 from jax import numpy as jnp
 from typeguard import typechecked
 
 from eks.marker_array import MarkerArray
 
 # ------------------------------------------------------------------------------------------
-# Original Core Functions: These functions are still in use for the multicam and IBL scripts
-# as of this update, but will eventually be replaced the with faster versions used in
-# the singlecam script
+# Original Core Functions: These functions are still in use for the IBL scripts
+# as of this update, but will eventually be replaced the with JAX versions
 # ------------------------------------------------------------------------------------------
 from eks.utils import crop_frames
 
@@ -259,8 +258,6 @@ def compute_nll(innovations, innovation_covs, epsilon=1e-6):
 # and will eventually replace the Original Core Functions
 # -------------------------------------------------------------------------------------
 
-# ----- Sequential Functions for CPU -----
-
 @typechecked
 def jax_ensemble(
     marker_array: MarkerArray,
@@ -505,85 +502,55 @@ def single_timestep_nll(innovation, innovation_cov):
     return nll_increment
 
 
-# -------------------------------------------------------------------------------------
-# Misc: These miscellaneous functions generally have specific computations used by the
-# core functions or the smoothers
-# -------------------------------------------------------------------------------------
-
-
-def eks_zscore(eks_predictions, ensemble_means, ensemble_vars, min_ensemble_std=1e-5):
-    """Computes zscore between eks prediction and the ensemble for a single keypoint.
-    Args:
-        eks_predictions: list
-            EKS prediction for each coordinate (x and ys) for as single keypoint - (samples, 2)
-        ensemble_means: list
-            Ensemble mean for each coordinate (x and ys) for as single keypoint - (samples, 2)
-        ensemble_vars: string
-            Ensemble var for each coordinate (x and ys) for as single keypoint - (samples, 2)
-        min_ensemble_std:
-            Minimum std threshold to reduce the effect of low ensemble std (default 1e-5).
-    Returns:
-        z_score
-            z_score for each time point - (samples, 1)
+def final_forwards_backwards_pass(process_cov, s, ys, m0s, S0s, Cs, As, Rs, ensemble_vars):
     """
-    ensemble_std = np.sqrt(
-        # trace of covariance matrix - multi-d variance measure
-        ensemble_vars[:, 0] + ensemble_vars[:, 1])
-    num = np.sqrt(
-        (eks_predictions[:, 0]
-         - ensemble_means[:, 0]) ** 2
-        + (eks_predictions[:, 1] - ensemble_means[:, 1]) ** 2)
-    thresh_ensemble_std = ensemble_std.copy()
-    thresh_ensemble_std[thresh_ensemble_std < min_ensemble_std] = min_ensemble_std
-    z_score = num / thresh_ensemble_std
-    return z_score, ensemble_std
+    Perform final smoothing with the optimized smoothing parameters.
 
-
-def compute_covariance_matrix(ensemble_preds):
-    """Compute the covariance matrix E for correlated noise dynamics.
-
-    Args:
-        ensemble_preds: shape (T, n_keypoints, n_coords) containing the ensemble predictions.
+    Parameters:
+        process_cov: Shape (keypoints, state_coords, state_coords). Process noise covariance matrix
+        s: Shape (keypoints,). We scale the process noise covariance by this value at each keypoint
+        ys: Shape (keypoints, frames, observation_coordinates). Observations for all keypoints.
+        m0s: Shape (keypoints, state_coords). Initial ensembled mean state for each keypoint.
+        S0s: Shape (keypoints, state_coords, state_coords). Initial ensembled state covars fek.
+        Cs: Shape (keypoints, obs_coords, state_coords). Observation measurement coeff matrix.
+        As: Shape (keypoints, state_coords, state_coords). Process matrix for each keypoint.
+        Rs: Shape (keypoints, obs_coords, obs_coords). Measurement noise covariance.
 
     Returns:
-        E: A 2K x 2K covariance matrix where K is the number of keypoints.
-
+        smoothed means: Shape (keypoints, timepoints, coords).
+            Kalman smoother state estimates outputs for all frames/all keypoints.
+        smoothed covariances: Shape (num_keypoints, num_state_coordinates, num_state_coordinates)
     """
-    # Get the number of time steps, keypoints, and coordinates
-    T, n_keypoints, n_coords = ensemble_preds.shape
 
-    # Flatten the ensemble predictions to shape (T, 2K) where K is the number of keypoints
-    # flattened_preds = ensemble_preds.reshape(T, -1)
+    # Initialize
+    n_keypoints = ys.shape[0]
+    ms_array = []
+    Vs_array = []
+    nlls_array = []
+    Qs = s[:, None, None] * process_cov
 
-    # Compute the temporal differences
-    # temporal_diffs = np.diff(flattened_preds, axis=0)
+    # Run forward and backward pass for each keypoint
+    for k in range(n_keypoints):
+        mf, Vf, nll, nll_array = jax_forward_pass_nlls(
+            ys[k], m0s[k], S0s[k], As[k], Qs[k], Cs[k], Rs[k], ensemble_vars[:, k, :])
+        ms, Vs = jax_backward_pass(mf, Vf, As[k], Qs[k])
 
-    # Compute the covariance matrix of the temporal differences
-    # E = np.cov(temporal_diffs, rowvar=False)
+        ms_array.append(np.array(ms))
+        Vs_array.append(np.array(Vs))
+        nlls_array.append(np.array(nll_array))
 
-    # Index covariance matrix into blocks for each keypoint
-    cov_mats = []
-    for i in range(n_keypoints):
-        # E_block = extract_submatrix(E, i)  -- using E_block instead of the identity matrix
-        # leads to a correlated dynamics model, but further debugging required due to negative vars
-        cov_mats.append([[1, 0], [0, 1]])
-    cov_mats = jnp.array(cov_mats)
-    return cov_mats
+    smoothed_means = np.stack(ms_array, axis=0)
+    smoothed_covariances = np.stack(Vs_array, axis=0)
 
+    return smoothed_means, smoothed_covariances, nlls_array
 
-def extract_submatrix(Qs, i, submatrix_size=2):
-    # Compute the start indices for the submatrix
-    i_q = 2 * i
-    start_indices = (i_q, i_q)
-
-    # Use jax.lax.dynamic_slice to extract the submatrix
-    submatrix = jax.lax.dynamic_slice(Qs, start_indices, (submatrix_size, submatrix_size))
-
-    return submatrix
+# -------------------------------------------------------------------------------------
+# Optimization: These functions are related to optimizing the smoothing hyperparameter
+# -------------------------------------------------------------------------------------
 
 
 def compute_initial_guesses(ensemble_vars):
-    """Computes an initial guess for optimized s, which is the stdev of temporal differences."""
+    """Computes an initial guess for optimized s as the stdev of temporal differences."""
     # Consider only the first 2000 entries in ensemble_vars
     ensemble_vars = ensemble_vars[:2000]
 
@@ -743,6 +710,7 @@ def inner_smooth_min_routine(y, m0, S0, A, Q, C, R, ensemble_var):
     _, _, nll = jax_forward_pass(y, m0, S0, A, Q, C, R, ensemble_var)
     return nll
 
+
 inner_smooth_min_routine_vmap = vmap(inner_smooth_min_routine, in_axes=(0, 0, 0, 0, 0, 0, 0, 0))
 
 
@@ -770,45 +738,153 @@ def smooth_min(smooth_param, cov_mats, ys, m0s, S0s, Cs, As, Rs, ensemble_vars):
     nlls = jnp.sum(inner_smooth_min_routine_vmap(ys, m0s, S0s, As, Qs, Cs, Rs, ensemble_vars))
     return nlls
 
+# -------------------------------------------------------------------------------------
+# Misc: These miscellaneous functions generally have specific computations used by the
+# core functions or the smoothers
+# -------------------------------------------------------------------------------------
 
-def final_forwards_backwards_pass(process_cov, s, ys, m0s, S0s, Cs, As, Rs, ensemble_vars):
+
+def eks_zscore(eks_predictions, ensemble_means, ensemble_vars, min_ensemble_std=1e-5):
+    """Computes zscore between eks prediction and the ensemble for a single keypoint.
+    Args:
+        eks_predictions: list
+            EKS prediction for each coordinate (x and ys) for as single keypoint - (samples, 2)
+        ensemble_means: list
+            Ensemble mean for each coordinate (x and ys) for as single keypoint - (samples, 2)
+        ensemble_vars: string
+            Ensemble var for each coordinate (x and ys) for as single keypoint - (samples, 2)
+        min_ensemble_std:
+            Minimum std threshold to reduce the effect of low ensemble std (default 1e-5).
+    Returns:
+        z_score
+            z_score for each time point - (samples, 1)
     """
-    Perform final smoothing with the optimized smoothing parameters.
+    ensemble_std = np.sqrt(
+        # trace of covariance matrix - multi-d variance measure
+        ensemble_vars[:, 0] + ensemble_vars[:, 1])
+    num = np.sqrt(
+        (eks_predictions[:, 0]
+         - ensemble_means[:, 0]) ** 2
+        + (eks_predictions[:, 1] - ensemble_means[:, 1]) ** 2)
+    thresh_ensemble_std = ensemble_std.copy()
+    thresh_ensemble_std[thresh_ensemble_std < min_ensemble_std] = min_ensemble_std
+    z_score = num / thresh_ensemble_std
+    return z_score, ensemble_std
 
-    Parameters:
-        process_cov: Shape (keypoints, state_coords, state_coords). Process noise covariance matrix
-        s: Shape (keypoints,). We scale the process noise covariance by this value at each keypoint
-        ys: Shape (keypoints, frames, observation_coordinates). Observations for all keypoints.
-        m0s: Shape (keypoints, state_coords). Initial ensembled mean state for each keypoint.
-        S0s: Shape (keypoints, state_coords, state_coords). Initial ensembled state covars fek.
-        Cs: Shape (keypoints, obs_coords, state_coords). Observation measurement coeff matrix.
-        As: Shape (keypoints, state_coords, state_coords). Process matrix for each keypoint.
-        Rs: Shape (keypoints, obs_coords, obs_coords). Measurement noise covariance.
+
+def compute_covariance_matrix(ensemble_preds):
+    """Compute the covariance matrix E for correlated noise dynamics.
+
+    Args:
+        ensemble_preds: shape (T, n_keypoints, n_coords) containing the ensemble predictions.
 
     Returns:
-        smoothed means: Shape (keypoints, timepoints, coords).
-            Kalman smoother state estimates outputs for all frames/all keypoints.
-        smoothed covariances: Shape (num_keypoints, num_state_coordinates, num_state_coordinates)
+        E: A 2K x 2K covariance matrix where K is the number of keypoints.
+
     """
+    # Get the number of time steps, keypoints, and coordinates
+    T, n_keypoints, n_coords = ensemble_preds.shape
 
-    # Initialize
-    n_keypoints = ys.shape[0]
-    ms_array = []
-    Vs_array = []
-    nlls_array = []
-    Qs = s[:, None, None] * process_cov
+    # Flatten the ensemble predictions to shape (T, 2K) where K is the number of keypoints
+    # flattened_preds = ensemble_preds.reshape(T, -1)
 
-    # Run forward and backward pass for each keypoint
+    # Compute the temporal differences
+    # temporal_diffs = np.diff(flattened_preds, axis=0)
+
+    # Compute the covariance matrix of the temporal differences
+    # E = np.cov(temporal_diffs, rowvar=False)
+
+    # Index covariance matrix into blocks for each keypoint
+    cov_mats = []
+    for i in range(n_keypoints):
+        # E_block = extract_submatrix(E, i)  -- using E_block instead of the identity matrix
+        # leads to a correlated dynamics model, but further debugging required due to negative vars
+        cov_mats.append([[1, 0], [0, 1]])
+    cov_mats = jnp.array(cov_mats)
+    return cov_mats
+
+
+def extract_submatrix(Qs, i, submatrix_size=2):
+    # Compute the start indices for the submatrix
+    i_q = 2 * i
+    start_indices = (i_q, i_q)
+
+    # Use jax.lax.dynamic_slice to extract the submatrix
+    submatrix = jax.lax.dynamic_slice(Qs, start_indices, (submatrix_size, submatrix_size))
+
+    return submatrix
+
+
+def center_predictions(
+    ensemble_marker_array: MarkerArray,
+    quantile_keep_pca: float
+):
+    """
+    Filter frames based on variance, compute mean coordinates, and scale predictions.
+
+    Args:
+        ensemble_marker_array: Ensemble MarkerArray containing predicted positions and variances.
+        quantile_keep_pca: Threshold percentage for filtering low-variance frames.
+
+    Returns:
+        tuple:
+            valid_frames_mask (np.ndarray): Boolean mask of valid frames per keypoint.
+            emA_centered_preds (MarkerArray): Centered ensemble predictions.
+            emA_good_centered_preds (MarkerArray): Centered ensemble predictions for valid frames.
+            emA_means (MarkerArray): Mean x and y coords for each camera.
+    """
+    n_models, n_cameras, n_frames, n_keypoints, _ = ensemble_marker_array.shape
+    assert n_models == 1, "MarkerArray should have n_models = 1 after ensembling."
+
+    emA_preds = ensemble_marker_array.slice_fields("x", "y")
+    emA_vars = ensemble_marker_array.slice_fields("var_x", "var_y")
+
+    # Maximum variance for each keypoint in each frame, independent of camera
+    max_vars_per_frame = np.max(emA_vars.array, axis=(0, 1, 4))  # Shape: (n_frames, n_keypoints)
+    # Compute variance threshold for each keypoint
+    thresholds = np.percentile(max_vars_per_frame, quantile_keep_pca, axis=0)
+
+    valid_frames_mask = max_vars_per_frame <= thresholds  # Shape: (n_frames, n_keypoints)
+
+    min_frames = float('inf')  # Initialize min_frames to infinity
+
+    emA_centered_preds_list = []
+    emA_good_centered_preds_list = []
+    emA_means_list = []
+    good_frame_indices_list = []
+
     for k in range(n_keypoints):
-        mf, Vf, nll, nll_array = jax_forward_pass_nlls(
-            ys[k], m0s[k], S0s[k], As[k], Qs[k], Cs[k], Rs[k], ensemble_vars[:, k, :])
-        ms, Vs = jax_backward_pass(mf, Vf, As[k], Qs[k])
+        # Find valid frame indices for the current keypoint
+        good_frame_indices = np.where(valid_frames_mask[:, k])[0]  # Shape: (n_filtered_frames,)
 
-        ms_array.append(np.array(ms))
-        Vs_array.append(np.array(Vs))
-        nlls_array.append(np.array(nll_array))
+        # Update min_frames to track the minimum number of valid frames across keypoints
+        if len(good_frame_indices) < min_frames:
+            min_frames = len(good_frame_indices)
 
-    smoothed_means = np.stack(ms_array, axis=0)
-    smoothed_covariances = np.stack(Vs_array, axis=0)
+        good_frame_indices_list.append(good_frame_indices)
 
-    return smoothed_means, smoothed_covariances, nlls_array
+    # Now, reprocess each keypoint using only `min_frames` frames
+    for k in range(n_keypoints):
+        good_frame_indices = good_frame_indices_list[k][:min_frames]  # Truncate to min_frames
+
+        # Extract valid frames for this keypoint
+        good_preds_k = emA_preds.array[:, :, good_frame_indices, k, :]
+        good_preds_k = np.expand_dims(good_preds_k, axis=3)
+
+        # Scale predictions by subtracting means (over frames) from predictions
+        means_k = np.mean(good_preds_k, axis=2)[:, :, None, :, :]
+        centered_preds_k = emA_preds.slice("keypoints", k).array - means_k
+        good_centered_preds_k = good_preds_k - means_k
+
+        emA_centered_preds_list.append(
+            MarkerArray(centered_preds_k, data_fields=["x", "y"]))
+        emA_good_centered_preds_list.append(
+            MarkerArray(good_centered_preds_k, data_fields=["x", "y"]))
+        emA_means_list.append(MarkerArray(means_k, data_fields=["x", "y"]))
+
+    # Concatenate all keypoint-wise filtered results along the keypoints axis
+    emA_centered_preds = MarkerArray.stack(emA_centered_preds_list, "keypoints")
+    emA_good_centered_preds = MarkerArray.stack(emA_good_centered_preds_list, "keypoints")
+    emA_means = MarkerArray.stack(emA_means_list, "keypoints")
+
+    return valid_frames_mask, emA_centered_preds, emA_good_centered_preds, emA_means
