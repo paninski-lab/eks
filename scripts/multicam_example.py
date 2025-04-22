@@ -51,7 +51,7 @@ plot_results(
     input_dfs_list=input_dfs[camera_c],
     key=f'{bodypart_list[keypoint_i]}',
     idxs=(0, 500),
-    s_final=s_finals,
+    s_final=s_finals[keypoint_i],
     nll_values=None,
     save_dir=save_dir,
     smoother_type=smoother_type,
