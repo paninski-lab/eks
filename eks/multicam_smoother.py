@@ -2,16 +2,13 @@ import os
 
 import numpy as np
 import pandas as pd
-from scipy.optimize import minimize
+import jax.numpy as jnp
 from sklearn.decomposition import PCA
 from typeguard import typechecked
 
 from eks.core import (
-    backward_pass,
-    compute_initial_guesses,
-    compute_nll,
-    forward_pass,
     jax_ensemble,
+    optimize_smooth_param, center_predictions
 )
 from eks.marker_array import (
     MarkerArray,
@@ -19,8 +16,9 @@ from eks.marker_array import (
     mA_to_stacked_array,
     stacked_array_to_mA,
 )
+#from eks.singlecam_smoother import singlecam_optimize_smooth
 from eks.stats import compute_mahalanobis, compute_pca
-from eks.utils import crop_frames, format_data, make_dlc_pandas_index
+from eks.utils import format_data, make_dlc_pandas_index
 
 
 @typechecked
@@ -43,7 +41,7 @@ def fit_eks_mirrored_multicam(
 
     Args:
         input_source: Directory path or list of CSV file paths with columns for all cameras.
-        save_file: File to save output DataFrame.
+        save_file: Directory to save output DataFrame.
         bodypart_list: List of body parts.
         smooth_param: Value in (0, Inf); smaller values lead to more smoothing.
         s_frames: Frames for automatic optimization if smooth_param is not provided.
@@ -66,8 +64,13 @@ def fit_eks_mirrored_multicam(
     # Load and format input files
     input_dfs_list, keypoint_names = format_data(input_source)
     if bodypart_list is None:
-        bodypart_list = keypoint_names
-        print(f'Input data loaded for keypoints:\n{bodypart_list}')
+        seen = set()
+        bodypart_list = []
+        for name in keypoint_names:
+            base = name.split("_")[0]
+            if base not in seen:
+                seen.add(base)
+                bodypart_list.append(base)
 
     n_models = len(input_dfs_list)
     n_cameras = len(camera_names)
@@ -86,7 +89,6 @@ def fit_eks_mirrored_multicam(
             camera_df = df[list(camera_columns.keys())].rename(columns=camera_columns)
             # Store in the structured list
             camera_model_dfs[cam_idx][model_idx] = camera_df
-
     marker_array = input_dfs_to_markerArray(camera_model_dfs, bodypart_list, camera_names)
 
     # Run the ensemble Kalman smoother for multi-camera data
@@ -235,7 +237,6 @@ def ensemble_kalman_smoother_multicam(
 
     # MarkerArray (1, n_cameras, n_frames, n_keypoints, 5 (x, y, var_x, var_y, likelihood))
     ensemble_marker_array = jax_ensemble(marker_array, avg_mode=avg_mode, var_mode=var_mode)
-
     emA_unsmoothed_preds = ensemble_marker_array.slice_fields("x", "y")
     emA_vars = ensemble_marker_array.slice_fields("var_x", "var_y")
     emA_likes = ensemble_marker_array.slice_fields("likelihood")
@@ -271,38 +272,51 @@ def ensemble_kalman_smoother_multicam(
 
     # Kalman Filter Section ------------------------------------------
 
-    # Collection array for marker output by camera view
+    # Initialize Kalman filter parameters
+    m0s, S0s, As, cov_mats, Cs, Rs = initialize_kalman_filter_pca(
+        good_pcs_list=good_pcs_list,
+        ensemble_pca=ensemble_pca,
+        n_latent=n_latent,
+    )
+
+    # Collect observations and variances
+    ys = np.stack([
+        mA_to_stacked_array(emA_centered_preds, k)
+        for k in range(n_keypoints)
+    ])
+    ensemble_vars = np.stack([
+        mA_to_stacked_array(emA_inflated_vars, k)
+        for k in range(n_keypoints)
+    ])
+
+    # Optimize smoothing
+    s_finals, ms, Vs, _ = optimize_smooth_param(
+        cov_mats=cov_mats,
+        ys=ys,
+        m0s=m0s,
+        S0s=S0s,
+        Cs=Cs,
+        As=As,
+        Rs=Rs,
+        ensemble_vars=np.swapaxes(ensemble_vars, 0, 1),
+        s_frames=s_frames,
+        smooth_param=smooth_param,
+        verbose=verbose
+    )
+    # Reproject from latent space back to observed space
     camera_arrs = [[] for _ in camera_names]
     for k, keypoint in enumerate(keypoint_names):
-
-        # Initializations
-        m0 = np.zeros(n_latent)
-        S0 = np.diag([np.var(good_pcs_list[k][:, i]) for i in range(n_latent)])
-        A = np.eye(n_latent)
-        d_t = good_pcs_list[k][1:] - good_pcs_list[k][:-1]
-        C = ensemble_pca[k].components_.T
-        R = np.eye(ensemble_pca[k].components_.shape[1])
-        cov_matrix = np.cov(d_t.T)
-        # emA to stacked array conversions
-        inflated_vars_k = mA_to_stacked_array(emA_inflated_vars, k)
-        centered_preds_k = mA_to_stacked_array(emA_centered_preds, k)
-        # Smoothing parameter auto-tuning + final smooth
-        smooth_param_final, ms, Vs, _, _ = multicam_optimize_smooth(
-            cov_matrix, centered_preds_k, m0, S0, C, A, R, inflated_vars_k, s_frames, smooth_param
-        )
-
-        if verbose:
-            print(f"Smoothed {keypoint} at smooth_param={smooth_param_final}")
-
-        y_m_smooth = np.dot(C, ms.T).T
-        y_v_smooth = np.swapaxes(np.dot(C, np.dot(Vs, C.T)), 0, 1)
-
+        C = Cs[k]
+        ms_k = ms[k]
+        Vs_k = Vs[k]
+        inflated_vars_k = ensemble_vars[k]
+        y_m_smooth = np.dot(C, ms_k.T).T
+        y_v_smooth = np.swapaxes(np.dot(C, np.dot(Vs_k, C.T)), 0, 1)
         # Final cleanup
         c_i = [[camera * 2, camera * 2 + 1] for camera in range(n_cameras)]
         for c, camera in enumerate(camera_names):
             data_arr = camera_arrs[c]
             x_i, y_i = c_i[c]
-
             data_arr.extend([
                 y_m_smooth.T[x_i] + [
                     emA_means.slice("keypoints", k).slice("cameras", c).slice_fields(
@@ -319,8 +333,8 @@ def ensemble_kalman_smoother_multicam(
                     "var_x").get_array(squeeze=True),
                 emA_inflated_vars.slice("keypoints", k).slice("cameras", c).slice_fields(
                     "var_y").get_array(squeeze=True),
-                y_v_smooth[:, x_i, x_i],
-                y_v_smooth[:, y_i, y_i],
+                y_v_smooth[:, x_i, x_i] + inflated_vars_k[:, x_i],
+                y_v_smooth[:, y_i, y_i] + inflated_vars_k[:, y_i],
             ])
 
     labels = [
@@ -335,157 +349,55 @@ def ensemble_kalman_smoother_multicam(
         camera_arr = np.asarray(camera_arrs[c])
         camera_df = pd.DataFrame(camera_arr.T, columns=pdindex)
         camera_dfs.append(camera_df)
+    return camera_dfs, s_finals
 
-    return camera_dfs, smooth_param_final
 
-
-def multicam_optimize_smooth(
-    cov_matrix, y, m0, s0, C, A, R, ensemble_vars,
-    s_frames=[(None, None)],
-    smooth_param=None
-):
+def initialize_kalman_filter_pca(
+    good_pcs_list: list[np.ndarray],
+    ensemble_pca: list[PCA],
+    n_latent: int,
+) -> tuple:
     """
-    Optimizes s using Nelder-Mead minimization, then smooths using s.
-    Compatible with the singlecam and multicam examples.
-    """
-    # Optimize smooth_param
-    if smooth_param is None:
-        guess = compute_initial_guesses(ensemble_vars)
+    Initialize Kalman filter parameters for PCA-projected keypoints.
 
-        # Update xatol during optimization
-        def callback(xk):
-            # Update xatol based on the current solution xk
-            xatol = np.log(np.abs(xk)) * 0.01
-
-            # Update the options dictionary with the new xatol value
-            options['xatol'] = xatol
-
-        # Initialize options with initial xatol
-        options = {'xatol': np.log(guess)}
-
-        # Unpack s_frames
-        cropped_y = crop_frames(y, s_frames)
-
-        # Minimize negative log likelihood
-        sol = minimize(
-            multicam_smooth_min,
-            x0=guess,  # initial smooth param guess
-            args=(cov_matrix, cropped_y, m0, s0, C, A, R, ensemble_vars),
-            method='Nelder-Mead',
-            options=options,
-            callback=callback,  # Pass the callback function
-            bounds=[(0, None)]
-        )
-        smooth_param = sol.x[0]
-    # Final smooth with optimized s
-    ms, Vs, nll, nll_values = multicam_smooth_final(
-        smooth_param, cov_matrix, y, m0, s0, C, A, R, ensemble_vars)
-
-    return smooth_param, ms, Vs, nll, nll_values
-
-
-def multicam_smooth_final(smooth_param, cov_matrix, y, m0, S0, C, A, R, ensemble_vars):
-    """
-    Smooths once using the given smooth_param, used after optimizing smooth_param.
-    Compatible with the singlecam and multicam example scripts.
-    """
-    # Adjust Q based on smooth_param and cov_matrix
-    Q = smooth_param * cov_matrix
-    # Run filtering and smoothing with the current smooth_param
-    mf, Vf, S, innovs, innov_cov = forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
-    ms, Vs, CV = backward_pass(y, mf, Vf, S, A)
-    # Compute the negative log-likelihood based on innovations and their covariance
-    nll, nll_values = compute_nll(innovs, innov_cov)
-    return ms, Vs, nll, nll_values
-
-
-def multicam_smooth_min(smooth_param, cov_matrix, y, m0, S0, C, A, R, ensemble_vars):
-    """
-    Smooths once using the given smooth_param. Returns only the nll, which is the parameter to
-    be minimized using the scipy.minimize() function
-    """
-    # Adjust Q based on smooth_param and cov_matrix
-    Q = smooth_param * cov_matrix
-    # Run filtering with the current smooth_param
-    mf, Vf, S, innovs, innov_cov = forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
-    # Compute the negative log-likelihood based on innovations and their covariance
-    nll, nll_values = compute_nll(innovs, innov_cov)
-    return nll
-
-
-def center_predictions(
-    ensemble_marker_array: MarkerArray,
-    quantile_keep_pca: float
-):
-    """
-    Filter frames based on variance, compute mean coordinates, and scale predictions.
-
-    Args:
-        ensemble_marker_array: Ensemble MarkerArray containing predicted positions and variances.
-        quantile_keep_pca: Threshold percentage for filtering low-variance frames.
+    Parameters:
+        good_pcs_list: List of (n_good_frames, n_latent) arrays per keypoint.
+        ensemble_pca: List of PCA objects (one per keypoint).
+        n_latent: Number of latent dimensions (usually <= 3).
 
     Returns:
-        tuple:
-            valid_frames_mask (np.ndarray): Boolean mask of valid frames per keypoint.
-            emA_centered_preds (MarkerArray): Centered ensemble predictions.
-            emA_good_centered_preds (MarkerArray): Centered ensemble predictions for valid frames.
-            emA_means (MarkerArray): Mean x and y coords for each camera.
+        tuple: (m0s, S0s, As, cov_mats, Cs, Rs) as arrays stacked over keypoints.
     """
-    n_models, n_cameras, n_frames, n_keypoints, _ = ensemble_marker_array.shape
-    assert n_models == 1, "MarkerArray should have n_models = 1 after ensembling."
 
-    emA_preds = ensemble_marker_array.slice_fields("x", "y")
-    emA_vars = ensemble_marker_array.slice_fields("var_x", "var_y")
+    n_keypoints = len(good_pcs_list)
 
-    # Maximum variance for each keypoint in each frame, independent of camera
-    max_vars_per_frame = np.max(emA_vars.array, axis=(0, 1, 4))  # Shape: (n_frames, n_keypoints)
-    # Compute variance threshold for each keypoint
-    thresholds = np.percentile(max_vars_per_frame, quantile_keep_pca, axis=0)
+    m0s = np.zeros((n_keypoints, n_latent))
+    S0s = np.array([
+        np.diag([np.var(good_pcs_list[k][:, i]) for i in range(n_latent)])
+        for k in range(n_keypoints)
+    ])
+    As = np.tile(np.eye(n_latent), (n_keypoints, 1, 1))
+    Cs = np.stack([pca.components_.T for pca in ensemble_pca])
+    Rs = np.tile(np.eye(n_latent), (n_keypoints, 1, 1))
 
-    valid_frames_mask = max_vars_per_frame <= thresholds  # Shape: (n_frames, n_keypoints)
-
-    min_frames = float('inf')  # Initialize min_frames to infinity
-
-    emA_centered_preds_list = []
-    emA_good_centered_preds_list = []
-    emA_means_list = []
-    good_frame_indices_list = []
-
+    cov_mats = []
     for k in range(n_keypoints):
-        # Find valid frame indices for the current keypoint
-        good_frame_indices = np.where(valid_frames_mask[:, k])[0]  # Shape: (n_filtered_frames,)
+        pcs = good_pcs_list[k]
+        d_t = pcs[1:] - pcs[:-1]
+        cov = np.cov(d_t.T)
+        cov_norm = cov / np.max(np.abs(cov)) if np.max(np.abs(cov)) > 0 else cov
+        cov_mats.append(cov_norm)
 
-        # Update min_frames to track the minimum number of valid frames across keypoints
-        if len(good_frame_indices) < min_frames:
-            min_frames = len(good_frame_indices)
+    cov_mats = np.stack(cov_mats)
 
-        good_frame_indices_list.append(good_frame_indices)
-
-    # Now, reprocess each keypoint using only `min_frames` frames
-    for k in range(n_keypoints):
-        good_frame_indices = good_frame_indices_list[k][:min_frames]  # Truncate to min_frames
-
-        # Extract valid frames for this keypoint
-        good_preds_k = emA_preds.array[:, :, good_frame_indices, k, :]
-        good_preds_k = np.expand_dims(good_preds_k, axis=3)
-
-        # Scale predictions by subtracting means (over frames) from predictions
-        means_k = np.mean(good_preds_k, axis=2)[:, :, None, :, :]
-        centered_preds_k = emA_preds.slice("keypoints", k).array - means_k
-        good_centered_preds_k = good_preds_k - means_k
-
-        emA_centered_preds_list.append(
-            MarkerArray(centered_preds_k, data_fields=["x", "y"]))
-        emA_good_centered_preds_list.append(
-            MarkerArray(good_centered_preds_k, data_fields=["x", "y"]))
-        emA_means_list.append(MarkerArray(means_k, data_fields=["x", "y"]))
-
-    # Concatenate all keypoint-wise filtered results along the keypoints axis
-    emA_centered_preds = MarkerArray.stack(emA_centered_preds_list, "keypoints")
-    emA_good_centered_preds = MarkerArray.stack(emA_good_centered_preds_list, "keypoints")
-    emA_means = MarkerArray.stack(emA_means_list, "keypoints")
-
-    return valid_frames_mask, emA_centered_preds, emA_good_centered_preds, emA_means
+    return (
+        jnp.array(m0s),
+        jnp.array(S0s),
+        jnp.array(As),
+        jnp.array(cov_mats),
+        jnp.array(Cs),
+        jnp.array(Rs),
+    )
 
 
 def mA_compute_maha(centered_emA_preds, emA_vars, emA_likes, n_latent,

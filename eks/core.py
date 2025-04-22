@@ -3,17 +3,18 @@ from functools import partial
 import jax
 import jax.scipy as jsc
 import numpy as np
-from jax import jit
+import optax
+from jax import jit, vmap
 from jax import numpy as jnp
 from typeguard import typechecked
 
 from eks.marker_array import MarkerArray
 
 # ------------------------------------------------------------------------------------------
-# Original Core Functions: These functions are still in use for the multicam and IBL scripts
-# as of this update, but will eventually be replaced the with faster versions used in
-# the singlecam script
+# Original Core Functions: These functions are still in use for the IBL scripts
+# as of this update, but will eventually be replaced the with JAX versions
 # ------------------------------------------------------------------------------------------
+from eks.utils import crop_frames
 
 
 @typechecked
@@ -257,8 +258,6 @@ def compute_nll(innovations, innovation_covs, epsilon=1e-6):
 # and will eventually replace the Original Core Functions
 # -------------------------------------------------------------------------------------
 
-# ----- Sequential Functions for CPU -----
-
 @typechecked
 def jax_ensemble(
     marker_array: MarkerArray,
@@ -309,8 +308,12 @@ def jax_ensemble(
     return ensemble_marker_array
 
 
-def kalman_filter_step(carry, curr_y):
-    m_prev, V_prev, A, Q, C, R, nll_net = carry
+def kalman_filter_step(carry, inputs):
+    m_prev, V_prev, A, Q, C, nll_net = carry
+    curr_y, curr_ensemble_var = inputs
+
+    # Update R with time-varying ensemble variance
+    R = jnp.diag(curr_ensemble_var)
 
     # Predict
     m_pred = jnp.dot(A, m_prev)
@@ -326,12 +329,12 @@ def kalman_filter_step(carry, curr_y):
     nll_current = single_timestep_nll(innovation, innovation_cov)
     nll_net = nll_net + nll_current
 
-    return (m_t, V_t, A, Q, C, R, nll_net), (m_t, V_t, nll_current)
+    return (m_t, V_t, A, Q, C, nll_net), (m_t, V_t, nll_current)
 
 
 def kalman_filter_step_nlls(carry, inputs):
     # Unpack carry and inputs
-    m_prev, V_prev, A, Q, C, R, nll_net, nll_array, t = carry
+    m_prev, V_prev, A, Q, C, nll_net, nll_array, t = carry
     curr_y, curr_ensemble_var = inputs
 
     # Update R with the current ensemble variance
@@ -361,7 +364,7 @@ def kalman_filter_step_nlls(carry, inputs):
     t = t + 1
 
     # Return the updated state and outputs
-    return (m_t, V_t, A, Q, C, R, nll_net, nll_array, t), (m_t, V_t, nll_current)
+    return (m_t, V_t, A, Q, C, nll_net, nll_array, t), (m_t, V_t, nll_current)
 
 
 # Always run the sequential filter on CPU.
@@ -386,7 +389,7 @@ def jax_forward_pass(y, m0, cov0, A, Q, C, R, ensemble_vars):
         nll_net: Shape (1,). Negative log likelihood observations -log (p(y_1, ..., y_T))
     """
     # Initialize carry
-    carry = (m0, cov0, A, Q, C, R, 0)
+    carry = (m0, cov0, A, Q, C, 0)
 
     # Run the scan, passing y and ensemble_vars as inputs to kalman_filter_step
     carry, outputs = jax.lax.scan(kalman_filter_step, carry, (y, ensemble_vars))
@@ -422,7 +425,7 @@ def jax_forward_pass_nlls(y, m0, cov0, A, Q, C, R, ensemble_vars):
     num_timepoints = y.shape[0]
     nll_array_init = jnp.zeros(num_timepoints)  # Preallocate an array with zeros
     t_init = 1  # Initialize the time step counter
-    carry = (m0, cov0, A, Q, C, R, 0, nll_array_init, t_init)
+    carry = (m0, cov0, A, Q, C, 0, nll_array_init, t_init)
 
     # Run the scan, passing y and ensemble_vars
     carry, outputs = jax.lax.scan(kalman_filter_step_nlls, carry, (y, ensemble_vars))
@@ -498,6 +501,242 @@ def single_timestep_nll(innovation, innovation_cov):
     nll_increment = 0.5 * jnp.abs(log_det_S + quadratic_term + c)
     return nll_increment
 
+
+def final_forwards_backwards_pass(process_cov, s, ys, m0s, S0s, Cs, As, Rs, ensemble_vars):
+    """
+    Perform final smoothing with the optimized smoothing parameters.
+
+    Parameters:
+        process_cov: Shape (keypoints, state_coords, state_coords). Process noise covariance matrix
+        s: Shape (keypoints,). We scale the process noise covariance by this value at each keypoint
+        ys: Shape (keypoints, frames, observation_coordinates). Observations for all keypoints.
+        m0s: Shape (keypoints, state_coords). Initial ensembled mean state for each keypoint.
+        S0s: Shape (keypoints, state_coords, state_coords). Initial ensembled state covars fek.
+        Cs: Shape (keypoints, obs_coords, state_coords). Observation measurement coeff matrix.
+        As: Shape (keypoints, state_coords, state_coords). Process matrix for each keypoint.
+        Rs: Shape (keypoints, obs_coords, obs_coords). Measurement noise covariance.
+
+    Returns:
+        smoothed means: Shape (keypoints, timepoints, coords).
+            Kalman smoother state estimates outputs for all frames/all keypoints.
+        smoothed covariances: Shape (num_keypoints, num_state_coordinates, num_state_coordinates)
+    """
+
+    # Initialize
+    n_keypoints = ys.shape[0]
+    ms_array = []
+    Vs_array = []
+    nlls_array = []
+    Qs = s[:, None, None] * process_cov
+
+    # Run forward and backward pass for each keypoint
+    for k in range(n_keypoints):
+        mf, Vf, nll, nll_array = jax_forward_pass_nlls(
+            ys[k], m0s[k], S0s[k], As[k], Qs[k], Cs[k], Rs[k], ensemble_vars[:, k, :])
+        ms, Vs = jax_backward_pass(mf, Vf, As[k], Qs[k])
+
+        ms_array.append(np.array(ms))
+        Vs_array.append(np.array(Vs))
+        nlls_array.append(np.array(nll_array))
+
+    smoothed_means = np.stack(ms_array, axis=0)
+    smoothed_covariances = np.stack(Vs_array, axis=0)
+
+    return smoothed_means, smoothed_covariances, nlls_array
+
+# -------------------------------------------------------------------------------------
+# Optimization: These functions are related to optimizing the smoothing hyperparameter
+# -------------------------------------------------------------------------------------
+
+
+def compute_initial_guesses(ensemble_vars):
+    """Computes an initial guess for optimized s as the stdev of temporal differences."""
+    # Consider only the first 2000 entries in ensemble_vars
+    ensemble_vars = ensemble_vars[:2000]
+
+    # Compute ensemble mean
+    ensemble_mean = np.nanmean(ensemble_vars, axis=0)
+    if ensemble_mean is None:
+        raise ValueError("No data found. Unable to compute ensemble mean.")
+
+    # Initialize list to store temporal differences
+    temporal_diffs_list = []
+
+    # Iterate over each time step
+    for i in range(1, len(ensemble_mean)):
+        # Compute temporal difference for current time step
+        temporal_diff = ensemble_mean - ensemble_vars[i]
+        temporal_diffs_list.append(temporal_diff)
+
+    # Compute standard deviation of temporal differences
+    std_dev_guess = round(np.std(temporal_diffs_list), 5)
+    return std_dev_guess
+
+
+def optimize_smooth_param(
+    cov_mats: np.ndarray,
+    ys: np.ndarray,
+    m0s: np.ndarray,
+    S0s: np.ndarray,
+    Cs: np.ndarray,
+    As: np.ndarray,
+    Rs: np.ndarray,
+    ensemble_vars: np.ndarray,
+    s_frames: list | None,
+    smooth_param: float | list | None,
+    blocks: list = [],
+    maxiter: int = 1000,
+    verbose: bool = False,
+) -> tuple:
+    """Optimize smoothing parameter, and use the result to run the kalman filter-smoother.
+
+    Parameters:
+        cov_mats: Covariance matrices.
+        ys: Observations. Shape (keypoints, frames, coordinates). coordinate is usually 2
+        m0s: Initial mean state.
+        S0s: Initial state covariance.
+        Cs: Measurement function.
+        As: State-transition matrix.
+        Rs: Measurement noise covariance.
+        ensemble_vars: Ensemble variances.
+        s_frames: List of frames.
+        smooth_param: Smoothing parameter.
+        blocks: keypoints to be blocked for correlated noise. Generates on smoothing param per
+            block, as opposed to per keypoint.
+            Specified by the form "x1, x2, x3; y1, y2" referring to keypoint indices (start at 0)
+        maxiter
+        verbose
+
+    Returns:
+        tuple: Final smoothing parameters, smoothed means, smoothed covariances,
+               negative log-likelihoods, negative log-likelihood values.
+
+    """
+
+    n_keypoints = ys.shape[0]
+    s_finals = []
+    if len(blocks) == 0:
+        for n in range(n_keypoints):
+            blocks.append([n])
+    if verbose:
+        print(f'Correlated keypoint blocks: {blocks}')
+
+    @partial(jit)
+    def nll_loss_sequential_scan(s, cov_mats, cropped_ys, m0s, S0s, Cs, As, Rs, ensemble_vars):
+        s = jnp.exp(s)  # To ensure positivity
+        return smooth_min(
+            s, cov_mats, cropped_ys, m0s, S0s, Cs, As, Rs, ensemble_vars)
+
+    loss_function = nll_loss_sequential_scan
+
+    # Optimize smooth_param
+    if smooth_param is not None:
+        if isinstance(smooth_param, float):
+            s_finals = [smooth_param]
+        elif isinstance(smooth_param, int):
+            s_finals = [float(smooth_param)]
+        else:
+            s_finals = smooth_param
+    else:
+        guesses = []
+        cropped_ys = []
+        for k in range(n_keypoints):
+            current_guess = compute_initial_guesses(ensemble_vars[:, k, :])
+            guesses.append(current_guess)
+            if s_frames is None or len(s_frames) == 0:
+                cropped_ys.append(ys[k])
+            else:
+                cropped_ys.append(crop_frames(ys[k], s_frames))
+
+        cropped_ys = np.array(cropped_ys)  # Concatenation of this list along dimension 0
+
+        # Optimize negative log likelihood
+        for block in blocks:
+            s_init = guesses[block[0]]
+            if s_init <= 0:
+                s_init = 2
+            s_init = jnp.log(s_init)
+            optimizer = optax.adam(learning_rate=0.25)
+            opt_state = optimizer.init(s_init)
+
+            selector = np.array(block).astype(int)
+            cov_mats_sub = cov_mats[selector]
+            m0s_crop = m0s[selector]
+            S0s_crop = S0s[selector]
+            Cs_crop = Cs[selector]
+            As_crop = As[selector]
+            Rs_crop = Rs[selector]
+            y_subset = cropped_ys[selector]
+            ensemble_vars_crop = np.swapaxes(ensemble_vars[:, selector, :], 0, 1)
+
+            def step(s, opt_state):
+                loss, grads = jax.value_and_grad(loss_function)(
+                    s, cov_mats_sub, y_subset, m0s_crop, S0s_crop, Cs_crop, As_crop, Rs_crop,
+                    ensemble_vars_crop)
+                updates, opt_state = optimizer.update(grads, opt_state)
+                s = optax.apply_updates(s, updates)
+                return s, opt_state, loss
+
+            prev_loss = jnp.inf
+            for iteration in range(maxiter):
+                s_init, opt_state, loss = step(s_init, opt_state)
+
+                if verbose and iteration % 10 == 0 or iteration == maxiter - 1:
+                    print(f'Iteration {iteration}, Current loss: {loss}, Current s: {s_init}')
+
+                tol = 0.001 * jnp.abs(jnp.log(prev_loss))
+                if jnp.linalg.norm(loss - prev_loss) < tol + 1e-6:
+                    break
+                prev_loss = loss
+
+            s_final = jnp.exp(s_init)  # Convert back from log-space
+
+            for b in block:
+                if verbose:
+                    print(f's={s_final} for keypoint {b}')
+                s_finals.append(s_final)
+
+    s_finals = np.array(s_finals)
+    # Final smooth with optimized s
+    ms, Vs, nlls = final_forwards_backwards_pass(
+        cov_mats, s_finals, ys, m0s, S0s, Cs, As, Rs, ensemble_vars,
+    )
+
+    return s_finals, ms, Vs, nlls
+
+
+def inner_smooth_min_routine(y, m0, S0, A, Q, C, R, ensemble_var):
+    # Run filtering with the current smooth_param
+    _, _, nll = jax_forward_pass(y, m0, S0, A, Q, C, R, ensemble_var)
+    return nll
+
+
+inner_smooth_min_routine_vmap = vmap(inner_smooth_min_routine, in_axes=(0, 0, 0, 0, 0, 0, 0, 0))
+
+
+def smooth_min(smooth_param, cov_mats, ys, m0s, S0s, Cs, As, Rs, ensemble_vars):
+    """
+    Smooths once using the given smooth_param. Returns only the nll, which is the parameter to
+    be minimized using the scipy.minimize() function.
+
+    Parameters:
+    smooth_param (float): Smoothing parameter.
+    block (list): List of blocks.
+    cov_mats (np.ndarray): Covariance matrices.
+    ys (np.ndarray): Observations.
+    m0s (np.ndarray): Initial mean state.
+    S0s (np.ndarray): Initial state covariance.
+    Cs (np.ndarray): Measurement function.
+    As (np.ndarray): State-transition matrix.
+    Rs (np.ndarray): Measurement noise covariance.
+
+    Returns:
+    float: Negative log-likelihood.
+    """
+    # Adjust Q based on smooth_param and cov_matrix
+    Qs = smooth_param * cov_mats
+    nlls = jnp.sum(inner_smooth_min_routine_vmap(ys, m0s, S0s, As, Qs, Cs, Rs, ensemble_vars))
+    return nlls
 
 # -------------------------------------------------------------------------------------
 # Misc: These miscellaneous functions generally have specific computations used by the
@@ -576,25 +815,76 @@ def extract_submatrix(Qs, i, submatrix_size=2):
     return submatrix
 
 
-def compute_initial_guesses(ensemble_vars):
-    """Computes an initial guess for optimized s, which is the stdev of temporal differences."""
-    # Consider only the first 2000 entries in ensemble_vars
-    ensemble_vars = ensemble_vars[:2000]
+def center_predictions(
+    ensemble_marker_array: MarkerArray,
+    quantile_keep_pca: float
+):
+    """
+    Filter frames based on variance, compute mean coordinates, and scale predictions.
 
-    # Compute ensemble mean
-    ensemble_mean = np.nanmean(ensemble_vars, axis=0)
-    if ensemble_mean is None:
-        raise ValueError("No data found. Unable to compute ensemble mean.")
+    Args:
+        ensemble_marker_array: Ensemble MarkerArray containing predicted positions and variances.
+        quantile_keep_pca: Threshold percentage for filtering low-variance frames.
 
-    # Initialize list to store temporal differences
-    temporal_diffs_list = []
+    Returns:
+        tuple:
+            valid_frames_mask (np.ndarray): Boolean mask of valid frames per keypoint.
+            emA_centered_preds (MarkerArray): Centered ensemble predictions.
+            emA_good_centered_preds (MarkerArray): Centered ensemble predictions for valid frames.
+            emA_means (MarkerArray): Mean x and y coords for each camera.
+    """
+    n_models, n_cameras, n_frames, n_keypoints, _ = ensemble_marker_array.shape
+    assert n_models == 1, "MarkerArray should have n_models = 1 after ensembling."
 
-    # Iterate over each time step
-    for i in range(1, len(ensemble_mean)):
-        # Compute temporal difference for current time step
-        temporal_diff = ensemble_mean - ensemble_vars[i]
-        temporal_diffs_list.append(temporal_diff)
+    emA_preds = ensemble_marker_array.slice_fields("x", "y")
+    emA_vars = ensemble_marker_array.slice_fields("var_x", "var_y")
 
-    # Compute standard deviation of temporal differences
-    std_dev_guess = round(np.std(temporal_diffs_list), 5)
-    return std_dev_guess
+    # Maximum variance for each keypoint in each frame, independent of camera
+    max_vars_per_frame = np.max(emA_vars.array, axis=(0, 1, 4))  # Shape: (n_frames, n_keypoints)
+    # Compute variance threshold for each keypoint
+    thresholds = np.percentile(max_vars_per_frame, quantile_keep_pca, axis=0)
+
+    valid_frames_mask = max_vars_per_frame <= thresholds  # Shape: (n_frames, n_keypoints)
+
+    min_frames = float('inf')  # Initialize min_frames to infinity
+
+    emA_centered_preds_list = []
+    emA_good_centered_preds_list = []
+    emA_means_list = []
+    good_frame_indices_list = []
+
+    for k in range(n_keypoints):
+        # Find valid frame indices for the current keypoint
+        good_frame_indices = np.where(valid_frames_mask[:, k])[0]  # Shape: (n_filtered_frames,)
+
+        # Update min_frames to track the minimum number of valid frames across keypoints
+        if len(good_frame_indices) < min_frames:
+            min_frames = len(good_frame_indices)
+
+        good_frame_indices_list.append(good_frame_indices)
+
+    # Now, reprocess each keypoint using only `min_frames` frames
+    for k in range(n_keypoints):
+        good_frame_indices = good_frame_indices_list[k][:min_frames]  # Truncate to min_frames
+
+        # Extract valid frames for this keypoint
+        good_preds_k = emA_preds.array[:, :, good_frame_indices, k, :]
+        good_preds_k = np.expand_dims(good_preds_k, axis=3)
+
+        # Scale predictions by subtracting means (over frames) from predictions
+        means_k = np.mean(good_preds_k, axis=2)[:, :, None, :, :]
+        centered_preds_k = emA_preds.slice("keypoints", k).array - means_k
+        good_centered_preds_k = good_preds_k - means_k
+
+        emA_centered_preds_list.append(
+            MarkerArray(centered_preds_k, data_fields=["x", "y"]))
+        emA_good_centered_preds_list.append(
+            MarkerArray(good_centered_preds_k, data_fields=["x", "y"]))
+        emA_means_list.append(MarkerArray(means_k, data_fields=["x", "y"]))
+
+    # Concatenate all keypoint-wise filtered results along the keypoints axis
+    emA_centered_preds = MarkerArray.stack(emA_centered_preds_list, "keypoints")
+    emA_good_centered_preds = MarkerArray.stack(emA_good_centered_preds_list, "keypoints")
+    emA_means = MarkerArray.stack(emA_means_list, "keypoints")
+
+    return valid_frames_mask, emA_centered_preds, emA_good_centered_preds, emA_means
