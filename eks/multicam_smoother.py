@@ -24,7 +24,7 @@ from eks.utils import format_data, make_dlc_pandas_index
 @typechecked
 def fit_eks_mirrored_multicam(
     input_source: str | list,
-    save_dir: str,
+    save_file: str,
     bodypart_list: list | None = None,
     smooth_param: float | list | None = None,
     s_frames: list | None = None,
@@ -41,7 +41,7 @@ def fit_eks_mirrored_multicam(
 
     Args:
         input_source: Directory path or list of CSV file paths with columns for all cameras.
-        save_dir: Directory to save output DataFrame.
+        save_file: Directory to save output DataFrame.
         bodypart_list: List of body parts.
         smooth_param: Value in (0, Inf); smaller values lead to more smoothing.
         s_frames: Frames for automatic optimization if smooth_param is not provided.
@@ -115,8 +115,8 @@ def fit_eks_mirrored_multicam(
         else:
             final_df = pd.concat([final_df, camera_df], axis=1)
     # Save the output DataFrames to CSV file
-    os.makedirs(os.path.dirname(save_dir), exist_ok=True)
-    final_df.to_csv(f"{save_dir}")
+    os.makedirs(os.path.dirname(save_file), exist_ok=True)
+    final_df.to_csv(f"{save_file}")
     return final_df, smooth_params_final, input_dfs_list, bodypart_list
 
 

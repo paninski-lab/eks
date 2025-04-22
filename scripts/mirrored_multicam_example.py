@@ -32,7 +32,7 @@ n_latent = args.n_latent
 # Fit EKS using the provided input data
 output_df, s_finals, input_dfs, bodypart_list = fit_eks_mirrored_multicam(
     input_source=input_source,
-    save_dir=os.path.join(save_dir, save_filename or 'eks_mirrored_multicam.csv'),
+    save_file=os.path.join(save_dir, save_filename or 'eks_mirrored_multicam.csv'),
     bodypart_list=bodypart_list,
     smooth_param=s,
     s_frames=s_frames,
