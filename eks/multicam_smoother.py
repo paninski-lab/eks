@@ -1,22 +1,18 @@
 import os
 
+import jax.numpy as jnp
 import numpy as np
 import pandas as pd
-import jax.numpy as jnp
 from sklearn.decomposition import PCA
 from typeguard import typechecked
 
-from eks.core import (
-    jax_ensemble,
-    optimize_smooth_param, center_predictions
-)
+from eks.core import center_predictions, jax_ensemble, optimize_smooth_param
 from eks.marker_array import (
     MarkerArray,
     input_dfs_to_markerArray,
     mA_to_stacked_array,
     stacked_array_to_mA,
 )
-#from eks.singlecam_smoother import singlecam_optimize_smooth
 from eks.stats import compute_mahalanobis, compute_pca
 from eks.utils import format_data, make_dlc_pandas_index
 

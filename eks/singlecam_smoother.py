@@ -5,9 +5,7 @@ import numpy as np
 import pandas as pd
 from typeguard import typechecked
 
-from eks.core import (
-    jax_ensemble,
-    optimize_smooth_param, center_predictions, )
+from eks.core import center_predictions, jax_ensemble, optimize_smooth_param
 from eks.marker_array import MarkerArray, input_dfs_to_markerArray
 from eks.utils import format_data, make_dlc_pandas_index
 
@@ -66,7 +64,7 @@ def fit_eks_singlecam(
         blocks=blocks,
         avg_mode=avg_mode,
         var_mode=var_mode,
-        verbose=verbose
+        verbose=verbose,
     )
 
     # Save the output DataFrame to CSV
@@ -121,28 +119,29 @@ def ensemble_kalman_smoother_singlecam(
     # Save ensemble medians for output
     emA_medians = MarkerArray(
         marker_array=emA_unsmoothed_preds,
-        data_fields=["x_median", "y_median"])
+        data_fields=["x_median", "y_median"],
+    )
 
     # Create new MarkerArray with centered predictions
     _, emA_centered_preds, _, emA_means = center_predictions(
-        ensemble_marker_array, quantile_keep_pca=100)
+        ensemble_marker_array, quantile_keep_pca=100,
+    )
     # MarkerArray data_fields=["x", "y", "likelihood", "var_x", "var_y"]
     ensemble_marker_array = MarkerArray.stack_fields(
         emA_centered_preds,
         emA_likes,
-        emA_vars
+        emA_vars,
     )
 
     # Prepare params for singlecam_optimize_smooth()
     ys = emA_centered_preds.get_array(squeeze=True).transpose(1, 0, 2)
-    (
-        m0s, S0s, As, cov_mats, Cs, Rs
-    ) = initialize_kalman_filter(emA_centered_preds)
+    m0s, S0s, As, cov_mats, Cs, Rs = initialize_kalman_filter(emA_centered_preds)
 
     # Main smoothing function
     s_finals, ms, Vs, nlls = optimize_smooth_param(
         cov_mats, ys, m0s, S0s, Cs, As, Rs, emA_vars.get_array(squeeze=True),
-        s_frames, smooth_param, blocks, verbose=verbose)
+        s_frames, smooth_param, blocks, verbose=verbose,
+    )
 
     y_m_smooths = np.zeros((n_keypoints, n_frames, 2))
     y_v_smooths = np.zeros((n_keypoints, n_frames, 2, 2))
@@ -207,9 +206,7 @@ def ensemble_kalman_smoother_singlecam(
     return markers_df, s_finals
 
 
-def initialize_kalman_filter(
-    emA_centered_preds: MarkerArray,
-) -> tuple:
+def initialize_kalman_filter(emA_centered_preds: MarkerArray) -> tuple:
     """
     Initialize the Kalman filter values.
 
