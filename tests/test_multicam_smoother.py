@@ -1,12 +1,9 @@
-from sklearn.decomposition import PCA
 import numpy as np
+from sklearn.decomposition import PCA
 
-from eks.marker_array import MarkerArray
-from eks.multicam_smoother import (
-    ensemble_kalman_smoother_multicam,
-    inflate_variance,
-)
 from eks.core import center_predictions
+from eks.marker_array import MarkerArray
+from eks.multicam_smoother import ensemble_kalman_smoother_multicam, inflate_variance
 
 
 def test_ensemble_kalman_smoother_multicam():
@@ -269,7 +266,7 @@ def test_center_predictions_min_frames():
 
     # Define dimensions
     n_models, n_cameras, n_frames, n_keypoints = 1, 2, 20, 5  # Example setup
-    n_fields = 5  # (x, y, var_x, var_y, likelihood)
+    # n_fields = 5  # (x, y, var_x, var_y, likelihood)
 
     # Set random seed for reproducibility
     np.random.seed(42)

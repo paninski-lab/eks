@@ -46,7 +46,6 @@ def compute_pca(
         reshaped_gsp_k = mA_to_stacked_array(emA_good_centered_preds_k, 0)
         reshaped_sp_k = mA_to_stacked_array(emA_centered_preds_k, 0)
 
-
         # Fit PCA per keypoint
         if pca_object is None:
             pca = PCA(n_components=n_components)
