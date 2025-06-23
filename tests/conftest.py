@@ -14,6 +14,7 @@ def run_script() -> Callable:
             script_file,
             '--input-dir', input_dir,
             '--save-dir', output_dir,
+            '--verbose', 'True',
         ]
         for key, arg in kwargs.items():
             command_str.append(f'--{key.replace("_", "-")}')

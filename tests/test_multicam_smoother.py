@@ -1,12 +1,9 @@
-from sklearn.decomposition import PCA
 import numpy as np
+from sklearn.decomposition import PCA
 
+from eks.core import center_predictions
 from eks.marker_array import MarkerArray
-from eks.multicam_smoother import (
-    center_predictions,
-    ensemble_kalman_smoother_multicam,
-    inflate_variance,
-)
+from eks.multicam_smoother import ensemble_kalman_smoother_multicam, inflate_variance
 
 
 def test_ensemble_kalman_smoother_multicam():
@@ -45,8 +42,8 @@ def test_ensemble_kalman_smoother_multicam():
     assert isinstance(camera_dfs, list), "Expected output to be a list"
     assert len(camera_dfs) == len(camera_names), \
         f"Expected {len(camera_names)} entries in camera_dfs, got {len(camera_dfs)}"
-    assert isinstance(smooth_params_final, float), \
-        f"Expected smooth_param_final to be a float, got {type(smooth_params_final)}"
+    assert isinstance(smooth_params_final, np.ndarray), \
+        f"Expected smooth_param_final to be an array, got {type(smooth_params_final)}"
     assert smooth_params_final == smooth_param, \
         f"Expected smooth_param_final to match input smooth_param ({smooth_param}), " \
         f"got {smooth_params_final}"
@@ -69,8 +66,8 @@ def test_ensemble_kalman_smoother_multicam():
     assert isinstance(camera_dfs, list), "Expected output to be a list"
     assert len(camera_dfs) == len(camera_names), \
         f"Expected {len(camera_names)} entries in camera_dfs, got {len(camera_dfs)}"
-    assert isinstance(smooth_params_final, float), \
-        f"Expected smooth_param_final to be a float, got {type(smooth_params_final)}"
+    assert isinstance(smooth_params_final, np.ndarray), \
+        f"Expected smooth_param_final to be an array, got {type(smooth_params_final)}"
     assert smooth_params_final == smooth_param, \
         f"Expected smooth_param_final to match input smooth_param ({smooth_param}), " \
         f"got {smooth_params_final}"
@@ -95,8 +92,8 @@ def test_ensemble_kalman_smoother_multicam():
     assert isinstance(camera_dfs, list), "Expected output to be a list"
     assert len(camera_dfs) == len(camera_names), \
         f"Expected {len(camera_names)} entries in camera_dfs, got {len(camera_dfs)}"
-    assert isinstance(smooth_params_final, float), \
-        f"Expected smooth_param_final to be a float, got {type(smooth_params_final)}"
+    assert isinstance(smooth_params_final, np.ndarray), \
+        f"Expected smooth_param_final to be an array, got {type(smooth_params_final)}"
     assert smooth_params_final == smooth_param, \
         f"Expected smooth_param_final to match input smooth_param ({smooth_param}), " \
         f"got {smooth_params_final}"
@@ -155,7 +152,7 @@ def test_ensemble_kalman_smoother_multicam_no_smooth_param():
 
     camera_names = ['cam1', 'cam2']
     quantile_keep_pca = 90
-    s_frames = [(0, 10)]
+    s_frames = [(0, 100)]
 
     # Run the smoother without providing smooth_param
     camera_dfs, smooth_params_final = ensemble_kalman_smoother_multicam(
@@ -171,8 +168,8 @@ def test_ensemble_kalman_smoother_multicam_no_smooth_param():
 
     # Assertions
     assert smooth_params_final is not None, "Expected smooth_param_final to be not None"
-    assert isinstance(smooth_params_final, float), \
-        f"Expected smooth_param_final to be a float, got {type(smooth_params_final)}"
+    assert isinstance(smooth_params_final, np.ndarray), \
+        f"Expected smooth_param_final to be an array, got {type(smooth_params_final)}"
 
 
 def test_ensemble_kalman_smoother_multicam_n_latent():
@@ -269,7 +266,7 @@ def test_center_predictions_min_frames():
 
     # Define dimensions
     n_models, n_cameras, n_frames, n_keypoints = 1, 2, 20, 5  # Example setup
-    n_fields = 5  # (x, y, var_x, var_y, likelihood)
+    # n_fields = 5  # (x, y, var_x, var_y, likelihood)
 
     # Set random seed for reproducibility
     np.random.seed(42)
