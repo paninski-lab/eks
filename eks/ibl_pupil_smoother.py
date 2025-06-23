@@ -1,12 +1,17 @@
 import os
 import warnings
+from functools import partial
 
+import jax
 import numpy as np
+import optax
 import pandas as pd
-from scipy.optimize import minimize
+from jax import jit
+from jax import numpy as jnp
 from typeguard import typechecked
 
-from eks.core import backward_pass, compute_nll, ensemble, forward_pass
+from eks.core import jax_backward_pass, jax_ensemble, jax_forward_pass
+from eks.marker_array import MarkerArray, input_dfs_to_markerArray
 from eks.utils import crop_frames, format_data, make_dlc_pandas_index
 
 
@@ -90,6 +95,7 @@ def fit_eks_pupil(
     s_frames: list | None = None,
     avg_mode: str = 'median',
     var_mode: str = 'confidence_weighted_var',
+    verbose: bool = False,
 ) -> tuple:
     """Fit the Ensemble Kalman Smoother for the ibl-pupil dataset.
 
@@ -104,6 +110,7 @@ def fit_eks_pupil(
             'median' | 'mean'
         var_mode: mode for computing ensemble variance
             'var' | 'confidence_weighted_var'
+        verbose: Extra print statements if True
 
     Returns:
         tuple:
@@ -114,19 +121,24 @@ def fit_eks_pupil(
             nll_values (list): List of NLL values.
 
     """
+    # pupil smoother only works for a pre-specified set of points
+    # NOTE: this order MUST be kept
+    bodypart_list = ['pupil_top_r', 'pupil_bottom_r', 'pupil_right_r', 'pupil_left_r']
 
     # Load and format input files
-    input_dfs_list, keypoint_names = format_data(input_source)
-
-    print(f"Input data loaded for keypoints: {keypoint_names}")
+    input_dfs_list, _ = format_data(input_source)
+    print(f"Input data loaded for keypoints: {bodypart_list}")
+    marker_array = input_dfs_to_markerArray([input_dfs_list], bodypart_list, [""])
 
     # Run the ensemble Kalman smoother
-    df_smoothed, smooth_params_final, nll_values = ensemble_kalman_smoother_ibl_pupil(
-        markers_list=input_dfs_list,
+    df_smoothed, smooth_params_final = ensemble_kalman_smoother_ibl_pupil(
+        marker_array=marker_array,
+        keypoint_names=bodypart_list,
         smooth_params=smooth_params,
         s_frames=s_frames,
         avg_mode=avg_mode,
         var_mode=var_mode,
+        verbose=verbose
     )
 
     # Save the output DataFrame to CSV
@@ -134,28 +146,34 @@ def fit_eks_pupil(
     df_smoothed.to_csv(save_file)
     print("DataFrames successfully converted to CSV")
 
-    return df_smoothed, smooth_params_final, input_dfs_list, keypoint_names, nll_values
+    return df_smoothed, smooth_params_final, input_dfs_list, bodypart_list
 
 
 @typechecked
 def ensemble_kalman_smoother_ibl_pupil(
-    markers_list: list,
+    marker_array: MarkerArray,
+    keypoint_names: list,
     smooth_params: list | None = None,
     s_frames: list | None = None,
     avg_mode: str = 'median',
     var_mode: str = 'confidence_weighted_var',
+    verbose: bool = False
 ) -> tuple:
     """Perform Ensemble Kalman Smoothing on pupil data.
 
     Args:
+        marker_array: MarkerArray object containing marker data.
+            Shape (n_models, n_cameras, n_frames, n_keypoints, 3 (for x, y, likelihood))
         markers_list: pd.DataFrames
             each list element is a dataframe of predictions from one ensemble member
+        keypoint_names: List of body parts to run smoothing on
         smooth_params: contains smoothing parameters for diameter and center of mass
         s_frames: frames for automatic optimization if s is not provided
-        avg_mode
+        avg_mode: mode for averaging across ensemble
             'median' | 'mean'
-        var_mode
-            'confidence_weighted_var' | 'var'
+        var_mode: mode for computing ensemble variance
+            'var' | 'confidence_weighted_var'
+        verbose: True to print out details
 
     Returns:
         tuple:
@@ -164,29 +182,33 @@ def ensemble_kalman_smoother_ibl_pupil(
             final nll
 
     """
-
-    # pupil smoother only works for a pre-specified set of points
-    # NOTE: this order MUST be kept
-    keypoint_names = ['pupil_top_r', 'pupil_bottom_r', 'pupil_right_r', 'pupil_left_r']
+    n_models, n_cameras, n_frames, n_keypoints, n_data_fields = marker_array.shape
     keys = [f'{kp}_{coord}' for kp in keypoint_names for coord in ['x', 'y']]
 
-    # compute ensemble information
-    ensemble_preds, ensemble_vars, ensemble_likes, _ = ensemble(
-        markers_list, keys, avg_mode=avg_mode, var_mode=var_mode,
-    )
+    # Compute ensemble information
+    # MarkerArray (1, 1, n_frames, n_keypoints, 5 (x, y, var_x, var_y, likelihood))
+    ensemble_marker_array = jax_ensemble(marker_array, avg_mode=avg_mode, var_mode=var_mode)
+    emA_unsmoothed_preds = ensemble_marker_array.slice_fields("x", "y")
+    emA_vars = ensemble_marker_array.slice_fields("var_x", "var_y")
+    emA_likes = ensemble_marker_array.slice_fields("likelihood")
 
-    # compute center of mass + diameter
+    # Extract stacked arrays (predicted coordinates, variances, likelihoods)
+    ensemble_preds = emA_unsmoothed_preds.get_array(squeeze=True).reshape(n_frames, -1)
+    ensemble_vars = emA_vars.get_array(squeeze=True).reshape(n_frames, -1)
+    ensemble_likes = emA_likes.get_array(squeeze=True)
+
+    # Compute center of mass + diameter
     pupil_diameters = get_pupil_diameter({key: ensemble_preds[:, i] for i, key in enumerate(keys)})
     pupil_locations = get_pupil_location({key: ensemble_preds[:, i] for i, key in enumerate(keys)})
     mean_x_obs = np.mean(pupil_locations[:, 0])
     mean_y_obs = np.mean(pupil_locations[:, 1])
 
-    # make the mean zero
+    # Center predictions
     x_t_obs, y_t_obs = pupil_locations[:, 0] - mean_x_obs, pupil_locations[:, 1] - mean_y_obs
 
-    # --------------------------------------
-    # Set values for kalman filter
-    # --------------------------------------
+    # -------------------------------------------------------
+    # Set values for Kalman filter (Specific to this dataset)
+    # -------------------------------------------------------
     # initial state: mean
     m0 = np.asarray([np.mean(pupil_diameters), 0.0, 0.0])
 
@@ -217,14 +239,15 @@ def ensemble_kalman_smoother_ibl_pupil(
             centered_ensemble_preds[:, i] -= mean_y_obs
     y_obs = centered_ensemble_preds
 
-    # --------------------------------------
-    # perform filtering
-    # --------------------------------------
-    smooth_params, ms, Vs, nll, nll_values = pupil_optimize_smooth(
+    # -------------------------------------------------------
+    # Perform filtering with SINGLE PAIR of diameter_s, com_s
+    # -------------------------------------------------------
+    s_finals, ms, Vs, nll = pupil_optimize_smooth(
         y_obs, m0, S0, C, R, ensemble_vars,
-        np.var(pupil_diameters), np.var(x_t_obs), np.var(y_t_obs), s_frames, smooth_params)
-    diameter_s, com_s = smooth_params[0], smooth_params[1]
-    print(f"NLL is {nll} for diameter_s={diameter_s}, com_s={com_s}")
+        np.var(pupil_diameters), np.var(x_t_obs), np.var(y_t_obs), s_frames, smooth_params,
+        verbose=verbose)
+    if verbose:
+        print(f"diameter_s={s_finals[0]}, com_s={s_finals[1]}")
     # Smoothed posterior over ys
     y_m_smooth = np.dot(C, ms.T).T
     y_v_smooth = np.swapaxes(np.dot(C, np.dot(Vs, C.T)), 0, 1)
@@ -253,7 +276,7 @@ def ensemble_kalman_smoother_ibl_pupil(
         data_arr.append(processed_arr_dict[key_pair[1]])
         labels.append('y')
         # mean likelihood
-        data_arr.append(ensemble_likes[:, ensemble_indices[i][0]])
+        data_arr.append(ensemble_likes[:, i])
         labels.append('likelihood')
         # x vals ensemble median
         data_arr.append(ensemble_preds[:, ensemble_indices[i][0]])
@@ -274,103 +297,142 @@ def ensemble_kalman_smoother_ibl_pupil(
         data_arr.append(y_v_smooth[:, i + 1, i + 1])
         labels.append('y_posterior_var')
 
-        # compute zscore for EKS to see how it deviates from the ensemble
-        # eks_predictions = \
-        #     np.asarray([processed_arr_dict[key_pair[0]], processed_arr_dict[key_pair[1]]]).T
-        # ensemble_preds_curr = ensemble_preds
-        #                                   [:, ensemble_indices[i][0]: ensemble_indices[i][1] + 1]
-        # ensemble_vars_curr = ensemble_vars[:, ensemble_indices[i][0]: ensemble_indices[i][1] + 1]
-        # zscore, _ = eks_zscore(
-        #     eks_predictions,
-        #     ensemble_preds_curr,
-        #     ensemble_vars_curr,
-        #     min_ensemble_std=zscore_threshold,
-        # )
-        # data_arr.append(zscore)
-
     data_arr = np.asarray(data_arr)
 
     # put data in dataframe
     pdindex = make_dlc_pandas_index(keypoint_names, labels=labels)
     markers_df = pd.DataFrame(data_arr.T, columns=pdindex)
 
-    return markers_df, smooth_params, nll_values
+    return markers_df, s_finals
 
 
 def pupil_optimize_smooth(
-    y, m0, S0, C, R, ensemble_vars, diameters_var, x_var, y_var,
-    s_frames: list | None = [(1, 2000)],
-    smooth_params: list | None = [None, None],
-):
-    """Optimize-and-smooth function for the pupil example script."""
+        ys: np.ndarray,
+        m0: np.ndarray,
+        S0: np.ndarray,
+        C: np.ndarray,
+        R: np.ndarray,
+        ensemble_vars: np.ndarray,
+        diameters_var: np.ndarray,
+        x_var: np.ndarray,
+        y_var: np.ndarray,
+        s_frames: list | None = [(1, 2000)],
+        smooth_params: list | None = [None, None],
+        maxiter: int = 1000,
+        verbose: bool = False,
+) -> tuple:
+    """Optimize-and-smooth function for the pupil example script.
+
+    Parameters:
+        ys: Observations. Shape (keypoints, frames, coordinates).
+        m0: Initial mean state.
+        S0: Initial state covariance.
+        C: Measurement function.
+        R: Measurement noise covariance.
+        ensemble_vars: Ensemble variances.
+        diameters_var: Diameter variance
+        x_var: x variance for COM
+        y_var: y variance for COM
+        s_frames: List of frames.
+        smooth_params: Smoothing parameter tuple (diameter_s, com_s)
+        verbose: Prints extra information for smoothing parameter iterations
+
+    Returns:
+        tuple: Final smoothing parameters, smoothed means, smoothed covariances,
+               negative log-likelihoods, negative log-likelihood values.
+    """
+
+    @partial(jit)
+    def nll_loss_sequential_scan(
+            s_log, ys, m0, S0, C, R, ensemble_vars, diameters_var, x_var, y_var):
+        s = jnp.exp(s_log)  # Ensure positivity
+        return pupil_smooth(
+            s, ys, m0, S0, C, R, ensemble_vars, diameters_var, x_var, y_var)
+
+    loss_function = nll_loss_sequential_scan
     # Optimize smooth_param
     if smooth_params is None or smooth_params[0] is None or smooth_params[1] is None:
+        # Crop to only contain s_frames for time axis
+        y_cropped = crop_frames(ys, s_frames)
+        ensemble_vars_cropped = crop_frames(ensemble_vars, s_frames)
 
-        # Unpack s_frames
-        y_shortened = crop_frames(y, s_frames)
+        # Optimize negative log likelihood
+        s_init = jnp.log(jnp.array([0.99, 0.98]))  # reasonable guess for s_finals
+        optimizer = optax.adam(learning_rate=0.005)
+        opt_state = optimizer.init(s_init)
 
-        # Minimize negative log likelihood
-        smooth_params = minimize(
-            pupil_smooth_min,  # function to minimize
-            x0=[1, 1],
-            args=(y_shortened, m0, S0, C, R, ensemble_vars, diameters_var, x_var, y_var),
-            method='Nelder-Mead',
-            tol=0.002,
-            bounds=[(0, 1), (0, 1)]  # bounds for each parameter in smooth_params
-        )
-        smooth_params = [round(smooth_params.x[0], 5), round(smooth_params.x[1], 5)]
-        print(f'Optimal at diameter_s={smooth_params[0]}, com_s={smooth_params[1]}')
+        def step(s, opt_state):
+            loss, grads = jax.value_and_grad(loss_function)(
+                s, y_cropped, m0, S0, C, R, ensemble_vars_cropped, diameters_var, x_var, y_var
+            )
+            updates, opt_state = optimizer.update(grads, opt_state)
+            s = optax.apply_updates(s, updates)
+            return s, opt_state, loss
+
+        prev_loss = jnp.inf
+        for iteration in range(maxiter):
+            s_init, opt_state, loss = step(s_init, opt_state)
+
+            if verbose and iteration % 10 == 0 or iteration == maxiter - 1:
+                print(f'Iteration {iteration}, Current loss: {loss}, Current s: {jnp.exp(s_init)}')
+
+            tol = 1e-6 * jnp.abs(jnp.log(prev_loss))
+            if jnp.linalg.norm(loss - prev_loss) < tol + 1e-6:
+                break
+            prev_loss = loss
+
+        s_finals = jnp.exp(s_init)
+        s_finals = [round(s_finals[0], 5), round(s_finals[1], 5)]
+        print(f'Optimized to diameter_s={s_finals[0]}, com_s={s_finals[1]}')
+    else:
+        s_finals = smooth_params
 
     # Final smooth with optimized s
-    ms, Vs, nll, nll_values = pupil_smooth_final(
-        y, smooth_params, m0, S0, C, R, ensemble_vars, diameters_var, x_var, y_var)
+    ms, Vs, nll = pupil_smooth(
+        s_finals, ys, m0, S0, C, R, ensemble_vars, diameters_var, x_var, y_var, return_full=True)
 
-    return smooth_params, ms, Vs, nll, nll_values
-
-
-def pupil_smooth_final(y, smooth_params, m0, S0, C, R, ensemble_vars, diameters_var, x_var, y_var):
-    # Construct state transition matrix
-    diameter_s = smooth_params[0]
-    com_s = smooth_params[1]
-    A = np.asarray([
-        [diameter_s, 0, 0],
-        [0, com_s, 0],
-        [0, 0, com_s]
-    ])
-    # cov_matrix
-    Q = np.asarray([
-        [diameters_var * (1 - (A[0, 0] ** 2)), 0, 0],
-        [0, x_var * (1 - A[1, 1] ** 2), 0],
-        [0, 0, y_var * (1 - (A[2, 2] ** 2))]
-    ])
-    # Run filtering and smoothing with the current smooth_param
-    mf, Vf, S, innovs, innov_cov = forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
-    ms, Vs, CV = backward_pass(y, mf, Vf, S, A)
-    # Compute the negative log-likelihood based on innovations and their covariance
-    nll, nll_values = compute_nll(innovs, innov_cov)
-    return ms, Vs, nll, nll_values
+    return s_finals, ms, Vs, nll
 
 
-def pupil_smooth_min(smooth_params, y, m0, S0, C, R, ensemble_vars, diameters_var, x_var, y_var):
+def pupil_smooth(smooth_params, ys, m0, S0, C, R, ensemble_vars, diameters_var, x_var, y_var,
+                     return_full=False):
+    """
+    Smooths once using the given smooth_param. Returns only the nll loss by default
+    (if return_full is False).
+
+    Parameters:
+    smooth_params (float): Smoothing parameter.
+    block (list): List of blocks.
+    cov_mats (np.ndarray): Covariance matrices.
+    ys (np.ndarray): Observations.
+    m0s (np.ndarray): Initial mean state.
+    S0s (np.ndarray): Initial state covariance.
+    Cs (np.ndarray): Measurement function.
+    As (np.ndarray): State-transition matrix.
+    Rs (np.ndarray): Measurement noise covariance.
+
+    Returns:
+    float: Negative log-likelihood.
+    """
     # Construct As
     diameter_s, com_s = smooth_params[0], smooth_params[1]
-    A = np.array([
+    A = jnp.array([
         [diameter_s, 0, 0],
         [0, com_s, 0],
         [0, 0, com_s]
     ])
 
     # Construct cov_matrix Q
-    Q = np.array([
+    Q = jnp.array([
         [diameters_var * (1 - (A[0, 0] ** 2)), 0, 0],
         [0, x_var * (1 - A[1, 1] ** 2), 0],
         [0, 0, y_var * (1 - (A[2, 2] ** 2))]
     ])
 
-    # Run filtering with the current smooth_param
-    mf, Vf, S, innovs, innov_cov = forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
+    mf, Vf, nll = jax_forward_pass(ys, m0, S0, A, Q, C, R, ensemble_vars)
 
-    # Compute the negative log-likelihood
-    nll, nll_values = compute_nll(innovs, innov_cov)
+    if return_full:
+        ms, Vs = jax_backward_pass(mf, Vf, A, Q)
+        return ms, Vs, nll
 
     return nll

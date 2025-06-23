@@ -8,6 +8,7 @@ from eks.ibl_pupil_smoother import (
     get_pupil_diameter,
     get_pupil_location,
 )
+from eks.marker_array import MarkerArray, input_dfs_to_markerArray
 
 
 @pytest.fixture
@@ -172,44 +173,47 @@ def test_add_mean_to_array_single_row():
 
 def test_ensemble_kalman_smoother_ibl_pupil():
 
-    def _check_outputs(df, params, nlls):
+    def _check_outputs(df, params):
         assert isinstance(df, pd.DataFrame), "first return arg should be a DataFrame"
         assert df.shape[0] == 100, "markers_df should have 100 rows"
         assert len(params) == 2, "Expected 2 smooth parameters"
         assert params[0] < 1, "Expected diameter smoothing parameter to be less than 1"
         assert params[1] < 1, "Expected COM smoothing parameter to be less than 1"
-        assert isinstance(nlls, list), "Expected nll_values to be a list"
 
     # Create mock data
     columns = [
-        'pupil_top_r_x', 'pupil_top_r_y', 'pupil_bottom_r_x', 'pupil_bottom_r_y',
-        'pupil_right_r_x', 'pupil_right_r_y', 'pupil_left_r_x', 'pupil_left_r_y'
+        'pupil_top_r_x', 'pupil_top_r_y', 'pupil_top_r_likelihood',
+        'pupil_bottom_r_x', 'pupil_bottom_r_y', 'pupil_bottom_r_likelihood',
+        'pupil_right_r_x', 'pupil_right_r_y', 'pupil_right_r_likelihood',
+        'pupil_left_r_x', 'pupil_left_r_y', 'pupil_left_r_likelihood'
     ]
-    markers_list = [
-        pd.DataFrame(np.random.randn(100, 8), columns=columns),
-        pd.DataFrame(np.random.randn(100, 8), columns=columns),
+    input_dfs_list = [
+        pd.DataFrame(np.random.randn(100, 12), columns=columns),
+        pd.DataFrame(np.random.randn(100, 12), columns=columns),
     ]
     s_frames = [(1, 20)]
+    bodypart_list = ['pupil_top_r', 'pupil_bottom_r', 'pupil_right_r', 'pupil_left_r']
+    marker_array = input_dfs_to_markerArray([input_dfs_list], bodypart_list, [""])
 
     # Run with fixed smooth params
     smooth_params = [0.5, 0.5]
-    smoothed_df, smooth_params_out, nll_values = ensemble_kalman_smoother_ibl_pupil(
-        markers_list, smooth_params, s_frames, avg_mode='mean', var_mode='var',
+    smoothed_df, smooth_params_out = ensemble_kalman_smoother_ibl_pupil(
+        marker_array, bodypart_list, smooth_params, s_frames, avg_mode='mean', var_mode='var',
     )
-    _check_outputs(smoothed_df, smooth_params_out, nll_values)
+    _check_outputs(smoothed_df, smooth_params_out)
     assert smooth_params == smooth_params_out
 
     # Run with [None, None] smooth params
-    smoothed_df, smooth_params_out, nll_values = ensemble_kalman_smoother_ibl_pupil(
-        markers_list, [None, None], s_frames, avg_mode='mean', var_mode='var',
+    smoothed_df, smooth_params_out = ensemble_kalman_smoother_ibl_pupil(
+        marker_array, bodypart_list, [None, None], s_frames, avg_mode='mean', var_mode='var',
     )
-    _check_outputs(smoothed_df, smooth_params_out, nll_values)
+    _check_outputs(smoothed_df, smooth_params_out)
 
     # Run with None smooth params
-    smoothed_df, smooth_params_out, nll_values = ensemble_kalman_smoother_ibl_pupil(
-        markers_list, None, s_frames, avg_mode='mean', var_mode='var',
+    smoothed_df, smooth_params_out = ensemble_kalman_smoother_ibl_pupil(
+        marker_array, bodypart_list, None, s_frames, avg_mode='mean', var_mode='var',
     )
-    _check_outputs(smoothed_df, smooth_params_out, nll_values)
+    _check_outputs(smoothed_df, smooth_params_out)
 
     # CURRENTLY NOT SUPPORTED: fix one smooth param
 
