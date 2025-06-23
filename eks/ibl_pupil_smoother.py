@@ -1,20 +1,19 @@
 import os
 import warnings
-
-import numpy as np
-import pandas as pd
-from typeguard import typechecked
-
-from eks.core import jax_ensemble, jax_forward_pass_nlls, jax_forward_pass, jax_backward_pass
-from eks.utils import crop_frames, format_data, make_dlc_pandas_index
-from eks.marker_array import MarkerArray, input_dfs_to_markerArray
-
 from functools import partial
 
 import jax
+import numpy as np
 import optax
+import pandas as pd
 from jax import jit
 from jax import numpy as jnp
+from typeguard import typechecked
+
+from eks.core import jax_backward_pass, jax_ensemble, jax_forward_pass
+from eks.marker_array import MarkerArray, input_dfs_to_markerArray
+from eks.utils import crop_frames, format_data, make_dlc_pandas_index
+
 
 @typechecked
 def get_pupil_location(dlc: dict) -> np.ndarray:
@@ -130,7 +129,6 @@ def fit_eks_pupil(
     input_dfs_list, _ = format_data(input_source)
     print(f"Input data loaded for keypoints: {bodypart_list}")
     marker_array = input_dfs_to_markerArray([input_dfs_list], bodypart_list, [""])
-    print(marker_array)
 
     # Run the ensemble Kalman smoother
     df_smoothed, smooth_params_final = ensemble_kalman_smoother_ibl_pupil(
@@ -348,7 +346,7 @@ def pupil_optimize_smooth(
     def nll_loss_sequential_scan(
             s_log, ys, m0, S0, C, R, ensemble_vars, diameters_var, x_var, y_var):
         s = jnp.exp(s_log)  # Ensure positivity
-        return smooth_min(
+        return pupil_smooth(
             s, ys, m0, S0, C, R, ensemble_vars, diameters_var, x_var, y_var)
 
     loss_function = nll_loss_sequential_scan
@@ -390,44 +388,17 @@ def pupil_optimize_smooth(
         s_finals = smooth_params
 
     # Final smooth with optimized s
-    ms, Vs, nll = pupil_smooth_final(
-        ys, s_finals, m0, S0, C, R, ensemble_vars, diameters_var, x_var, y_var)
+    ms, Vs, nll = pupil_smooth(
+        s_finals, ys, m0, S0, C, R, ensemble_vars, diameters_var, x_var, y_var, return_full=True)
 
     return s_finals, ms, Vs, nll
 
 
-def pupil_smooth_final(y, smooth_params, m0, S0, C, R, ensemble_vars, diameters_var, x_var, y_var):
-    # Construct state transition matrix
-    diameter_s = smooth_params[0]
-    com_s = smooth_params[1]
-    A = jnp.array([
-        [diameter_s, 0, 0],
-        [0, com_s, 0],
-        [0, 0, com_s]
-    ])
-    # cov_matrix
-    Q = jnp.array([
-        [diameters_var * (1 - (A[0, 0] ** 2)), 0, 0],
-        [0, x_var * (1 - A[1, 1] ** 2), 0],
-        [0, 0, y_var * (1 - (A[2, 2] ** 2))]
-    ])
-    # Run filtering and smoothing with the current smooth_param
-    mf, Vf, nll, nll_array = jax_forward_pass_nlls(y, m0, S0, A, Q, C, R, ensemble_vars)
-    ms, Vs = jax_backward_pass(mf, Vf, A, Q)
-
-    return ms, Vs, nll_array
-
-
-def inner_smooth_min_routine(y, m0, S0, A, Q, C, R, ensemble_var):
-    # Run filtering with the current smooth_param
-    _, _, nll = jax_forward_pass(y, m0, S0, A, Q, C, R, ensemble_var)
-    return nll
-
-
-def smooth_min(smooth_params, ys, m0, S0, C, R, ensemble_vars, diameters_var, x_var, y_var):
+def pupil_smooth(smooth_params, ys, m0, S0, C, R, ensemble_vars, diameters_var, x_var, y_var,
+                     return_full=False):
     """
-    Smooths once using the given smooth_param. Returns only the nll, which is the parameter to
-    be minimized using the scipy.minimize() function.
+    Smooths once using the given smooth_param. Returns only the nll loss by default
+    (if return_full is False).
 
     Parameters:
     smooth_params (float): Smoothing parameter.
@@ -457,5 +428,11 @@ def smooth_min(smooth_params, ys, m0, S0, C, R, ensemble_vars, diameters_var, x_
         [0, x_var * (1 - A[1, 1] ** 2), 0],
         [0, 0, y_var * (1 - (A[2, 2] ** 2))]
     ])
-    nll = inner_smooth_min_routine(ys, m0, S0, A, Q, C, R, ensemble_vars)
+
+    mf, Vf, nll = jax_forward_pass(ys, m0, S0, A, Q, C, R, ensemble_vars)
+
+    if return_full:
+        ms, Vs = jax_backward_pass(mf, Vf, A, Q)
+        return ms, Vs, nll
+
     return nll
