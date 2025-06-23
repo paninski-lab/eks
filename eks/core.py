@@ -390,7 +390,6 @@ def jax_forward_pass(y, m0, cov0, A, Q, C, R, ensemble_vars):
     """
     # Initialize carry
     carry = (m0, cov0, A, Q, C, 0)
-
     # Run the scan, passing y and ensemble_vars as inputs to kalman_filter_step
     carry, outputs = jax.lax.scan(kalman_filter_step, carry, (y, ensemble_vars))
     mfs, Vfs, _ = outputs
@@ -604,8 +603,8 @@ def optimize_smooth_param(
         blocks: keypoints to be blocked for correlated noise. Generates on smoothing param per
             block, as opposed to per keypoint.
             Specified by the form "x1, x2, x3; y1, y2" referring to keypoint indices (start at 0)
-        maxiter
-        verbose
+        maxiter: Maximum iterations before forced optimization loop exit
+        verbose: Prints extra information for smoothing parameter iterations
 
     Returns:
         tuple: Final smoothing parameters, smoothed means, smoothed covariances,

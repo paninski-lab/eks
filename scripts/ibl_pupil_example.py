@@ -26,13 +26,18 @@ save_filename = args.save_filename
 diameter_s = args.diameter_s
 com_s = args.com_s
 s_frames = args.s_frames
+if args.verbose == "True":
+    verbose = True
+else:
+    verbose = False
 
 # Run the smoothing function
-df_smoothed, smooth_params, input_dfs_list, keypoint_names, nll_values = fit_eks_pupil(
+df_smoothed, smooth_params, input_dfs_list, keypoint_names = fit_eks_pupil(
     input_source=input_source,
     save_file=os.path.join(save_dir, save_filename or 'eks_pupil.csv'),
     smooth_params=[diameter_s, com_s],
     s_frames=s_frames,
+    verbose=verbose
 )
 
 # Plot results
@@ -42,7 +47,7 @@ plot_results(
     key=f'{keypoint_names[-1]}',
     idxs=(0, 500),
     s_final=(smooth_params[0], smooth_params[1]),
-    nll_values=nll_values,
+    nll_values=None,
     save_dir=save_dir,
     smoother_type=smoother_type
 )
