@@ -146,7 +146,7 @@ def ensemble_kalman_smoother_singlecam(
     y_m_smooths = np.zeros((n_keypoints, n_frames, 2))
     y_v_smooths = np.zeros((n_keypoints, n_frames, 2, 2))
 
-    # Make emAs for smoothed preds and posterior variances -- TODO: refactor into a function
+    # Make emAs for smoothed preds and posterior variances
     emA_smoothed_preds_list = []
     emA_postvars_list = []
     for k in range(n_keypoints):
