@@ -236,7 +236,6 @@ def ensemble_kalman_smoother_multicam(
     emA_unsmoothed_preds = ensemble_marker_array.slice_fields("x", "y")
     emA_vars = ensemble_marker_array.slice_fields("var_x", "var_y")
     emA_likes = ensemble_marker_array.slice_fields("likelihood")
-
     (
         valid_frames_mask,
         emA_centered_preds,

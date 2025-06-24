@@ -1,10 +1,20 @@
 import numpy as np
+import os
 import pandas as pd
 from scipy.interpolate import interp1d
 from sklearn.decomposition import PCA
+from typeguard import typechecked
 
 from eks.core import backward_pass, eks_zscore, ensemble, forward_pass
-from eks.utils import make_dlc_pandas_index
+from eks.marker_array import (
+    MarkerArray,
+    input_dfs_to_markerArray,
+    mA_to_stacked_array,
+    stacked_array_to_mA,
+)
+from eks.multicam_smoother import ensemble_kalman_smoother_multicam
+from eks.stats import compute_pca
+from eks.utils import make_dlc_pandas_index, convert_lp_dlc
 
 
 def remove_camera_means(ensemble_stacks, camera_means):
@@ -29,75 +39,103 @@ def pca(S, n_comps):
     pca_ = PCA(n_components=n_comps)
     return pca_.fit(S), pca_.explained_variance_ratio_
 
-
-def ensemble_kalman_smoother_ibl_paw(
-    markers_list_left_cam, markers_list_right_cam,
-    timestamps_left_cam, timestamps_right_cam,
-    keypoint_names,
-    smooth_param,
-    quantile_keep_pca,
-    ensembling_mode='median',
-    zscore_threshold=2,
-    img_width=128,
-):
+@typechecked
+def fit_eks_multicam_ibl_paw(
+    input_source: str | list,
+    save_dir: str,
+    smooth_param: float | list | None = None,
+    s_frames: list | None = None,
+    quantile_keep_pca: float = 95.0,
+    avg_mode: str = 'median',
+    var_mode: str = 'confidence_weighted_var',
+    verbose: bool = False,
+    img_width: int = 128,
+) -> tuple:
     """
-    --(IBL-specific)-
-    -Use multi-view constraints to fit a 3d latent subspace for each body part with 2
-    asynchronous cameras.
+        Fit the Ensemble Kalman Smoother for IBL multi-camera paw data.
 
-    Parameters
-    ----------
-    markers_list_left_cam : list of pd.DataFrames
-        each list element is a dataframe of predictions from one ensemble member (left view)
-    markers_list_right_cam : list of pd.DataFrames
-        each list element is a dataframe of predictions from one ensemble member (right view)
-    timestamps_left_cam : np.array
-        same length as dfs in markers_list_left_cam
-    timestamps_right_cam : np.array
-        same length as dfs in markers_list_right_cam
-    keypoint_names : list
-        list of names in the order they appear in marker dfs
-    smooth_param : float
-        ranges from .01-2 (smaller values = more smoothing)
-    quantile_keep_pca
-        percentage of the points are kept for multi-view PCA (lowest ensemble variance)
-    ensembling_mode:
-        the function used for ensembling ('mean', 'median', or 'confidence_weighted_mean')
-    zscore_threshold:
-        Minimum std threshold to reduce the effect of low ensemble std on a zscore metric
-        (default 2).
-    img_width
-        The width of the image being smoothed (128 default, IBL-specific).
+        Args:
+            input_source: Directory path or list of CSV file paths with columns for all cameras.
+            save_dir: Directory to save output DataFrame.
+            smooth_param: Value in (0, Inf); smaller values lead to more smoothing.
+            s_frames: Frames for automatic optimization if smooth_param is not provided.
+            quantile_keep_pca: Percentage of points kept for PCA (default: 95).
+            avg_mode: Mode for averaging across ensemble ('median', 'mean').
+            var_mode: mode for computing ensemble variance
+                'var' | 'confidence_weighted_var'
+            verbose: True to print out details
+            img_width: The width of the image being smoothed (128 default, IBL-specific).
 
-    Returns
-    -------
-    dict
-        left: dataframe containing smoothed left paw markers; same format as input dataframes
-        right: dataframe containing smoothed right paw markers; same format as input dataframes
+        Returns:
+                tuple:
+                        camera_dfs (list): List of Output Dataframes
+                        s_finals (list): List of optimized smoothing factors for each keypoint.
+                        input_dfs (list): List of input DataFrames for plotting.
+                        bodypart_list (list): List of body parts used.
+        """
+    # IBL paw smoother only works for a pre-specified set of points
+    bodypart_list = ['paw_l', 'paw_r']
+    camera_names = ["left", "right"]
 
-    """
+    # load files and put them in correct format
+    input_dfs_left = []
+    input_dfs_right = []
+    timestamps_left = None
+    timestamps_right = None
+    filenames = os.listdir(input_source)
+    for filename in filenames:
+        # Prediction files
+        if 'timestamps' not in filename:
+            input_df = pd.read_csv(
+                os.path.join(input_source, filename), header=[0, 1, 2], index_col=0)
+            input_df = convert_lp_dlc(input_df, bodypart_list)
+            if 'left' in filename:
+                input_dfs_left.append(input_df)
+            else:
+                # switch right camera paws
+                columns = {
+                    'paw_l_x': 'paw_r_x', 'paw_l_y': 'paw_r_y',
+                    'paw_l_likelihood': 'paw_r_likelihood',
+                    'paw_r_x': 'paw_l_x', 'paw_r_y': 'paw_l_y',
+                    'paw_r_likelihood': 'paw_l_likelihood'
+                }
+                input_df = input_df.rename(columns=columns)
+                # reorder columns
+                input_df = input_df.loc[:, columns.keys()]
+                input_dfs_right.append(input_df)
+        # Timestamp files
+        else:
+            if 'left' in filename:
+                timestamps_left = np.load(os.path.join(input_source, filename))
+            else:
+                timestamps_right = np.load(os.path.join(input_source, filename))
 
-    # --------------------------------------------------------------
-    # interpolate right cam markers to left cam timestamps
-    # --------------------------------------------------------------
+    # file checks
+    if timestamps_left is None or timestamps_right is None:
+        raise ValueError('Need timestamps for both cameras')
+    if len(input_dfs_right) != len(input_dfs_left) or len(input_dfs_left) == 0:
+        raise ValueError(
+            'There must be the same number of left and right camera models and >=1 model for each.')
+    input_dfs_list_original = [input_dfs_left, input_dfs_right]
+    # Interpolate right cam markers to left cam timestamps
     markers_list_stacked_interp = []
     markers_list_interp = [[], []]
-    for model_id in range(len(markers_list_left_cam)):
+    for model_id in range(len(input_dfs_left)):
         bl_markers_curr = []
         left_markers_curr = []
         right_markers_curr = []
-        bl_left_np = markers_list_left_cam[model_id].to_numpy()
-        bl_right_np = markers_list_right_cam[model_id].to_numpy()
+        bl_left_np = input_dfs_left[model_id].to_numpy()
+        bl_right_np = input_dfs_right[model_id].to_numpy()
         bl_right_interp = []
         n_beg_nans = 0
         n_end_nans = 0
         for i in range(bl_left_np.shape[1]):
-            bl_right_interp.append(interp1d(timestamps_right_cam, bl_right_np[:, i]))
-        for i, ts in enumerate(timestamps_left_cam):
-            if ts > timestamps_right_cam[-1]:
+            bl_right_interp.append(interp1d(timestamps_right, bl_right_np[:, i]))
+        for i, ts in enumerate(timestamps_left):
+            if ts > timestamps_right[-1]:
                 n_end_nans += 1
                 continue
-            if ts < timestamps_right_cam[0]:
+            if ts < timestamps_right[0]:
                 n_beg_nans += 1
                 continue
             left_markers = np.array(bl_left_np[i, [0, 1, 3, 4]])
@@ -113,19 +151,88 @@ def ensemble_kalman_smoother_ibl_paw(
         markers_list_stacked_interp.append(bl_markers_curr)
         markers_list_interp[0].append(left_markers_curr)
         markers_list_interp[1].append(right_markers_curr)
-    # markers_list_stacked_interp = np.asarray(markers_list_stacked_interp)
+
     markers_list_interp = np.asarray(markers_list_interp)
 
+    # Add column names back into new dfs
     keys = ['paw_l_x', 'paw_l_y', 'paw_r_x', 'paw_r_y']
-    markers_list_left_cam = []
-    for k in range(len(markers_list_interp[0])):
-        markers_left_cam = pd.DataFrame(markers_list_interp[0][k], columns=keys)
-        markers_list_left_cam.append(markers_left_cam)
+    input_dfs_list = [[] for _ in camera_names]
+    for c, _ in enumerate(camera_names):
+        for k in range(len(markers_list_interp[c])):
+            input_df = pd.DataFrame(markers_list_interp[c][k], columns=keys)
+            input_dfs_list[c].append(input_df)
 
-    markers_list_right_cam = []
-    for k in range(len(markers_list_interp[1])):
-        markers_right_cam = pd.DataFrame(markers_list_interp[1][k], columns=keys)
-        markers_list_right_cam.append(markers_right_cam)
+    # Combine synced dfs into MarkerArray
+    marker_array = input_dfs_to_markerArray(
+        input_dfs_list, bodypart_list, camera_names, data_fields=["x", "y"])
+
+    # Add likelihood data field to MarkerArray
+    dummy_likelihood_shape = np.array(marker_array.shape)
+    dummy_likelihood_shape[-1] = 1
+    marker_array = MarkerArray.stack_fields(
+        marker_array,
+        MarkerArray(shape=dummy_likelihood_shape, data_fields=["likelihood"])
+    )
+
+    # run eks
+    camera_dfs, smooth_params_final = ensemble_kalman_smoother_multicam(
+        marker_array=marker_array,
+        keypoint_names=bodypart_list,
+        smooth_param=smooth_param,
+        quantile_keep_pca=quantile_keep_pca,
+        camera_names=camera_names,
+        s_frames=s_frames,
+        avg_mode=avg_mode,
+        var_mode=var_mode,
+        verbose=verbose
+    )
+    # Save output DataFrames to CSVs (one per camera view)
+    os.makedirs(save_dir, exist_ok=True)
+    for c, camera in enumerate(camera_names):
+        save_filename = f'multicam_{camera}_results.csv'
+        camera_dfs[c].to_csv(os.path.join(save_dir, save_filename))
+    return camera_dfs, smooth_params_final, input_dfs_list_original, bodypart_list
+
+@typechecked()
+def ensemble_kalman_smoother_ibl_paw(
+    marker_array: MarkerArray,
+    keypoint_names: list,
+    smooth_param: float | list | None = None,
+    quantile_keep_pca: float = 95.0,
+    camera_names: list | None = None,
+    s_frames: list | None = None,
+    avg_mode: str = 'median',
+    var_mode: str = 'confidence_weighted_var',
+    verbose: bool = False,
+    img_width=128,
+) -> tuple:
+    """
+    (IBL-specific)
+    Use multi-view constraints to fit a 3d latent subspace for each body part with 2
+    asynchronous cameras.
+
+    Args:
+        marker_array: MarkerArray object containing marker data for left and right views
+            Shape (n_models, n_cameras=2, n_frames, n_keypoints, 3 (for x, y, likelihood)
+        keypoint_names : list
+            list of names in the order they appear in marker dfs
+        smooth_param : float
+            ranges from .01-2 (smaller values = more smoothing)
+        quantile_keep_pca
+            percentage of the points are kept for multi-view PCA (lowest ensemble variance)
+        ensembling_mode:
+            the function used for ensembling ('mean', 'median', or 'confidence_weighted_mean')
+        zscore_threshold:
+            Minimum std threshold to reduce the effect of low ensemble std on a zscore metric
+            (default 2).
+
+    Returns
+    -------
+    dict
+        left: dataframe containing smoothed left paw markers; same format as input dataframes
+        right: dataframe containing smoothed right paw markers; same format as input dataframes
+
+    """
 
     # compute ensemble median left camera
     left_cam_ensemble_preds, left_cam_ensemble_vars, _, left_cam_ensemble_stacks = ensemble(
