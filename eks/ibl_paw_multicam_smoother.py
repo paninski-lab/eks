@@ -191,7 +191,7 @@ def fit_eks_multicam_ibl_paw(
     for c, camera in enumerate(camera_names):
         save_filename = f'multicam_{camera}_results.csv'
         camera_dfs[c].to_csv(os.path.join(save_dir, save_filename))
-    return camera_dfs, smooth_params_final, input_dfs_list_original, bodypart_list
+    return camera_dfs, smooth_params_final, input_dfs_list, bodypart_list
 
 @typechecked()
 def ensemble_kalman_smoother_ibl_paw(

@@ -45,6 +45,7 @@ plot_results(
     nll_values=None,
     save_dir=save_dir,
     smoother_type=smoother_type,
+    coords=['x', 'y']
 )
 
 print("Ensemble Kalman Smoothing complete. Results saved and plotted successfully.")
