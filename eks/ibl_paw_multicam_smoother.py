@@ -50,6 +50,8 @@ def fit_eks_multicam_ibl_paw(
     var_mode: str = 'confidence_weighted_var',
     verbose: bool = False,
     img_width: int = 128,
+    inflate_vars: bool = False,
+    n_latent: int = 3
 ) -> tuple:
     """
         Fit the Ensemble Kalman Smoother for IBL multi-camera paw data.
@@ -65,6 +67,8 @@ def fit_eks_multicam_ibl_paw(
                 'var' | 'confidence_weighted_var'
             verbose: True to print out details
             img_width: The width of the image being smoothed (128 default, IBL-specific).
+            inflate_vars: True to use Mahalanobis distance thresholding to inflate ensemble variance
+            n_latent: number of dimensions to keep from PCA
 
         Returns:
                 tuple:
@@ -116,7 +120,7 @@ def fit_eks_multicam_ibl_paw(
     if len(input_dfs_right) != len(input_dfs_left) or len(input_dfs_left) == 0:
         raise ValueError(
             'There must be the same number of left and right camera models and >=1 model for each.')
-    input_dfs_list_original = [input_dfs_left, input_dfs_right]
+
     # Interpolate right cam markers to left cam timestamps
     markers_list_stacked_interp = []
     markers_list_interp = [[], []]
@@ -184,7 +188,10 @@ def fit_eks_multicam_ibl_paw(
         s_frames=s_frames,
         avg_mode=avg_mode,
         var_mode=var_mode,
-        verbose=verbose
+        verbose=verbose,
+        inflate_vars=inflate_vars,
+        n_latent=n_latent,
+        inflate_vars_kwargs={'likelihoods': None}
     )
     # Save output DataFrames to CSVs (one per camera view)
     os.makedirs(save_dir, exist_ok=True)
@@ -192,320 +199,3 @@ def fit_eks_multicam_ibl_paw(
         save_filename = f'multicam_{camera}_results.csv'
         camera_dfs[c].to_csv(os.path.join(save_dir, save_filename))
     return camera_dfs, smooth_params_final, input_dfs_list, bodypart_list
-
-@typechecked()
-def ensemble_kalman_smoother_ibl_paw(
-    marker_array: MarkerArray,
-    keypoint_names: list,
-    smooth_param: float | list | None = None,
-    quantile_keep_pca: float = 95.0,
-    camera_names: list | None = None,
-    s_frames: list | None = None,
-    avg_mode: str = 'median',
-    var_mode: str = 'confidence_weighted_var',
-    verbose: bool = False,
-    img_width=128,
-) -> tuple:
-    """
-    (IBL-specific)
-    Use multi-view constraints to fit a 3d latent subspace for each body part with 2
-    asynchronous cameras.
-
-    Args:
-        marker_array: MarkerArray object containing marker data for left and right views
-            Shape (n_models, n_cameras=2, n_frames, n_keypoints, 3 (for x, y, likelihood)
-        keypoint_names : list
-            list of names in the order they appear in marker dfs
-        smooth_param : float
-            ranges from .01-2 (smaller values = more smoothing)
-        quantile_keep_pca
-            percentage of the points are kept for multi-view PCA (lowest ensemble variance)
-        ensembling_mode:
-            the function used for ensembling ('mean', 'median', or 'confidence_weighted_mean')
-        zscore_threshold:
-            Minimum std threshold to reduce the effect of low ensemble std on a zscore metric
-            (default 2).
-
-    Returns
-    -------
-    dict
-        left: dataframe containing smoothed left paw markers; same format as input dataframes
-        right: dataframe containing smoothed right paw markers; same format as input dataframes
-
-    """
-
-    # compute ensemble median left camera
-    left_cam_ensemble_preds, left_cam_ensemble_vars, _, left_cam_ensemble_stacks = ensemble(
-        markers_list_left_cam, keys, avg_mode=ensembling_mode, var_mode='var',
-    )
-
-    # compute ensemble median right camera
-    right_cam_ensemble_preds, right_cam_ensemble_vars, _, right_cam_ensemble_stacks = ensemble(
-        markers_list_right_cam, keys, avg_mode=ensembling_mode, var_mode='var',
-    )
-
-    # keep percentage of the points for multi-view PCA based lowest ensemble variance
-    hstacked_vars = np.hstack((left_cam_ensemble_vars, right_cam_ensemble_vars))
-    max_vars = np.max(hstacked_vars, 1)
-    good_frames = np.where(max_vars <= np.percentile(max_vars, quantile_keep_pca))[0]
-
-    good_left_cam_ensemble_preds = left_cam_ensemble_preds[good_frames]
-    good_right_cam_ensemble_preds = right_cam_ensemble_preds[good_frames]
-    good_left_cam_ensemble_vars = left_cam_ensemble_vars[good_frames]
-    good_right_cam_ensemble_vars = right_cam_ensemble_vars[good_frames]
-
-    # stack left and right camera predictions and variances for both paws on all the good
-    # frames
-    good_stacked_ensemble_preds = np.zeros(
-        (good_frames.shape[0] * 2, left_cam_ensemble_preds.shape[1]))
-    good_stacked_ensemble_vars = np.zeros(
-        (good_frames.shape[0] * 2, left_cam_ensemble_vars.shape[1]))
-    i, j = 0, 0
-    while i < good_right_cam_ensemble_preds.shape[0]:
-        good_stacked_ensemble_preds[j] = np.concatenate(
-            (good_left_cam_ensemble_preds[i][:2], good_right_cam_ensemble_preds[i][:2]))
-        good_stacked_ensemble_vars[j] = np.concatenate(
-            (good_left_cam_ensemble_vars[i][:2], good_right_cam_ensemble_vars[i][:2]))
-        j += 1
-        good_stacked_ensemble_preds[j] = np.concatenate(
-            (good_left_cam_ensemble_preds[i][2:4], good_right_cam_ensemble_preds[i][2:4]))
-        good_stacked_ensemble_vars[j] = np.concatenate(
-            (good_left_cam_ensemble_vars[i][2:4], good_right_cam_ensemble_vars[i][2:4]))
-        i += 1
-        j += 1
-
-    # combine left and right camera predictions and variances for both paws
-    left_paw_ensemble_preds = np.zeros(
-        (left_cam_ensemble_preds.shape[0], left_cam_ensemble_preds.shape[1]))
-    right_paw_ensemble_preds = np.zeros(
-        (right_cam_ensemble_preds.shape[0], right_cam_ensemble_preds.shape[1]))
-    left_paw_ensemble_vars = np.zeros(
-        (left_cam_ensemble_vars.shape[0], left_cam_ensemble_vars.shape[1]))
-    right_paw_ensemble_vars = np.zeros(
-        (right_cam_ensemble_vars.shape[0], right_cam_ensemble_vars.shape[1]))
-    for i in range(len(left_cam_ensemble_preds)):
-        left_paw_ensemble_preds[i] = np.concatenate(
-            (left_cam_ensemble_preds[i][:2], right_cam_ensemble_preds[i][:2]))
-        right_paw_ensemble_preds[i] = np.concatenate(
-            (left_cam_ensemble_preds[i][2:4], right_cam_ensemble_preds[i][2:4]))
-        left_paw_ensemble_vars[i] = np.concatenate(
-            (left_cam_ensemble_vars[i][:2], right_cam_ensemble_vars[i][:2]))
-        right_paw_ensemble_vars[i] = np.concatenate(
-            (left_cam_ensemble_vars[i][2:4], right_cam_ensemble_vars[i][2:4]))
-
-    # get mean of each paw
-    mean_camera_l_x = good_stacked_ensemble_preds[:, 0].mean()
-    mean_camera_l_y = good_stacked_ensemble_preds[:, 1].mean()
-    mean_camera_r_x = good_stacked_ensemble_preds[:, 2].mean()
-    mean_camera_r_y = good_stacked_ensemble_preds[:, 3].mean()
-    means_camera = [mean_camera_l_x, mean_camera_l_y, mean_camera_r_x, mean_camera_r_y]
-
-    left_paw_ensemble_stacks = np.concatenate(
-        (left_cam_ensemble_stacks[:, :, :2], right_cam_ensemble_stacks[:, :, :2]), 2)
-
-    remove_camera_means(left_paw_ensemble_stacks, means_camera)
-
-    right_paw_ensemble_stacks = np.concatenate(
-        (right_cam_ensemble_stacks[:, :, :2], right_cam_ensemble_stacks[:, :, :2]), 2)
-
-    remove_camera_means(right_paw_ensemble_stacks, means_camera)
-
-    good_centered_stacked_ensemble_preds = \
-        remove_camera_means(good_stacked_ensemble_preds[None, :, :], means_camera)[0]
-    ensemble_pca, ensemble_ex_var = pca(good_centered_stacked_ensemble_preds, 3)
-
-    centered_left_paw_ensemble_preds = \
-        remove_camera_means(left_paw_ensemble_preds[None, :, :], means_camera)[0]
-    ensemble_pcs_left_paw = ensemble_pca.transform(centered_left_paw_ensemble_preds)
-    good_ensemble_pcs_left_paw = ensemble_pcs_left_paw[good_frames]
-
-    centered_right_paw_ensemble_preds = \
-        remove_camera_means(right_paw_ensemble_preds[None, :, :], means_camera)[0]
-    ensemble_pcs_right_paw = ensemble_pca.transform(centered_right_paw_ensemble_preds)
-    good_ensemble_pcs_right_paw = ensemble_pcs_right_paw[good_frames]
-
-    # --------------------------------------------------------------
-    # kalman filtering + smoothing
-    # --------------------------------------------------------------
-    # $z_t = (d_t, x_t, y_t)$
-    # $z_t = As z_{t-1} + e_t, e_t ~ N(0,E)$
-    # $O_t = B z_t + n_t, n_t ~ N(0,D_t)$
-
-    dfs = {}
-    for paw in ['left', 'right']:
-
-        # --------------------------------------
-        # Set values for kalman filter
-        # --------------------------------------
-        if paw == 'left':
-            save_keypoint_name = keypoint_names[0]
-            good_ensemble_pcs = good_ensemble_pcs_left_paw
-            ensemble_vars = left_paw_ensemble_vars
-            y = centered_left_paw_ensemble_preds
-            # ensemble_stacks = centered_left_paw_ensemble_stacks
-        else:
-            save_keypoint_name = keypoint_names[1]
-            good_ensemble_pcs = good_ensemble_pcs_right_paw
-            ensemble_vars = right_paw_ensemble_vars
-            y = centered_right_paw_ensemble_preds
-            # ensemble_stacks = centered_right_paw_ensemble_stacks
-
-        # compute center of mass
-        # latent variables (observed)
-        good_z_t_obs = good_ensemble_pcs  # latent variables - true 3D pca
-
-        # Set values for kalman filter #
-        # initial state: mean
-        m0 = np.asarray([0.0, 0.0, 0.0])
-
-        # diagonal: var
-        S0 = np.asarray([
-            [np.nanvar(good_z_t_obs[:, 0]), 0.0, 0.0],
-            [0.0, np.nanvar(good_z_t_obs[:, 1]), 0.0],
-            [0.0, 0.0, np.nanvar(good_z_t_obs[:, 2])]
-        ])
-
-        # state-transition matrix
-        A = np.asarray([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
-
-        # state covariance matrix
-        d_t = good_z_t_obs[1:] - good_z_t_obs[:-1]
-        Q = smooth_param * np.cov(d_t.T)
-
-        # measurement function is inverse transform of PCA
-        C = ensemble_pca.components_.T
-
-        # placeholder diagonal matrix for ensemble variance
-        R = np.eye(ensemble_pca.components_.shape[1])
-
-        # --------------------------------------
-        # perform filtering
-        # --------------------------------------
-        # do filtering pass with time-varying ensemble variances
-        print(f"filtering {paw} paw...")
-        mf, Vf, S, _, _ = forward_pass(y, m0, S0, C, R, A, Q, ensemble_vars)
-        print("done filtering")
-
-        # --------------------------------------
-        # perform smoothing
-        # --------------------------------------
-        # Do the smoothing step
-        print(f"smoothing {paw} paw...")
-        ms, Vs, _ = backward_pass(y, mf, Vf, S, A)
-        print("done smoothing")
-        # Smoothed posterior over ys
-        y_m_smooth = np.dot(C, ms.T).T
-        y_v_smooth = np.swapaxes(np.dot(C, np.dot(Vs, C.T)), 0, 1)
-
-        # --------------------------------------
-        # cleanup for this paw
-        # --------------------------------------
-        save_keypoint_names = ['l_cam_' + save_keypoint_name, 'r_cam_' + save_keypoint_name]
-        pdindex = make_dlc_pandas_index(
-            save_keypoint_names,
-            labels=["x", "y", "likelihood", "x_var", "y_var", "zscore"]
-        )
-
-        centered_y_m_smooth = add_camera_means(y_m_smooth[None, :, :], means_camera)[0]
-        centered_y = add_camera_means(y[None, :, :], means_camera)[0]
-        pred_arr = []
-        for i in range(len(save_keypoint_names)):
-            pred_arr.append(centered_y_m_smooth.T[0 + 2 * i])
-            pred_arr.append(centered_y_m_smooth.T[1 + 2 * i])
-            var = np.empty(centered_y_m_smooth.T[0 + 2 * i].shape)
-            var[:] = np.nan
-            pred_arr.append(var)
-            x_var = y_v_smooth[:, 0 + 2 * i, 0 + 2 * i]
-            y_var = y_v_smooth[:, 1 + 2 * i, 1 + 2 * i]
-            pred_arr.append(x_var)
-            pred_arr.append(y_var)
-            ###
-            eks_predictions = np.asarray([centered_y_m_smooth.T[0 + 2 * i],
-                                          centered_y_m_smooth.T[1 + 2 * i]]).T
-            ensemble_preds = centered_y[:, 2 * i:2 * (i + 1)]
-            ensemble_vars_curr = ensemble_vars[:, 2 * i:2 * (i + 1)]
-            zscore, _ = eks_zscore(eks_predictions, ensemble_preds, ensemble_vars_curr,
-                                   min_ensemble_std=4)
-            pred_arr.append(zscore)
-            ###
-        pred_arr = np.asarray(pred_arr)
-        dfs[paw] = pd.DataFrame(pred_arr.T, columns=pdindex)
-
-    # --------------------------------------
-    # final cleanup
-    # --------------------------------------
-    pdindex = make_dlc_pandas_index(keypoint_names,
-                                    labels=["x", "y", "likelihood", "x_var", "y_var", "zscore"])
-
-    # make left cam dataframe
-    pred_arr = np.hstack([
-        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_l', 'x')].to_numpy()
-        [:, None],
-        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_l', 'y')].to_numpy()
-        [:, None],
-        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_l', 'likelihood')].to_numpy()
-        [:, None],
-        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_l', 'x_var')].to_numpy()
-        [:, None],
-        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_l', 'y_var')].to_numpy()
-        [:, None],
-        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_l', 'zscore')].to_numpy()
-        [:, None],
-        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_r', 'x')].to_numpy()[:, None],
-        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_r', 'y')].to_numpy()[:, None],
-        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_r', 'likelihood')].to_numpy()
-        [:, None],
-        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_r', 'x_var')].to_numpy()
-        [:, None],
-        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_r', 'y_var')].to_numpy()
-        [:, None],
-        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'l_cam_paw_r', 'zscore')].to_numpy()
-        [:, None],
-    ])
-    df_left = pd.DataFrame(pred_arr, columns=pdindex)
-
-    # make right cam dataframe
-    # note we swap left and right paws to match dlc/lp convention
-    # note we flip the paws horizontally to match lp convention
-    pred_arr = np.hstack([
-        img_width - dfs['right'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_r', 'x')].to_numpy()
-        [:, None],
-        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_r', 'y')].to_numpy()
-        [:, None],
-        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_r', 'likelihood')].to_numpy()
-        [:, None],
-        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_r', 'x_var')].to_numpy()
-        [:, None],
-        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_r', 'y_var')].to_numpy()
-        [:, None],
-        dfs['right'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_r', 'zscore')].to_numpy()
-        [:, None],
-        img_width - dfs['left'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_l', 'x')].to_numpy()
-        [:, None],
-        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_l', 'y')].to_numpy()
-        [:, None],
-        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_l', 'likelihood')].to_numpy()
-        [:, None],
-        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_l', 'x_var')].to_numpy()
-        [:, None],
-        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_l', 'y_var')].to_numpy()
-        [:, None],
-        dfs['left'].loc[:, ('ensemble-kalman_tracker', 'r_cam_paw_l', 'zscore')].to_numpy()
-        [:, None],
-    ])
-    df_right = pd.DataFrame(pred_arr, columns=pdindex)
-
-    # add nans to beginning/end so that the returned dataframes match the number of left timestamps
-    if n_beg_nans > 0:
-        nan_rows = pd.DataFrame(np.nan, index=range(-n_beg_nans, 0), columns=df_right.columns)
-        df_right = pd.concat([nan_rows, df_right])
-        df_left = pd.concat([nan_rows, df_left])
-    if n_end_nans > 0:
-        curr_len = df_right.shape[0] - n_beg_nans
-        nan_rows = pd.DataFrame(
-            np.nan, index=range(curr_len, curr_len + n_end_nans), columns=df_right.columns)
-        df_right = pd.concat([df_right, nan_rows])
-        df_left = pd.concat([df_left, nan_rows])
-
-    return {'left_df': df_left, 'right_df': df_right}, \
-        markers_list_left_cam, markers_list_right_cam

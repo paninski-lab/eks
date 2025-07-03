@@ -20,6 +20,8 @@ save_dir = handle_io(input_dir, args.save_dir)
 s = args.s
 s_frames = args.s_frames  # Frames to be used for automatic optimization if s is not provided
 quantile_keep_pca = args.quantile_keep_pca
+inflate_vars = True if args.inflate_vars == 'True' else False
+n_latent = args.n_latent
 verbose = True if args.verbose == 'True' else False
 
 # Fit EKS using the provided input data
@@ -31,6 +33,8 @@ camera_dfs, s_finals, input_dfs, bodypart_list = fit_eks_multicam_ibl_paw(
     quantile_keep_pca=quantile_keep_pca,
     var_mode='var',
     verbose=verbose,
+    inflate_vars=inflate_vars,
+    n_latent=args.n_latent
 )
 
 # Plot results for a specific keypoint (default to last keypoint of last camera view)
