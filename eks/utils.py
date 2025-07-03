@@ -170,13 +170,11 @@ def format_data(input_source: str | list, camera_names: list | None = None) -> t
 
 def plot_results(
     output_df, input_dfs_list, key, s_final, nll_values, idxs, save_dir, smoother_type,
+    coords=['x', 'y', 'likelihood']
 ):
-    if nll_values is None:
-        fig, axes = plt.subplots(3, 1, figsize=(9, 10))
-    else:
-        fig, axes = plt.subplots(4, 1)
+    fig, axes = plt.subplots(len(coords), 1, figsize=(9, 10))
 
-    for ax, coord in zip(axes, ['x', 'y', 'likelihood']):
+    for ax, coord in zip(axes, coords):
         # Rename axes label for likelihood and zscore coordinates
         if coord == 'likelihood':
             ylabel = 'model likelihoods'

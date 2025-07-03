@@ -42,7 +42,6 @@ camera_dfs, s_finals, input_dfs, bodypart_list = fit_eks_multicam(
     n_latent=args.n_latent
 )
 
-
 # Plot results for a specific keypoint (default to last keypoint of last camera view)
 keypoint_i = -1
 camera_c = -1

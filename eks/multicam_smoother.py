@@ -396,6 +396,54 @@ def initialize_kalman_filter_pca(
     )
 
 
+def initialize_kalman_filter_pca(
+    good_pcs_list: list[np.ndarray],
+    ensemble_pca: list[PCA],
+    n_latent: int,
+) -> tuple:
+    """
+    Initialize Kalman filter parameters for PCA-projected keypoints.
+
+    Parameters:
+        good_pcs_list: List of (n_good_frames, n_latent) arrays per keypoint.
+        ensemble_pca: List of PCA objects (one per keypoint).
+        n_latent: Number of latent dimensions (usually <= 3).
+
+    Returns:
+        tuple: (m0s, S0s, As, cov_mats, Cs, Rs) as arrays stacked over keypoints.
+    """
+
+    n_keypoints = len(good_pcs_list)
+
+    m0s = np.zeros((n_keypoints, n_latent))
+    S0s = np.array([
+        np.diag([np.var(good_pcs_list[k][:, i]) for i in range(n_latent)])
+        for k in range(n_keypoints)
+    ])
+    As = np.tile(np.eye(n_latent), (n_keypoints, 1, 1))
+    Cs = np.stack([pca.components_.T for pca in ensemble_pca])
+    Rs = np.tile(np.eye(n_latent), (n_keypoints, 1, 1))
+
+    cov_mats = []
+    for k in range(n_keypoints):
+        pcs = good_pcs_list[k]
+        d_t = pcs[1:] - pcs[:-1]
+        cov = np.cov(d_t.T)
+        cov_norm = cov / np.max(np.abs(cov)) if np.max(np.abs(cov)) > 0 else cov
+        cov_mats.append(cov_norm)
+
+    cov_mats = np.stack(cov_mats)
+
+    return (
+        jnp.array(m0s),
+        jnp.array(S0s),
+        jnp.array(As),
+        jnp.array(cov_mats),
+        jnp.array(Cs),
+        jnp.array(Rs),
+    )
+
+
 def mA_compute_maha(centered_emA_preds, emA_vars, emA_likes, n_latent,
                     inflate_vars_kwargs={}, threshold=5, scalar=2):
     """
@@ -432,10 +480,15 @@ def mA_compute_maha(centered_emA_preds, emA_vars, emA_likes, n_latent,
 
         while inflated:
             # Compute Mahalanobis distances
-            maha_results = compute_mahalanobis(preds, tmp_vars,
-                                               n_latent=n_latent,
-                                               likelihoods=likes,
-                                               **inflate_vars_kwargs)
+            if inflate_vars_kwargs.get("likelihoods", None) is None:
+                maha_results = compute_mahalanobis(preds, tmp_vars,
+                                                   n_latent=n_latent,
+                                                   **inflate_vars_kwargs)
+            else:
+                maha_results = compute_mahalanobis(preds, tmp_vars,
+                                                   n_latent=n_latent,
+                                                   likelihoods=likes,
+                                                   **inflate_vars_kwargs)
             # Inflate variances based on Mahalanobis distances
             inflated_ens_vars_k, inflated = inflate_variance(
                 tmp_vars, maha_results['mahalanobis'], threshold, scalar)

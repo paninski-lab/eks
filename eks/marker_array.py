@@ -230,32 +230,36 @@ class MarkerArray:
         )
 
 
-def input_dfs_to_markerArray(input_dfs_list, bodypart_list, camera_names):
+def input_dfs_to_markerArray(
+        input_dfs_list,
+        bodypart_list,
+        camera_names,
+        data_fields=["x", "y", "likelihood"]
+):
     """
     Converts input_dfs_list (list of list of DataFrames) into a NumPy array
-    with shape (n_models, n_cameras, n_frames, n_keypoints, 3).
+    with shape (n_models, n_cameras, n_frames, n_keypoints, n_data_fields).
     """
     # Get dimensions
     n_keypoints = len(bodypart_list)  # Number of keypoints
     n_cameras = len(camera_names)  # Number of cameras
     n_models = len(input_dfs_list[0])  # Number of models
     n_frames = input_dfs_list[0][0].shape[0]
+    n_fields = len(data_fields)
 
     # Initialize array
-    marker_array = np.zeros((n_models, n_cameras, n_frames, n_keypoints, 3))
+    marker_array = np.zeros((n_models, n_cameras, n_frames, n_keypoints, n_fields))
 
     # Fill the array
     for c, camera_name in enumerate(camera_names):
         for m in range(n_models):
             model_df = input_dfs_list[c][m]
             for k, keypoint in enumerate(bodypart_list):
-                # Extract keypoint-specific columns
-                marker_array[m, c, :, k, 0] = model_df[f"{keypoint}_x"].to_numpy()
-                marker_array[m, c, :, k, 1] = model_df[f"{keypoint}_y"].to_numpy()
-                marker_array[m, c, :, k, 2] = model_df[f"{keypoint}_likelihood"].to_numpy()
+                for d, data_field in enumerate(data_fields):
+                    marker_array[m, c, :, k, d] = model_df[f"{keypoint}_{data_field}"].to_numpy()
 
     # Convert to MarkerArray
-    marker_array = MarkerArray(marker_array, data_fields=["x", "y", "likelihood"])
+    marker_array = MarkerArray(marker_array, data_fields=data_fields)
     return marker_array
 
 
