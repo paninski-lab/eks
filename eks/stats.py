@@ -105,13 +105,11 @@ def compute_mahalanobis(
             valid_rows = np.min(likelihoods, axis=1) >= likelihood_threshold
         else:
             valid_rows = np.ones(x.shape[0], dtype=bool)
-
         # Filter rows based on ensemble variance (we want low variance predictions for FA)
         if v_quantile_threshold is not None:
             ev_max = v.max(axis=1)
             valid_rows_ev = ev_max < np.percentile(ev_max, v_quantile_threshold)
             valid_rows = valid_rows & valid_rows_ev
-
         # Perform Factor Analysis to estimate W and mu_x using valid rows
         fa = FactorAnalysis(n_components=n_latent)
         fa.fit(x[valid_rows])

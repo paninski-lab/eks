@@ -118,7 +118,6 @@ def fit_eks_pupil(
             smooth_params (list): Final smoothing parameters used.
             input_dfs_list (list): List of input DataFrames.
             keypoint_names (list): List of keypoint names.
-            nll_values (list): List of NLL values.
 
     """
     # pupil smoother only works for a pre-specified set of points

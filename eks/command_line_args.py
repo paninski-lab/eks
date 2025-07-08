@@ -87,6 +87,8 @@ def handle_parse_args(script_type):
     elif script_type == 'ibl_paw':
         add_s(parser)
         add_quantile_keep_pca(parser)
+        add_inflate_vars(parser)
+        add_n_latent(parser)
     else:
         raise ValueError("Unrecognized script type.")
     args = parser.parse_args()
