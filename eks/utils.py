@@ -7,6 +7,8 @@ from jax import numpy as jnp
 from sleap_io.io.slp import read_labels
 from typeguard import typechecked
 
+from eks.marker_array import MarkerArray
+
 
 @typechecked
 def make_dlc_pandas_index(
@@ -247,3 +249,78 @@ def crop_frames(y: np.ndarray | jnp.ndarray, s_frames: list | tuple) -> np.ndarr
 
     # Concatenate all slices into a single numpy array
     return np.concatenate(result)
+
+
+def center_predictions(
+    ensemble_marker_array: MarkerArray,
+    quantile_keep_pca: float
+):
+    """
+    Filter frames based on variance, compute mean coordinates, and scale predictions.
+
+    Args:
+        ensemble_marker_array: Ensemble MarkerArray containing predicted positions and variances.
+        quantile_keep_pca: Threshold percentage for filtering low-variance frames.
+
+    Returns:
+        tuple:
+            valid_frames_mask (np.ndarray): Boolean mask of valid frames per keypoint.
+            emA_centered_preds (MarkerArray): Centered ensemble predictions.
+            emA_good_centered_preds (MarkerArray): Centered ensemble predictions for valid frames.
+            emA_means (MarkerArray): Mean x and y coords for each camera.
+    """
+    n_models, n_cameras, n_frames, n_keypoints, _ = ensemble_marker_array.shape
+    assert n_models == 1, "MarkerArray should have n_models = 1 after ensembling."
+
+    emA_preds = ensemble_marker_array.slice_fields("x", "y")
+    emA_vars = ensemble_marker_array.slice_fields("var_x", "var_y")
+
+    # Maximum variance for each keypoint in each frame, independent of camera
+    max_vars_per_frame = np.max(emA_vars.array, axis=(0, 1, 4))  # Shape: (n_frames, n_keypoints)
+    # Compute variance threshold for each keypoint
+    thresholds = np.percentile(max_vars_per_frame, quantile_keep_pca, axis=0)
+
+    valid_frames_mask = max_vars_per_frame <= thresholds  # Shape: (n_frames, n_keypoints)
+
+    min_frames = float('inf')  # Initialize min_frames to infinity
+
+    emA_centered_preds_list = []
+    emA_good_centered_preds_list = []
+    emA_means_list = []
+    good_frame_indices_list = []
+
+    for k in range(n_keypoints):
+        # Find valid frame indices for the current keypoint
+        good_frame_indices = np.where(valid_frames_mask[:, k])[0]  # Shape: (n_filtered_frames,)
+
+        # Update min_frames to track the minimum number of valid frames across keypoints
+        if len(good_frame_indices) < min_frames:
+            min_frames = len(good_frame_indices)
+
+        good_frame_indices_list.append(good_frame_indices)
+
+    # Now, reprocess each keypoint using only `min_frames` frames
+    for k in range(n_keypoints):
+        good_frame_indices = good_frame_indices_list[k][:min_frames]  # Truncate to min_frames
+
+        # Extract valid frames for this keypoint
+        good_preds_k = emA_preds.array[:, :, good_frame_indices, k, :]
+        good_preds_k = np.expand_dims(good_preds_k, axis=3)
+
+        # Scale predictions by subtracting means (over frames) from predictions
+        means_k = np.mean(good_preds_k, axis=2)[:, :, None, :, :]
+        centered_preds_k = emA_preds.slice("keypoints", k).array - means_k
+        good_centered_preds_k = good_preds_k - means_k
+
+        emA_centered_preds_list.append(
+            MarkerArray(centered_preds_k, data_fields=["x", "y"]))
+        emA_good_centered_preds_list.append(
+            MarkerArray(good_centered_preds_k, data_fields=["x", "y"]))
+        emA_means_list.append(MarkerArray(means_k, data_fields=["x", "y"]))
+
+    # Concatenate all keypoint-wise filtered results along the keypoints axis
+    emA_centered_preds = MarkerArray.stack(emA_centered_preds_list, "keypoints")
+    emA_good_centered_preds = MarkerArray.stack(emA_good_centered_preds_list, "keypoints")
+    emA_means = MarkerArray.stack(emA_means_list, "keypoints")
+
+    return valid_frames_mask, emA_centered_preds, emA_good_centered_preds, emA_means

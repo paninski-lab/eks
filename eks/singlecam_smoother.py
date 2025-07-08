@@ -5,9 +5,9 @@ import numpy as np
 import pandas as pd
 from typeguard import typechecked
 
-from eks.core import center_predictions, jax_ensemble, optimize_smooth_param
+from eks.core import ensemble, optimize_smooth_param
 from eks.marker_array import MarkerArray, input_dfs_to_markerArray
-from eks.utils import format_data, make_dlc_pandas_index
+from eks.utils import center_predictions, format_data, make_dlc_pandas_index
 
 
 @typechecked
@@ -107,11 +107,10 @@ def ensemble_kalman_smoother_singlecam(
         tuple: Dataframes with smoothed predictions, final smoothing parameters.
 
     """
-
     n_models, n_cameras, n_frames, n_keypoints, n_data_fields = marker_array.shape
 
     # MarkerArray (1, 1, n_frames, n_keypoints, 5 (x, y, var_x, var_y, likelihood))
-    ensemble_marker_array = jax_ensemble(marker_array, avg_mode=avg_mode, var_mode=var_mode)
+    ensemble_marker_array = ensemble(marker_array, avg_mode=avg_mode, var_mode=var_mode)
     emA_unsmoothed_preds = ensemble_marker_array.slice_fields("x", "y")
     emA_vars = ensemble_marker_array.slice_fields("var_x", "var_y")
     emA_likes = ensemble_marker_array.slice_fields("likelihood")
@@ -135,11 +134,11 @@ def ensemble_kalman_smoother_singlecam(
 
     # Prepare params for singlecam_optimize_smooth()
     ys = emA_centered_preds.get_array(squeeze=True).transpose(1, 0, 2)
-    m0s, S0s, As, cov_mats, Cs, Rs = initialize_kalman_filter(emA_centered_preds)
+    m0s, S0s, As, cov_mats, Cs = initialize_kalman_filter(emA_centered_preds)
 
     # Main smoothing function
-    s_finals, ms, Vs, nlls = optimize_smooth_param(
-        cov_mats, ys, m0s, S0s, Cs, As, Rs, emA_vars.get_array(squeeze=True),
+    s_finals, ms, Vs = optimize_smooth_param(
+        cov_mats, ys, m0s, S0s, Cs, As, emA_vars.get_array(squeeze=True),
         s_frames, smooth_param, blocks, verbose=verbose,
     )
 
@@ -231,7 +230,6 @@ def initialize_kalman_filter(emA_centered_preds: MarkerArray) -> tuple:
     # State-transition and measurement matrices
     As = np.tile(np.eye(2), (n_keypoints, 1, 1))  # (n_keypoints, 2, 2)
     Cs = np.tile(np.eye(2), (n_keypoints, 1, 1))  # (n_keypoints, 2, 2)
-    Rs = np.tile(np.eye(2), (n_keypoints, 1, 1))  # (n_keypoints, 2, 2)
 
     # Compute covariance matrices
     cov_mats = []
@@ -245,5 +243,4 @@ def initialize_kalman_filter(emA_centered_preds: MarkerArray) -> tuple:
         jnp.array(As),
         jnp.array(cov_mats),
         jnp.array(Cs),
-        jnp.array(Rs),
     )

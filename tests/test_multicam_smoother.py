@@ -1,9 +1,9 @@
 import numpy as np
 from sklearn.decomposition import PCA
 
-from eks.core import center_predictions
 from eks.marker_array import MarkerArray
 from eks.multicam_smoother import ensemble_kalman_smoother_multicam, inflate_variance
+from eks.utils import center_predictions
 
 
 def test_ensemble_kalman_smoother_multicam():

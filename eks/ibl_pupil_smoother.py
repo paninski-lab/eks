@@ -10,7 +10,7 @@ from jax import jit
 from jax import numpy as jnp
 from typeguard import typechecked
 
-from eks.core import jax_backward_pass, jax_ensemble, jax_forward_pass
+from eks.core import backward_pass, ensemble, forward_pass
 from eks.marker_array import MarkerArray, input_dfs_to_markerArray
 from eks.utils import crop_frames, format_data, make_dlc_pandas_index
 
@@ -186,7 +186,7 @@ def ensemble_kalman_smoother_ibl_pupil(
 
     # Compute ensemble information
     # MarkerArray (1, 1, n_frames, n_keypoints, 5 (x, y, var_x, var_y, likelihood))
-    ensemble_marker_array = jax_ensemble(marker_array, avg_mode=avg_mode, var_mode=var_mode)
+    ensemble_marker_array = ensemble(marker_array, avg_mode=avg_mode, var_mode=var_mode)
     emA_unsmoothed_preds = ensemble_marker_array.slice_fields("x", "y")
     emA_vars = ensemble_marker_array.slice_fields("var_x", "var_y")
     emA_likes = ensemble_marker_array.slice_fields("likelihood")
@@ -428,10 +428,10 @@ def pupil_smooth(smooth_params, ys, m0, S0, C, R, ensemble_vars, diameters_var, 
         [0, 0, y_var * (1 - (A[2, 2] ** 2))]
     ])
 
-    mf, Vf, nll = jax_forward_pass(ys, m0, S0, A, Q, C, R, ensemble_vars)
+    mf, Vf, nll = forward_pass(ys, m0, S0, A, Q, C, ensemble_vars)
 
     if return_full:
-        ms, Vs = jax_backward_pass(mf, Vf, A, Q)
+        ms, Vs = backward_pass(mf, Vf, A, Q)
         return ms, Vs, nll
 
     return nll
