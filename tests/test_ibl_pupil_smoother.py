@@ -8,7 +8,7 @@ from eks.ibl_pupil_smoother import (
     get_pupil_diameter,
     get_pupil_location,
 )
-from eks.marker_array import MarkerArray, input_dfs_to_markerArray
+from eks.marker_array import input_dfs_to_markerArray
 
 
 @pytest.fixture

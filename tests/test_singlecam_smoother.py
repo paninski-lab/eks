@@ -103,7 +103,7 @@ def test_initialize_kalman_filter():
     emA_centered_preds = MarkerArray(centered_ensemble_preds, data_fields=["x", "y"])
 
     # Run the function
-    m0s, S0s, As, cov_mats, Cs, Rs = initialize_kalman_filter(emA_centered_preds)
+    m0s, S0s, As, cov_mats, Cs = initialize_kalman_filter(emA_centered_preds)
 
     # Assertions to verify the function output
     assert m0s.shape == (n_keypoints, 2), \
@@ -116,8 +116,6 @@ def test_initialize_kalman_filter():
         f"Expected shape {(n_keypoints, 2, 2)}, got {cov_mats.shape}"
     assert Cs.shape == (n_keypoints, 2, 2), \
         f"Expected shape {(n_keypoints, 2, 2)}, got {Cs.shape}"
-    assert Rs.shape == (n_keypoints, 2, 2), \
-        f"Expected shape {(n_keypoints, 2, 2)}, got {Rs.shape}"
 
     # Check that the diagonal of S0s contains non-negative values (variance cannot be negative)
     assert jnp.all(S0s[:, 0, 0] >= 0), "S0s diagonal should have non-negative variances"

@@ -1,11 +1,11 @@
-import numpy as np
 import os
+
+import numpy as np
 import pandas as pd
 from scipy.interpolate import interp1d
 from sklearn.decomposition import PCA
 from typeguard import typechecked
 
-from eks.core import backward_pass, eks_zscore, ensemble, forward_pass
 from eks.marker_array import (
     MarkerArray,
     input_dfs_to_markerArray,
@@ -14,7 +14,7 @@ from eks.marker_array import (
 )
 from eks.multicam_smoother import ensemble_kalman_smoother_multicam
 from eks.stats import compute_pca
-from eks.utils import make_dlc_pandas_index, convert_lp_dlc
+from eks.utils import convert_lp_dlc, make_dlc_pandas_index
 
 
 def remove_camera_means(ensemble_stacks, camera_means):

@@ -6,7 +6,7 @@ import pandas as pd
 from sklearn.decomposition import PCA
 from typeguard import typechecked
 
-from eks.core import center_predictions, jax_ensemble, optimize_smooth_param
+from eks.core import ensemble, optimize_smooth_param
 from eks.marker_array import (
     MarkerArray,
     input_dfs_to_markerArray,
@@ -14,7 +14,7 @@ from eks.marker_array import (
     stacked_array_to_mA,
 )
 from eks.stats import compute_mahalanobis, compute_pca
-from eks.utils import format_data, make_dlc_pandas_index
+from eks.utils import center_predictions, format_data, make_dlc_pandas_index
 
 
 @typechecked
@@ -232,7 +232,7 @@ def ensemble_kalman_smoother_multicam(
     n_models, n_cameras, n_frames, n_keypoints, _ = marker_array.shape
 
     # MarkerArray (1, n_cameras, n_frames, n_keypoints, 5 (x, y, var_x, var_y, likelihood))
-    ensemble_marker_array = jax_ensemble(marker_array, avg_mode=avg_mode, var_mode=var_mode)
+    ensemble_marker_array = ensemble(marker_array, avg_mode=avg_mode, var_mode=var_mode)
     emA_unsmoothed_preds = ensemble_marker_array.slice_fields("x", "y")
     emA_vars = ensemble_marker_array.slice_fields("var_x", "var_y")
     emA_likes = ensemble_marker_array.slice_fields("likelihood")
@@ -269,7 +269,7 @@ def ensemble_kalman_smoother_multicam(
     # Kalman Filter Section ------------------------------------------
 
     # Initialize Kalman filter parameters
-    m0s, S0s, As, cov_mats, Cs, Rs = initialize_kalman_filter_pca(
+    m0s, S0s, As, cov_mats, Cs = initialize_kalman_filter_pca(
         good_pcs_list=good_pcs_list,
         ensemble_pca=ensemble_pca,
         n_latent=n_latent,
@@ -286,14 +286,13 @@ def ensemble_kalman_smoother_multicam(
     ])
 
     # Optimize smoothing
-    s_finals, ms, Vs, _ = optimize_smooth_param(
+    s_finals, ms, Vs = optimize_smooth_param(
         cov_mats=cov_mats,
         ys=ys,
         m0s=m0s,
         S0s=S0s,
         Cs=Cs,
         As=As,
-        Rs=Rs,
         ensemble_vars=np.swapaxes(ensemble_vars, 0, 1),
         s_frames=s_frames,
         smooth_param=smooth_param,
@@ -392,55 +391,6 @@ def initialize_kalman_filter_pca(
         jnp.array(As),
         jnp.array(cov_mats),
         jnp.array(Cs),
-        jnp.array(Rs),
-    )
-
-
-def initialize_kalman_filter_pca(
-    good_pcs_list: list[np.ndarray],
-    ensemble_pca: list[PCA],
-    n_latent: int,
-) -> tuple:
-    """
-    Initialize Kalman filter parameters for PCA-projected keypoints.
-
-    Parameters:
-        good_pcs_list: List of (n_good_frames, n_latent) arrays per keypoint.
-        ensemble_pca: List of PCA objects (one per keypoint).
-        n_latent: Number of latent dimensions (usually <= 3).
-
-    Returns:
-        tuple: (m0s, S0s, As, cov_mats, Cs, Rs) as arrays stacked over keypoints.
-    """
-
-    n_keypoints = len(good_pcs_list)
-
-    m0s = np.zeros((n_keypoints, n_latent))
-    S0s = np.array([
-        np.diag([np.var(good_pcs_list[k][:, i]) for i in range(n_latent)])
-        for k in range(n_keypoints)
-    ])
-    As = np.tile(np.eye(n_latent), (n_keypoints, 1, 1))
-    Cs = np.stack([pca.components_.T for pca in ensemble_pca])
-    Rs = np.tile(np.eye(n_latent), (n_keypoints, 1, 1))
-
-    cov_mats = []
-    for k in range(n_keypoints):
-        pcs = good_pcs_list[k]
-        d_t = pcs[1:] - pcs[:-1]
-        cov = np.cov(d_t.T)
-        cov_norm = cov / np.max(np.abs(cov)) if np.max(np.abs(cov)) > 0 else cov
-        cov_mats.append(cov_norm)
-
-    cov_mats = np.stack(cov_mats)
-
-    return (
-        jnp.array(m0s),
-        jnp.array(S0s),
-        jnp.array(As),
-        jnp.array(cov_mats),
-        jnp.array(Cs),
-        jnp.array(Rs),
     )
 
 
