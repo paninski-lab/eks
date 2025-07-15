@@ -129,7 +129,8 @@ def fit_eks_multicam(
     var_mode: str = 'confidence_weighted_var',
     inflate_vars: bool = False,
     verbose: bool = False,
-    n_latent: int = 3
+    n_latent: int = 3,
+    backend: str = 'jax',
 ) -> tuple:
     """
     Fit the Ensemble Kalman Smoother for un-mirrored multi-camera data.
@@ -177,7 +178,8 @@ def fit_eks_multicam(
         var_mode=var_mode,
         verbose=verbose,
         inflate_vars=inflate_vars,
-        n_latent=n_latent
+        n_latent=n_latent,
+        backend=backend,
     )
     # Save output DataFrames to CSVs (one per camera view)
     os.makedirs(save_dir, exist_ok=True)
@@ -201,7 +203,8 @@ def ensemble_kalman_smoother_multicam(
     inflate_vars_kwargs: dict = {},
     verbose: bool = False,
     pca_object: PCA | None = None,
-    n_latent: int = 3
+    n_latent: int = 3,
+    backend: str = 'jax',
 ) -> tuple:
     """
     Use multi-view constraints to fit a 3D latent subspace for each body part.
@@ -296,7 +299,8 @@ def ensemble_kalman_smoother_multicam(
         ensemble_vars=np.swapaxes(ensemble_vars, 0, 1),
         s_frames=s_frames,
         smooth_param=smooth_param,
-        verbose=verbose
+        verbose=verbose,
+        backend=backend,
     )
     # Reproject from latent space back to observed space
     camera_arrs = [[] for _ in camera_names]
@@ -373,7 +377,6 @@ def initialize_kalman_filter_pca(
     ])
     As = np.tile(np.eye(n_latent), (n_keypoints, 1, 1))
     Cs = np.stack([pca.components_.T for pca in ensemble_pca])
-    Rs = np.tile(np.eye(n_latent), (n_keypoints, 1, 1))
 
     cov_mats = []
     for k in range(n_keypoints):
