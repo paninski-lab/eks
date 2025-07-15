@@ -24,6 +24,7 @@ s = args.s  # Defaults to automatic optimization
 s_frames = args.s_frames  # Frames to be used for automatic optimization if s is not provided
 blocks = args.blocks
 verbose = True if args.verbose == 'True' else False
+backend = args.backend
 
 # Fit EKS using the provided input data
 output_df, s_finals, input_dfs, bodypart_list = fit_eks_singlecam(
@@ -33,7 +34,8 @@ output_df, s_finals, input_dfs, bodypart_list = fit_eks_singlecam(
     smooth_param=s,
     s_frames=s_frames,
     blocks=blocks,
-    verbose=verbose
+    verbose=verbose,
+    backend=backend
 )
 
 # Plot results for a specific keypoint (default to last keypoint)

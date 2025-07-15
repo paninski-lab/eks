@@ -71,6 +71,12 @@ def handle_parse_args(script_type):
         default='',
         type=str,
     )
+    parser.add_argument(
+        '--backend',
+        help='Options: jax, dynamax-linear. Determines the backend to be used for smoothing.',
+        default='jax',
+        type=str
+    )
     if script_type == 'singlecam':
         add_bodyparts(parser)
         add_s(parser)

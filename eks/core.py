@@ -12,6 +12,7 @@ from typing import List, Literal, Optional, Tuple, Union
 
 from eks.marker_array import MarkerArray
 from eks.utils import crop_frames
+from eks.kalman_backends import dynamax_linear_smooth_routine
 
 # -------------------------------------------------------------------------------------
 # Kalman Functions: Functions related to performing filtering and smoothing
@@ -385,6 +386,7 @@ def final_forwards_backwards_pass(
     Cs: jnp.ndarray,
     As: jnp.ndarray,
     ensemble_vars: np.ndarray,
+    backend: str = 'jax'
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Runs the full Kalman forward-backward smoother across all keypoints using
@@ -416,9 +418,24 @@ def final_forwards_backwards_pass(
 
     # Run forward and backward pass for each keypoint
     for k in range(n_keypoints):
-        mf, Vf, nll = forward_pass(
-            ys[k], m0s[k], S0s[k], As[k], Qs[k], Cs[k], ensemble_vars[:, k, :])
-        ms, Vs = backward_pass(mf, Vf, As[k], Qs[k])
+        y = ys[k]  # (T, obs_dim)
+        m0 = m0s[k]  # (D,)
+        S0 = S0s[k]  # (D, D)
+        A = As[k]  # (D, D)
+        Q = Qs[k]  # (D, D)
+        C = Cs[k]  # (obs_dim, D)
+        R_diag = np.mean(ensemble_vars[:, k, :], axis=0)
+        R = np.diag(R_diag)  # (obs_dim, obs_dim)
+
+        if backend == 'jax':
+            mf, Vf, _ = forward_pass(y, m0, S0, A, Q, C, ensemble_vars[:, k, :])
+            ms, Vs = backward_pass(mf, Vf, A, Q)
+
+        elif backend == 'dynamax-linear':
+            ms, Vs = dynamax_linear_smooth_routine(y, m0, S0, A, Q, C, R)
+
+        else:
+            raise ValueError(f"Unsupported backend: {backend}")
 
         ms_array.append(np.array(ms))
         Vs_array.append(np.array(Vs))
@@ -481,6 +498,7 @@ def optimize_smooth_param(
     blocks: Optional[List[List[int]]] = None,
     maxiter: int = 1000,
     verbose: bool = False,
+    backend: str = 'jax',
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Optimize smoothing parameters for each keypoint (or block of keypoints) using
@@ -598,7 +616,7 @@ def optimize_smooth_param(
     s_finals = np.array(s_finals)
     # Final smooth with optimized s
     ms, Vs = final_forwards_backwards_pass(
-        cov_mats, s_finals, ys, m0s, S0s, Cs, As, ensemble_vars,
+        cov_mats, s_finals, ys, m0s, S0s, Cs, As, ensemble_vars, backend=backend,
     )
 
     return s_finals, ms, Vs
