@@ -21,13 +21,31 @@ def dynamax_linear_smooth_routine(
     A: ArrayLike,
     Q: ArrayLike,
     C: ArrayLike,
-    R: ArrayLike
+    ensemble_vars: ArrayLike  # shape (T, obs_dim)
 ) -> Tuple[jnp.ndarray, jnp.ndarray]:
-    # Convert everything to JAX arrays
-    y, m0, S0, A, Q, C, R = map(jnp.asarray, (y, m0, S0, A, Q, C, R))
-    state_dim, obs_dim = A.shape[0], C.shape[0]
+    """
+    Run Dynamax smoother with time-varying diagonal observation noise from ensemble variances.
 
-    # Build model and correct param structure
+    Args:
+        y: (T, obs_dim) observations
+        m0: (state_dim,) initial mean
+        S0: (state_dim, state_dim) initial covariance
+        A: (state_dim, state_dim) transition matrix
+        Q: (state_dim, state_dim) process noise
+        C: (obs_dim, state_dim) emission matrix
+        ensemble_vars: (T, obs_dim) per-timestep observation noise variance
+
+    Returns:
+        smoothed_means: (T, state_dim)
+        smoothed_covs: (T, state_dim, state_dim)
+    """
+
+    # Convert everything to JAX arrays
+    y, m0, S0, A, Q, C, ensemble_vars = map(jnp.asarray, (y, m0, S0, A, Q, C, ensemble_vars))
+    T, obs_dim = y.shape
+    state_dim = A.shape[0]
+
+    # Dynamax accepts time-varying diagonal R_t as (T, obs_dim)
     model = LinearGaussianSSM(state_dim, obs_dim)
 
     params = ParamsLGSSM(
@@ -35,14 +53,14 @@ def dynamax_linear_smooth_routine(
         dynamics=ParamsLGSSMDynamics(
             weights=A,
             cov=Q,
-            bias=jnp.zeros(A.shape[0]),  # shape (state_dim,)
-            input_weights=jnp.zeros((A.shape[0], 0))  # shape (state_dim, 0) for no control input
+            bias=jnp.zeros(state_dim),
+            input_weights=jnp.zeros((state_dim, 0))
         ),
         emissions=ParamsLGSSMEmissions(
             weights=C,
-            cov=R,
-            bias=jnp.zeros(C.shape[0]),  # shape (obs_dim,)
-            input_weights=jnp.zeros((C.shape[0], 0))  # shape (obs_dim, 0) for no control input
+            cov=ensemble_vars,  # <=== time-varying diagonal noise
+            bias=jnp.zeros(obs_dim),
+            input_weights=jnp.zeros((obs_dim, 0))
         )
     )
 

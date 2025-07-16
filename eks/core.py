@@ -424,15 +424,14 @@ def final_forwards_backwards_pass(
         A = As[k]  # (D, D)
         Q = Qs[k]  # (D, D)
         C = Cs[k]  # (obs_dim, D)
-        R_diag = np.mean(ensemble_vars[:, k, :], axis=0)
-        R = np.diag(R_diag)  # (obs_dim, obs_dim)
+        per_timestep_vars = ensemble_vars[:, k, :]  # (T, obs_dim)
 
         if backend == 'jax':
             mf, Vf, _ = forward_pass(y, m0, S0, A, Q, C, ensemble_vars[:, k, :])
             ms, Vs = backward_pass(mf, Vf, A, Q)
 
         elif backend == 'dynamax-linear':
-            ms, Vs = dynamax_linear_smooth_routine(y, m0, S0, A, Q, C, R)
+            ms, Vs = dynamax_linear_smooth_routine(y, m0, S0, A, Q, C, per_timestep_vars)
 
         else:
             raise ValueError(f"Unsupported backend: {backend}")
