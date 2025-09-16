@@ -12,7 +12,7 @@ from typing import List, Literal, Optional, Tuple, Union
 
 from eks.marker_array import MarkerArray
 from eks.utils import crop_frames
-from eks.kalman_backends import dynamax_linear_smooth_routine
+from eks.kalman_backends import dynamax_ekf_smooth_routine
 
 # -------------------------------------------------------------------------------------
 # Kalman Functions: Functions related to performing filtering and smoothing
@@ -424,14 +424,13 @@ def final_forwards_backwards_pass(
         A = As[k]  # (D, D)
         Q = Qs[k]  # (D, D)
         C = Cs[k]  # (obs_dim, D)
-        per_timestep_vars = ensemble_vars[:, k, :]  # (T, obs_dim)
+        keypoint_vars = ensemble_vars[:, k, :]  # (T, obs_dim)
 
         if backend == 'jax':
-            mf, Vf, _ = forward_pass(y, m0, S0, A, Q, C, ensemble_vars[:, k, :])
+            mf, Vf, _ = forward_pass(y, m0, S0, A, Q, C, keypoint_vars)
             ms, Vs = backward_pass(mf, Vf, A, Q)
-
-        elif backend == 'dynamax-linear':
-            ms, Vs = dynamax_linear_smooth_routine(y, m0, S0, A, Q, C, per_timestep_vars)
+        elif backend == 'dynamax-ekf':
+            ms, Vs = dynamax_ekf_smooth_routine(y, m0, S0, A, Q, C, keypoint_vars)
 
         else:
             raise ValueError(f"Unsupported backend: {backend}")
