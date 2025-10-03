@@ -130,7 +130,6 @@ def fit_eks_multicam(
     inflate_vars: bool = False,
     verbose: bool = False,
     n_latent: int = 3,
-    backend: str = 'jax',
 ) -> tuple:
     """
     Fit the Ensemble Kalman Smoother for un-mirrored multi-camera data.
@@ -179,7 +178,6 @@ def fit_eks_multicam(
         verbose=verbose,
         inflate_vars=inflate_vars,
         n_latent=n_latent,
-        backend=backend,
     )
     # Save output DataFrames to CSVs (one per camera view)
     os.makedirs(save_dir, exist_ok=True)
@@ -257,8 +255,8 @@ def ensemble_kalman_smoother_multicam(
         n_components=n_latent,
         pca_object=pca_object,
     )
-
     if inflate_vars:
+        print('inflating')
         if inflate_vars_kwargs.get("mean", None) is not None:
             # set mean to zero since we are passing in centered predictions
             inflate_vars_kwargs["mean"] = np.zeros_like(inflate_vars_kwargs["mean"])
@@ -272,7 +270,7 @@ def ensemble_kalman_smoother_multicam(
     # Kalman Filter Section ------------------------------------------
 
     # Initialize Kalman filter parameters
-    m0s, S0s, As, cov_mats, Cs = initialize_kalman_filter_pca(
+    m0s, S0s, As, Qs, Cs = initialize_kalman_filter_pca(
         good_pcs_list=good_pcs_list,
         ensemble_pca=ensemble_pca,
         n_latent=n_latent,
@@ -290,7 +288,7 @@ def ensemble_kalman_smoother_multicam(
 
     # Optimize smoothing
     s_finals, ms, Vs = optimize_smooth_param(
-        cov_mats=cov_mats,
+        Qs=Qs,
         ys=ys,
         m0s=m0s,
         S0s=S0s,
@@ -300,7 +298,6 @@ def ensemble_kalman_smoother_multicam(
         s_frames=s_frames,
         smooth_param=smooth_param,
         verbose=verbose,
-        backend=backend,
     )
     # Reproject from latent space back to observed space
     camera_arrs = [[] for _ in camera_names]
@@ -398,7 +395,7 @@ def initialize_kalman_filter_pca(
 
 
 def mA_compute_maha(centered_emA_preds, emA_vars, emA_likes, n_latent,
-                    inflate_vars_kwargs={}, threshold=5, scalar=2):
+                    inflate_vars_kwargs={}, threshold=5, scalar=10):
     """
     Reshape marker arrays for Mahalanobis computation, compute Mahalanobis distances,
     and optionally inflate variances for all keypoints.
@@ -430,7 +427,7 @@ def mA_compute_maha(centered_emA_preds, emA_vars, emA_likes, n_latent,
             inflate_vars_kwargs['v_quantile_threshold'] = 50.0
         inflated = True
         tmp_vars = vars
-
+        print(f'inflating keypoint: {k}')
         while inflated:
             # Compute Mahalanobis distances
             if inflate_vars_kwargs.get("likelihoods", None) is None:

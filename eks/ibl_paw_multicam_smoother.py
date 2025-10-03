@@ -9,12 +9,9 @@ from typeguard import typechecked
 from eks.marker_array import (
     MarkerArray,
     input_dfs_to_markerArray,
-    mA_to_stacked_array,
-    stacked_array_to_mA,
 )
 from eks.multicam_smoother import ensemble_kalman_smoother_multicam
-from eks.stats import compute_pca
-from eks.utils import convert_lp_dlc, make_dlc_pandas_index
+from eks.utils import convert_lp_dlc
 
 
 def remove_camera_means(ensemble_stacks, camera_means):
@@ -38,6 +35,7 @@ def add_camera_means(ensemble_stacks, camera_means):
 def pca(S, n_comps):
     pca_ = PCA(n_components=n_comps)
     return pca_.fit(S), pca_.explained_variance_ratio_
+
 
 @typechecked
 def fit_eks_multicam_ibl_paw(
@@ -67,7 +65,7 @@ def fit_eks_multicam_ibl_paw(
                 'var' | 'confidence_weighted_var'
             verbose: True to print out details
             img_width: The width of the image being smoothed (128 default, IBL-specific).
-            inflate_vars: True to use Mahalanobis distance thresholding to inflate ensemble variance
+            inflate_vars: True to use Mahalanobis distance threshold to inflate ensemble variance
             n_latent: number of dimensions to keep from PCA
 
         Returns:
@@ -119,7 +117,7 @@ def fit_eks_multicam_ibl_paw(
         raise ValueError('Need timestamps for both cameras')
     if len(input_dfs_right) != len(input_dfs_left) or len(input_dfs_left) == 0:
         raise ValueError(
-            'There must be the same number of left and right camera models and >=1 model for each.')
+            'Need same number of left and right camera models and >=1 model for each.')
 
     # Interpolate right cam markers to left cam timestamps
     markers_list_stacked_interp = []

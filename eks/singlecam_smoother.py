@@ -21,7 +21,6 @@ def fit_eks_singlecam(
     avg_mode: str = 'median',
     var_mode: str = 'confidence_weighted_var',
     verbose: bool = False,
-    backend: str = 'jax',
 ) -> tuple:
     """Fit the Ensemble Kalman Smoother for single-camera data.
 
@@ -66,7 +65,6 @@ def fit_eks_singlecam(
         avg_mode=avg_mode,
         var_mode=var_mode,
         verbose=verbose,
-        backend=backend,
     )
 
     # Save the output DataFrame to CSV
@@ -87,7 +85,6 @@ def ensemble_kalman_smoother_singlecam(
     avg_mode: str = 'median',
     var_mode: str = 'confidence_weighted_var',
     verbose: bool = False,
-    backend: str = 'jax',
 ) -> tuple:
     """Perform Ensemble Kalman Smoothing for single-camera data.
 
@@ -142,7 +139,7 @@ def ensemble_kalman_smoother_singlecam(
     # Main smoothing function
     s_finals, ms, Vs = optimize_smooth_param(
         cov_mats, ys, m0s, S0s, Cs, As, emA_vars.get_array(squeeze=True),
-        s_frames, smooth_param, blocks, verbose=verbose, backend=backend
+        s_frames, smooth_param, blocks, verbose=verbose
     )
 
     y_m_smooths = np.zeros((n_keypoints, n_frames, 2))

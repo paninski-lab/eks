@@ -251,6 +251,7 @@ def crop_frames(y: np.ndarray | jnp.ndarray, s_frames: list | tuple) -> np.ndarr
     return np.concatenate(result)
 
 
+@typechecked()
 def center_predictions(
     ensemble_marker_array: MarkerArray,
     quantile_keep_pca: float
@@ -324,3 +325,38 @@ def center_predictions(
     emA_means = MarkerArray.stack(emA_means_list, "keypoints")
 
     return valid_frames_mask, emA_centered_preds, emA_good_centered_preds, emA_means
+
+
+@typechecked
+def build_R_from_vars(ev: np.ndarray) -> np.ndarray:
+    """
+    Build time-varying diagonal observation covariances from per-dimension variances.
+    ev shape: (..., T, O)  -> returns (..., T, O, O) with diag(ev[t]).
+    """
+    ev_np = np.clip(np.asarray(ev), 1e-12, None)
+    O_dim = ev_np.shape[-1]
+    # Broadcast-diagonal without Python loops:
+    # (..., T, O, 1) * (O, O) -> (..., T, O, O), scaling rows of the identity.
+    return ev_np[..., :, None] * np.eye(O_dim, dtype=ev_np.dtype)
+
+
+@typechecked
+def crop_R(R: np.ndarray, s_frames: list | None) -> np.ndarray:
+    """
+    Crop time-varying R along its time axis using the same spec as crop_frames.
+    R_tv shape: (..., T, O, O) -> returns (..., T', O, O).
+    Assumes R_tv is diagonal (built via build_R_tv_from_vars) but works generically.
+    """
+    if not s_frames:
+        return np.asarray(R)
+    R_np = np.asarray(R)
+    leading = R_np.shape[:-3]           # any leading batch dims
+    T, O, O2 = R_np.shape[-3:]
+    assert O == O2, "R_tv must be square in its last two dims"
+    # Flatten leading dims to crop time contiguous
+    R_flat = R_np.reshape((-1, T, O, O))
+    cropped_list = []
+    for block in R_flat:
+        cropped_list.append(crop_frames(block, s_frames))  # uses the same semantics
+    R_cropped = np.stack(cropped_list, axis=0)
+    return R_cropped.reshape((*leading, -1, O, O))

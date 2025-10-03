@@ -41,7 +41,8 @@ def test_ensemble_kalman_smoother_singlecam():
         blocks=blocks,
     )
     _check_outputs(df_smoothed, s_finals)
-    assert s_finals == [smooth_param]
+    for k in range(len(keypoint_names)):
+        assert s_finals[k] == smooth_param
 
     # run with fixed smooth param (int)
     smooth_param = 5
@@ -53,7 +54,8 @@ def test_ensemble_kalman_smoother_singlecam():
         blocks=blocks,
     )
     _check_outputs(df_smoothed, s_finals)
-    assert s_finals == [smooth_param]
+    for k in range(len(keypoint_names)):
+        assert s_finals[k] == smooth_param
 
     # run with fixed smooth param (single-entry list)
     smooth_param = [0.1]
@@ -65,7 +67,8 @@ def test_ensemble_kalman_smoother_singlecam():
         blocks=blocks,
     )
     _check_outputs(df_smoothed, s_finals)
-    assert s_finals == smooth_param
+    for k in range(len(keypoint_names)):
+        assert s_finals[k] == smooth_param
 
     # run with fixed smooth param (list)
     smooth_param = [0.1, 0.4]
@@ -77,7 +80,8 @@ def test_ensemble_kalman_smoother_singlecam():
         blocks=blocks,
     )
     _check_outputs(df_smoothed, s_finals)
-    assert np.all(s_finals == smooth_param)
+    for k in range(len(keypoint_names)):
+        assert s_finals[k] == smooth_param[k]
 
     # run with None smooth param
     smooth_param = None
