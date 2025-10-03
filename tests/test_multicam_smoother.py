@@ -46,7 +46,7 @@ def test_ensemble_kalman_smoother_multicam():
     assert isinstance(smooth_params_final, np.ndarray), \
         f"Expected smooth_param_final to be an array, got {type(smooth_params_final)}"
     for k in range(len(keypoint_names)):
-        assert smooth_params_final[c] == smooth_param, \
+        assert smooth_params_final[k] == smooth_param, \
             f"Expected smooth_param_final to match input smooth_param ({smooth_param}), " \
             f"got {smooth_params_final}"
 
@@ -71,7 +71,7 @@ def test_ensemble_kalman_smoother_multicam():
     assert isinstance(smooth_params_final, np.ndarray), \
         f"Expected smooth_param_final to be an array, got {type(smooth_params_final)}"
     for k in range(len(keypoint_names)):
-        assert smooth_params_final[c] == smooth_param, \
+        assert smooth_params_final[k] == smooth_param, \
             f"Expected smooth_param_final to match input smooth_param ({smooth_param}), " \
             f"got {smooth_params_final}"
 
@@ -98,7 +98,7 @@ def test_ensemble_kalman_smoother_multicam():
     assert isinstance(smooth_params_final, np.ndarray), \
         f"Expected smooth_param_final to be an array, got {type(smooth_params_final)}"
     for k in range(len(keypoint_names)):
-        assert smooth_params_final[c] == smooth_param, \
+        assert smooth_params_final[k] == smooth_param, \
             f"Expected smooth_param_final to match input smooth_param ({smooth_param}), " \
             f"got {smooth_params_final}"
 

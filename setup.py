@@ -68,7 +68,7 @@ setup(
     long_description_content_type='text/markdown',
     author='Cole Hurwitz',
     author_email='',
-    url='http://www.github.com/colehurwitz/eks',
+    url='http://www.github.com/paninski-lab/eks',
     packages=['eks'],
     install_requires=install_requires,
     extras_require=extras_require,
