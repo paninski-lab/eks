@@ -41,6 +41,7 @@ install_requires = [
     'sleap_io',
     'jax',
     'jaxlib',
+    'dynamax'
 ]
 
 # additional requirements
