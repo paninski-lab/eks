@@ -127,14 +127,15 @@ def params_nlgssm_for_keypoint(m0, S0, Q, s, R, f_fn, h_fn) -> ParamsNLGSSM:
     )
 
 
+# ----------------- Public API -----------------
 @typechecked
 def run_kalman_smoother(
-    Qs: jnp.ndarray,                 # (K, D, D)
-    ys: np.ndarray,                  # (K, T, obs)
+    ys: jnp.ndarray,                 # (K, T, obs)
     m0s: jnp.ndarray,                # (K, D)
     S0s: jnp.ndarray,                # (K, D, D)
-    Cs: jnp.ndarray,                 # (K, obs, D)
     As: jnp.ndarray,                 # (K, D, D)
+    Cs: jnp.ndarray,                 # (K, obs, D)
+    Qs: jnp.ndarray,                 # (K, D, D)
     ensemble_vars: np.ndarray,       # (T, K, obs)
     s_frames: Optional[List] = None,
     smooth_param: Optional[Union[float, List[float]]] = None,
@@ -148,74 +149,55 @@ def run_kalman_smoother(
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Optimize the process-noise scale `s` (shared within each block of keypoints) by minimizing
-    summed negative log-likelihood (NLL) under a *linear* state-space model using the
-    Dynamax EKF filter (fast), then produce final trajectories via the EKF smoother.
+    the summed EKF filter negative log-likelihood (NLL) in a *linear* state-space model,
+    then run the EKF smoother for final trajectories.
 
-    Model (per keypoint k):
+    Model per keypoint k:
         x_{t+1} = A_k x_t + w_t,   y_t = C_k x_t + v_t
-        w_t ~ N(0, s * Q_k),       v_t ~ N(0, R_{k,t})
-
-    where R_{k,t} is **time-varying**, built from ensemble variances:
-        R_{k,t} = diag( clip( ensemble_vars[t, k, :], 1e-12, ∞ ) ).
+        w_t ~ N(0, s * Q_k),       v_t ~ N(0, R_{k,t}),  with time-varying R_{k,t}.
 
     Args:
-        Qs: (K, D, D) base process noise covariances Q_k per keypoint (scaled by `s`).
-        ys: (K, T, obs) observations per keypoint across time.
-        m0s: (K, D) initial state means per keypoint.
-        S0s: (K, D, D) initial state covariances per keypoint.
-        Cs: (K, obs, D) observation matrices C_k per keypoint.
-        As: (K, D, D) transition matrices A_k per keypoint.
-        ensemble_vars: (T, K, obs) per-frame ensemble variances for each keypoint’s obs dims;
-                       used to construct time-varying R_{k,t}.
-        s_frames: Optional list of frame indices used for NLL optimization (cropping the loss).
-                  Final smoothing always runs on the full sequence.
-        smooth_param: If provided, bypass optimization.
-            • float/int: same `s` for all keypoints;
-            • list[float] of length K: per-keypoint `s`.
-        blocks: Optional list of lists of keypoint indices; each block shares a single `s`.
-                Default: each keypoint forms its own block.
-        verbose: If True, prints per-block optimization summaries.
-        lr: Adam learning rate for optimizing log(s).
-        s_bounds_log: (low, high) clamp for log(s) during optimization.
+        ys: (K, T, obs) observations per keypoint over time.
+        m0s: (K, D) initial state means.
+        S0s: (K, D, D) initial state covariances.
+        As: (K, D, D) transition matrices.
+        Cs: (K, obs, D) observation matrices.
+        Qs: (K, D, D) base process covariances (scaled by `s`).
+        ensemble_vars: (T, K, obs) per-frame ensemble variances; used to build R_{k,t}
+            via diag(clip(ensemble_vars[t, k, :], 1e-12, ∞)).
+        s_frames: Optional list of (start, end) tuples (1-based, inclusive end) to crop
+            the time axis *for the loss only*. Final smoothing uses the full sequence.
+        smooth_param: If provided, bypass optimization. Either a scalar (shared across K)
+            or a list of length K (per-keypoint).
+        blocks: Optional list of lists of keypoint indices; each block shares one `s`.
+            Default: each keypoint is its own block.
+        verbose: Print per-block optimization summaries if True.
+        lr: Adam learning rate (on log(s)).
+        s_bounds_log: Clamp bounds for log(s) during optimization.
         tol: Relative tolerance on loss change for early stopping.
-        safety_cap: Hard limit on iterations inside the jitted while-loop.
+        safety_cap: Hard iteration cap inside the jitted while-loop.
 
     Returns:
-        s_finals: (K,) final `s` per keypoint (blockwise value broadcast to members).
+        s_finals: (K,) final `s` per keypoint (block optimum broadcast to members).
         ms: (K, T, D) smoothed state means.
         Vs: (K, T, D, D) smoothed state covariances.
-
-    Notes:
-        • NLL is computed with EKF *filter*; outputs use EKF *smoother*.
-        • Loss for a block is the sum of member keypoints’ NLLs (via vmap).
-        • All jitted helpers close over optimizer/tol/bounds to avoid passing Python objects.
     """
-    # -------------------- setup & time-varying R_t --------------------
     K, T, obs_dim = ys.shape
     if not blocks:
         blocks = [[k] for k in range(K)]
     if verbose:
         print(f"Correlated keypoint blocks: {blocks}")
 
-    # Build time-varying R
-    Rs = build_R_from_vars(np.swapaxes(ensemble_vars, 0, 1))
-    Rs_j = jnp.asarray(Rs)
+    # Build time-varying R (K, T, obs, obs)
+    Rs = jnp.asarray(build_R_from_vars(np.swapaxes(ensemble_vars, 0, 1)))
 
-    # Device arrays once
-    ys_j = jnp.asarray(ys)
-    m0s_j = jnp.asarray(m0s)
-    S0s_j = jnp.asarray(S0s)
-    As_j = jnp.asarray(As)
-    Qs_j = jnp.asarray(Qs)
-    Cs_j = jnp.asarray(Cs)
-
-    # Initial guesses per keypoint
+    # Initial guesses per keypoint (host-side)
     s_guess_per_k = np.empty(K, dtype=float)
     for k in range(K):
         g = float(compute_initial_guesses(ensemble_vars[:, k, :]) or 2.0)
         s_guess_per_k[k] = g if (np.isfinite(g) and g > 0.0) else 2.0
 
-    # -------------------- choose or optimize s --------------------
+    # Choose or optimize s
     s_finals = np.empty(K, dtype=float)
     if smooth_param is not None:
         if isinstance(smooth_param, (int, float)):
@@ -223,21 +205,37 @@ def run_kalman_smoother(
         else:
             s_finals[:] = np.asarray(smooth_param, dtype=float)
     else:
-        optimize_smooth_param(As_j, Cs_j, Qs_j, Rs, Rs_j, S0s_j, blocks, lr, m0s_j, s_bounds_log,
-                              s_finals, s_frames, s_guess_per_k, tol, verbose, ys, ys_j)
+        optimize_smooth_param(
+            ys=ys,
+            m0s=m0s,
+            S0s=S0s,
+            As=As,
+            Cs=Cs,
+            Qs=Qs,
+            Rs=Rs,
+            blocks=blocks,
+            lr=lr,
+            s_bounds_log=s_bounds_log,
+            s_finals=s_finals,
+            s_frames=s_frames,
+            s_guess_per_k=s_guess_per_k,
+            tol=tol,
+            verbose=verbose,
+            safety_cap=safety_cap,
+        )
 
-    # -------------------- final smoother pass (full R_t) --------------------
+    # Final smoother pass (full R_t)
     def _params_linear_for_k(k: int, s_val: float):
-        A_k, C_k = As_j[k], Cs_j[k]
+        A_k, C_k = As[k], Cs[k]
         f_fn = (lambda x, A=A_k: A @ x)
         h_fn = (lambda x, C=C_k: C @ x)
         return params_nlgssm_for_keypoint(
-            m0s_j[k], S0s_j[k], Qs_j[k], s_val, Rs[k], f_fn, h_fn)
+            m0s[k], S0s[k], Qs[k], s_val, Rs[k], f_fn, h_fn)
 
     means_list, covs_list = [], []
     for k in range(K):
         params_k = _params_linear_for_k(k, s_finals[k])
-        sm = extended_kalman_smoother(params_k, ys_j[k])
+        sm = extended_kalman_smoother(params_k, ys[k])
         if hasattr(sm, "smoothed_means"):
             m_k, V_k = sm.smoothed_means, sm.smoothed_covariances
         else:
@@ -245,90 +243,84 @@ def run_kalman_smoother(
         means_list.append(np.array(m_k))
         covs_list.append(np.array(V_k))
 
-    ms = np.stack(means_list, axis=0)   # (K, T, D)
-    Vs = np.stack(covs_list, axis=0)    # (K, T, D, D)
+    ms = np.stack(means_list, axis=0)
+    Vs = np.stack(covs_list, axis=0)
     return s_finals, ms, Vs
 
 
-from jax import jit, lax, value_and_grad
-import jax
-import jax.numpy as jnp
-import numpy as np
-import optax
-
+# ----------------- Optimizer (blockwise s) -----------------
 def optimize_smooth_param(
-    As,                         # jnp.ndarray, (K, D, D)
-    Cs,                         # jnp.ndarray, (K, obs, D)
-    Qs,                         # jnp.ndarray, (K, D, D)
-    Rs,                         # jnp.ndarray, (K, T, obs, obs)
-    S0s,                        # jnp.ndarray, (K, D, D)
-    blocks,                     # Optional[List[List[int]]]
+    ys: jnp.ndarray,            # (K, T, obs)
+    m0s: jnp.ndarray,           # (K, D)
+    S0s: jnp.ndarray,           # (K, D, D)
+    As: jnp.ndarray,            # (K, D, D)
+    Cs: jnp.ndarray,            # (K, obs, D)
+    Qs: jnp.ndarray,            # (K, D, D)
+    Rs: jnp.ndarray,            # (K, T, obs, obs) time-varying R_t
+    blocks: Optional[list],
     lr: float,
-    m0s,                        # jnp.ndarray, (K, D)
     s_bounds_log: tuple,
     s_finals: np.ndarray,       # (K,), filled in-place
-    s_frames,                   # Optional[List]
+    s_frames: Optional[list],
     s_guess_per_k: np.ndarray,  # (K,)
     tol: float,
     verbose: bool,
-    ys: np.ndarray,             # (K, T, obs)  (NumPy for cropping)
-    ys_j,                       # jnp.ndarray, (K, T, obs)
     safety_cap: int,
 ) -> None:
     """
-    Blockwise optimization of a single scalar process-noise scale `s` (shared within
-    each block of keypoints) by minimizing the sum of EKF negative log-likelihoods,
-    using time-varying observation covariances R_{k,t}. Updates `s_finals` in place.
+    Optimize a single scalar process-noise scale `s` per block of keypoints by minimizing
+    the sum of EKF filter negative log-likelihoods, using time-varying observation noise
+    R_{k,t}. Writes results into `s_finals` in place.
 
     Parameters
     ----------
-    As, Cs, Qs : jnp.ndarray
-        Per-keypoint model matrices with shapes (K,D,D), (K,obs,D), (K,D,D).
-    Rs : jnp.ndarray
-        Time-varying observation covariances, shape (K, T, obs, obs). JAX array for
-        fast slicing; converted to NumPy internally only when cropping.
-    S0s : jnp.ndarray
-        Initial state covariances, shape (K, D, D).
+    ys : jnp.ndarray, shape (K, T, obs)
+        Observations per keypoint (JAX). For cropped loss, host-side slices are created.
+    m0s : jnp.ndarray, shape (K, D)
+        Initial state means per keypoint.
+    S0s : jnp.ndarray, shape (K, D, D)
+        Initial state covariances per keypoint.
+    As : jnp.ndarray, shape (K, D, D)
+        State transition matrices.
+    Cs : jnp.ndarray, shape (K, obs, D)
+        Observation matrices.
+    Qs : jnp.ndarray, shape (K, D, D)
+        Base process covariances (scaled by `s` inside the model).
+    Rs : jnp.ndarray, shape (K, T, obs, obs)
+        Time-varying observation covariances for each keypoint.
     blocks : list[list[int]] or None
-        Groups of keypoint indices that share a single `s`. If None/empty, each keypoint
-        is its own block.
+        Groups of keypoint indices that share a single `s`.
+        If None/empty, each keypoint is its own block.
     lr : float
-        Adam learning rate for optimizing log(s).
-    m0s : jnp.ndarray
-        Initial state means, shape (K, D).
+        Adam learning rate (on log(s)).
     s_bounds_log : (float, float)
-        Clamp bounds for log(s) (numerical stability).
-    s_finals : np.ndarray
-        Output array of shape (K,). Filled with the final `s` per keypoint
-        (blockwise optimum broadcast to members).
+        Clamp bounds for log(s) to stabilize optimization.
+    s_finals : np.ndarray, shape (K,)
+        Output array filled with final per-keypoint `s` (block optimum broadcast).
     s_frames : list or None
-        Frame ranges for cropping (list of (start, end) tuples; 1-based start, inclusive end).
-        Applied to both y and R for the loss only.
-    s_guess_per_k : np.ndarray
-        Heuristic initial guesses of `s` per keypoint; block init is the mean over members.
+        Frame ranges for cropping (list of (start, end); 1-based start, inclusive end).
+        Applied to both y and R_t for the loss only.
+    s_guess_per_k : np.ndarray, shape (K,)
+        Heuristic initial guesses of `s` per keypoint. Block init uses the mean over members.
     tol : float
-        Relative tolerance on the loss change for early stopping.
+        Relative tolerance on loss change for early stopping.
     verbose : bool
         If True, prints per-block optimization progress.
-    ys : np.ndarray
-        Observations (NumPy) for CPU-side cropping, shape (K, T, obs).
-    ys_j : jnp.ndarray
-        Observations (JAX) for fast slicing when not cropping, shape (K, T, obs).
     safety_cap : int
         Maximum number of iterations inside the jitted while-loop.
 
     Returns
     -------
     None
-        Results are written into `s_finals` in place.
+        Results are written into `s_finals`.
     """
     optimizer = optax.adam(float(lr))
     s_bounds_log_j = jnp.array(s_bounds_log, dtype=jnp.float32)
     tol_j = float(tol)
 
     def _params_linear(m0, S0, A, Q_base, s, R_any, C):
-        f_fn = (lambda x, A=A: A @ x)   # linear dynamics
-        h_fn = (lambda x, C=C: C @ x)   # linear emission
+        f_fn = (lambda x, A=A: A @ x)
+        h_fn = (lambda x, C=C: C @ x)
         return params_nlgssm_for_keypoint(m0, S0, Q_base, s, R_any, f_fn, h_fn)
 
     def _nll_one_keypoint(log_s, y_k, m0_k, S0_k, A_k, Q_k, C_k, R_k_tv):
@@ -375,21 +367,22 @@ def optimize_smooth_param(
             cond, body, (log_s0, opt_state0, jnp.inf, jnp.array(0), jnp.array(False))
         )
 
-    # for cropping only: NumPy view of Rs
+    # For cropping only: host view
     Rs_np = np.asarray(Rs)
+    ys_np = np.asarray(ys)
 
-    # Optimize per block (shared s within each block)
+    # Optimize per block (shared s)
     for block in (blocks or []):
         sel = jnp.asarray(block, dtype=int)
 
         if s_frames and len(s_frames) > 0:
-            y_block_list = [crop_frames(ys[int(k)], s_frames) for k in block]   # (T', obs)
-            R_block_list = [crop_R_tv(Rs_np[int(k)], s_frames) for k in block]  # (T', obs, obs)
-            y_block = jnp.asarray(np.stack(y_block_list, axis=0))               # (B, T', obs)
-            R_block = jnp.asarray(np.stack(R_block_list, axis=0))               # (B, T', obs, obs)
+            y_block_list = [crop_frames(ys_np[int(k)], s_frames) for k in block]  # (T', obs)
+            R_block_list = [crop_R(Rs_np[int(k)], s_frames) for k in block]  # (T', obs, obs)
+            y_block = jnp.asarray(np.stack(y_block_list, axis=0))  # (B, T', obs)
+            R_block = jnp.asarray(np.stack(R_block_list, axis=0))  # (B, T', obs, obs)
         else:
-            y_block = ys_j[sel]     # (B, T, obs)
-            R_block = Rs[sel]       # (B, T, obs, obs)
+            y_block = ys[sel]      # (B, T, obs)
+            R_block = Rs[sel]      # (B, T, obs, obs)
 
         m0_block = m0s[sel]
         S0_block = S0s[sel]

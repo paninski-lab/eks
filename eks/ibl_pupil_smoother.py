@@ -18,7 +18,7 @@ from typing import List, Optional, Sequence, Tuple
 
 from eks.core import ensemble, params_nlgssm_for_keypoint
 from eks.marker_array import MarkerArray, input_dfs_to_markerArray
-from eks.utils import build_R_from_vars, crop_frames, format_data, make_dlc_pandas_index
+from eks.utils import build_R_from_vars, crop_frames, crop_R, format_data, make_dlc_pandas_index
 
 
 @typechecked
@@ -244,10 +244,19 @@ def ensemble_kalman_smoother_ibl_pupil(
     # -------------------------------------------------------
     # Perform filtering with SINGLE PAIR of diameter_s, com_s
     # -------------------------------------------------------
-    s_finals, ms, Vs, nll = pupil_optimize_smooth(
-        y_obs, m0, S0, C, ensemble_vars,
-        np.var(pupil_diameters), np.var(x_t_obs), np.var(y_t_obs), s_frames, smooth_params,
-        verbose=verbose)
+    s_finals, ms, Vs = run_pupil_kalman_smoother(
+        ys=jnp.asarray(y_obs),
+        m0=jnp.asarray(m0),
+        S0=jnp.asarray(S0),
+        C=jnp.asarray(C),
+        ensemble_vars=ensemble_vars,
+        diameters_var=np.var(pupil_diameters),
+        x_var=np.var(x_t_obs),
+        y_var=np.var(y_t_obs),
+        s_frames=s_frames,
+        smooth_params=smooth_params,
+        verbose=verbose
+    )
     if verbose:
         print(f"diameter_s={s_finals[0]}, com_s={s_finals[1]}")
     # Smoothed posterior over ys
@@ -308,123 +317,229 @@ def ensemble_kalman_smoother_ibl_pupil(
     return markers_df, s_finals
 
 
+# ----------------- Public API -----------------
 @typechecked
-def pupil_optimize_smooth(
-    ys: np.ndarray,                 # (T, 8) centered obs
-    m0: np.ndarray,                 # (3,)
-    S0: np.ndarray,                 # (3,3)
-    C: np.ndarray,                  # (8,3)
-    ensemble_vars: np.ndarray,      # (T, 8)
+def run_pupil_kalman_smoother(
+    ys: jnp.ndarray,                 # (T, 8) centered obs
+    m0: jnp.ndarray,                 # (3,)
+    S0: jnp.ndarray,                 # (3,3)
+    C: jnp.ndarray,                  # (8,3)
+    ensemble_vars: np.ndarray,       # (T, 8)
     diameters_var: Real,
-    x_var: float,
-    y_var: float,
-    s_frames: Optional[List[Tuple[Optional[int], Optional[int]]]] = [(1, 2000)],
-    smooth_params: list | None = None,   # [diam_s, com_s] in (0,1)
-    maxiter: int = 1000,            # retained (unused with tol-loop)
+    x_var: Real,
+    y_var: Real,
+    s_frames: Optional[List[Tuple[Optional[int], Optional[int]]]] = None,
+    smooth_params: Optional[list] = None,   # [s_diam, s_com] in (0,1)
     verbose: bool = False,
     # optimizer/loop knobs
     lr: float = 5e-3,
     tol: float = 1e-6,
     safety_cap: int = 5000,
-) -> tuple:
+) -> Tuple[List[float], np.ndarray, np.ndarray]:
     """
-    Dynamax backend: optimize [s_diameter, s_com] with EKF NLL, then EKF smoother.
+    Optimize pupil AR(1) smoothing params `[s_diam, s_com]` via EKF filter NLL with
+    time-varying R_t built from ensemble variances, then run EKF smoother for final
+    trajectories.
+
+    Args:
+        ys: (T, 8) centered observations (order: top,bottom,right,left x/y).
+        m0: (3,) initial state mean [diameter, com_x, com_y].
+        S0: (3,3) initial state covariance.
+        C:  (8,3) observation matrix mapping state -> 8 observed coords.
+        ensemble_vars: (T, 8) per-dimension ensemble variances; used to build R_t.
+        diameters_var: variance scale for diameter latent.
+        x_var, y_var: variance scales for com_x, com_y latents.
+        s_frames: optional list of (start, end) 1-based, inclusive frame ranges for
+            NLL optimization only (final smoothing runs over the full T).
+        smooth_params: if provided, use `[s_diam, s_com]` directly (values in (0,1)).
+        verbose: print optimization summary.
+        lr: Adam learning rate on the unconstrained parameters.
+        tol: relative tolerance for early stopping.
+        safety_cap: hard limit on optimizer steps inside the jitted loop.
 
     Returns:
-        s_finals (list[float]), ms (T,3), Vs (T,3,3), nll (float)
+        (s_finals, ms, Vs):
+            s_finals: [s_diam, s_com]
+            ms: (T, 3) smoothed state means
+            Vs: (T, 3, 3) smoothed state covariances
     """
+    # build time-varying R_t (T, 8, 8) and JAX-ify inputs
+    R = jnp.asarray(build_R_from_vars(ensemble_vars))
 
-    # logistic reparam to keep s in (eps,1-eps)
+    # --- optimize [s_diam, s_com] on cropped loss (if requested) ---
+    s_d, s_c = pupil_optimize_smooth(
+        ys=ys,
+        m0=m0,
+        S0=S0,
+        C=C,
+        R=R,
+        diameters_var=diameters_var,
+        x_var=x_var,
+        y_var=y_var,
+        s_frames=s_frames,
+        smooth_params=smooth_params,
+        lr=lr,
+        tol=tol,
+        safety_cap=safety_cap,
+        verbose=verbose,
+    )
+
+    # --- final smoother on full sequence with A(s), Q(s) and supplied R_t ---
+    s_d_j, s_c_j = jnp.asarray(s_d), jnp.asarray(s_c)
+    A = jnp.diag(jnp.array([s_d_j, s_c_j, s_c_j]))
+    Q = jnp.diag(jnp.array([
+        jnp.asarray(diameters_var) * (1.0 - s_d_j**2),
+        jnp.asarray(x_var)         * (1.0 - s_c_j**2),
+        jnp.asarray(y_var)         * (1.0 - s_c_j**2),
+    ]))
+
+    f_fn = (lambda x: A @ x)
+    h_fn = (lambda x: C @ x)
+    # Pass Q as exact and s=1.0 (we already encoded s into A, Q)
+    params = params_nlgssm_for_keypoint(m0, S0, Q, 1.0, R, f_fn, h_fn)
+
+    sm = extended_kalman_smoother(params, ys)
+    ms = np.array(getattr(sm, "smoothed_means", sm.filtered_means))
+    Vs = np.array(getattr(sm, "smoothed_covariances", sm.filtered_covariances))
+    return [float(s_d), float(s_c)], ms, Vs
+
+
+# ----------------- Optimizer (two-parameter AR(1)) -----------------
+@typechecked
+def pupil_optimize_smooth(
+    ys: jnp.ndarray,                 # (T, 8) centered obs
+    m0: jnp.ndarray,                 # (3,)
+    S0: jnp.ndarray,                 # (3,3)
+    C: jnp.ndarray,                  # (8,3)
+    R: jnp.ndarray,                  # (T, 8, 8) time-varying obs covariance
+    diameters_var: Real,
+    x_var: Real,
+    y_var: Real,
+    s_frames: Optional[List[Tuple[Optional[int], Optional[int]]]] = None,
+    smooth_params: Optional[list] = None,   # [s_diam, s_com] in (0,1)
+    lr: float = 5e-3,
+    tol: float = 1e-6,
+    safety_cap: int = 5000,
+    verbose: bool = False,
+) -> Tuple[float, float]:
+    """
+    Optimize `[s_diam, s_com]` for the pupil AR(1) model by minimizing EKF filter
+    negative log-likelihood on (optionally) cropped data. Uses a logistic reparam
+    to keep the parameters in (ε, 1−ε). Returns the optimized pair.
+
+    Parameters
+    ----------
+    ys : jnp.ndarray, shape (T, 8)
+        Centered observations.
+    m0 : jnp.ndarray, shape (3,)
+        Initial state mean.
+    S0 : jnp.ndarray, shape (3, 3)
+        Initial state covariance.
+    C  : jnp.ndarray, shape (8, 3)
+        Observation matrix.
+    R  : jnp.ndarray, shape (T, 8, 8)
+        Time-varying observation covariance.
+    diameters_var : Real
+        Variance scale for diameter latent.
+    x_var, y_var : Real
+        Variance scales for com_x and com_y latents.
+    s_frames : list[(start, end)] or None
+        1-based start, inclusive end cropping ranges for the loss only.
+    smooth_params : Optional[Sequence[Real]]
+        If provided and both values are not None, bypass optimization and use them directly.
+    lr : float
+        Adam learning rate on the unconstrained variables.
+    tol : float
+        Relative tolerance for early stopping.
+    safety_cap : int
+        Hard iteration cap in the jitted loop.
+    verbose : bool
+        Print optimization summary if True.
+
+    Returns
+    -------
+    (s_diam, s_com) : Tuple[float, float]
+        Optimized AR(1) parameters in (0, 1).
+    """
+    # Map unconstrained u -> s in (eps, 1-eps)
     def _to_stable_s(u, eps=1e-3):
         return jax.nn.sigmoid(u) * (1.0 - 2 * eps) + eps
 
-    # crop ys and ev for the loss if s_frames provided
+    # Cropping for loss (host-side), then back to JAX
+    ys_np = np.asarray(ys)
+    R_np  = np.asarray(R)
     if s_frames and len(s_frames) > 0:
-        y_cropped = crop_frames(ys, s_frames)              # (T', 8)
-        ev_cropped = crop_frames(ensemble_vars, s_frames)  # (T', 8)
+        y_loss = jnp.asarray(crop_frames(ys_np, s_frames))   # (T', 8)
+        R_loss = jnp.asarray(crop_R(R_np, s_frames))         # (T', 8, 8)
     else:
-        y_cropped, ev_cropped = ys, ensemble_vars
+        y_loss = ys
+        R_loss = R
 
-    # build time-varying R_t for loss and for final smoothing (full sequence)
-    R_loss = build_R_from_vars(ev_cropped)     # (T' ,8,8)
-    R_full = build_R_from_vars(ensemble_vars)  # (T  ,8,8)
-
-    # jnp once
-    y_c = jnp.asarray(y_cropped)
-    R_loss = jnp.asarray(R_loss)
-    m0_j, S0_j, C_j = jnp.asarray(m0), jnp.asarray(S0), jnp.asarray(C)
-    y_full = jnp.asarray(ys)
-    R_full = jnp.asarray(R_full)
-
-    # local params builder using your NLGSSM wrapper; pass Q_exact with s=1.0
+    # Params builder with Q exact and s=1.0 (A, Q depend on s directly)
     def _params_linear(m0, S0, A, Q_exact, R_any, C):
         f_fn = (lambda x, A=A: A @ x)
         h_fn = (lambda x, C=C: C @ x)
         return params_nlgssm_for_keypoint(m0, S0, Q_exact, 1.0, R_any, f_fn, h_fn)
 
-    # EKF NLL for a given unconstrained u = [u_d, u_c]
+    # NLL(u) with u = [u_diam, u_com]
     def _nll_from_u(u: jnp.ndarray) -> jnp.ndarray:
         s_d, s_c = _to_stable_s(u)
         A = jnp.diag(jnp.array([s_d, s_c, s_c]))
         Q = jnp.diag(jnp.array([
-            diameters_var * (1.0 - s_d**2),
-            x_var * (1.0 - s_c**2),
-            y_var * (1.0 - s_c**2),
+            jnp.asarray(diameters_var) * (1.0 - s_d**2),
+            jnp.asarray(x_var)         * (1.0 - s_c**2),
+            jnp.asarray(y_var)         * (1.0 - s_c**2),
         ]))
-        params = _params_linear(m0_j, S0_j, A, Q, R_loss, C_j)
-        post = extended_kalman_filter(params, y_c)
+        params = _params_linear(m0, S0, A, Q, R_loss, C)
+        post = extended_kalman_filter(params, y_loss)
         return -post.marginal_loglik
 
+    # If user provided both params, just use them
+    if smooth_params is not None and all(v is not None for v in smooth_params):
+        s = jnp.clip(jnp.asarray(smooth_params, dtype=jnp.float32), 1e-3, 1 - 1e-3)
+        return float(s[0]), float(s[1])
+
+    # Otherwise optimize in unconstrained space
     optimizer = optax.adam(lr)
-    if smooth_params is None or smooth_params[0] is None or smooth_params[1] is None:
-        # init near your old guess (invert logistic)
-        s0 = jnp.array([0.99, 0.98])
-        u0 = jnp.log(s0 / (1.0 - s0))
-        opt_state0 = optimizer.init(u0)
+    s0 = jnp.array([0.99, 0.98], dtype=jnp.float32)
+    u0 = jnp.log(s0 / (1.0 - s0))
+    opt_state0 = optimizer.init(u0)
 
-        @jit
-        def _opt_step(u, opt_state):
-            loss, grad = value_and_grad(_nll_from_u)(u)
-            updates, opt_state = optimizer.update(grad, opt_state)
-            u = optax.apply_updates(u, updates)
-            return u, opt_state, loss
+    @jit
+    def _opt_step(u, opt_state):
+        loss, grad = value_and_grad(_nll_from_u)(u)
+        updates, opt_state = optimizer.update(grad, opt_state)
+        u = optax.apply_updates(u, updates)
+        return u, opt_state, loss
 
-        @jit
-        def _run_tol_loop(u0, opt_state0):
-            def cond(carry):
-                _, _, prev_loss, iters, done = carry
-                return jnp.logical_and(~done, iters < safety_cap)
+    @jit
+    def _run_tol_loop(u0, opt_state0):
+        def cond(carry):
+            _, _, prev_loss, iters, done = carry
+            return jnp.logical_and(~done, iters < safety_cap)
 
-            def body(carry):
-                u, opt_state, prev_loss, iters, _ = carry
-                u, opt_state, loss = _opt_step(u, opt_state)
-                rel_tol = tol * jnp.abs(jnp.log(jnp.maximum(prev_loss, 1e-12)))
-                done = jnp.where(jnp.isfinite(prev_loss),
-                                 jnp.linalg.norm(loss - prev_loss) < (rel_tol + 1e-6),
-                                 False)
-                return (u, opt_state, loss, iters + 1, done)
-            return lax.while_loop(
-                cond, body, (u0, opt_state0, jnp.inf, jnp.array(0), jnp.array(False))
+        def body(carry):
+            u, opt_state, prev_loss, iters, _ = carry
+            u, opt_state, loss = _opt_step(u, opt_state)
+            rel_tol = tol * jnp.abs(jnp.log(jnp.maximum(prev_loss, 1e-12)))
+            done = jnp.where(
+                jnp.isfinite(prev_loss),
+                jnp.linalg.norm(loss - prev_loss) < (rel_tol + 1e-6),
+                False
             )
+            return (u, opt_state, loss, iters + 1, done)
 
-        u_f, opt_state_f, last_loss, iters_f, _ = _run_tol_loop(u0, opt_state0)
-        s_opt = _to_stable_s(u_f)
-        if verbose:
-            print(f"[pupil/dynamax] iters={int(iters_f)}  s_diam={float(s_opt[0]):.6f}  "
-                  f"s_com={float(s_opt[1]):.6f}  NLL={float(last_loss):.6f}")
-    else:
-        s_user = jnp.clip(jnp.asarray(smooth_params, dtype=jnp.float32), 1e-3, 1 - 1e-3)
-        s_opt = s_user
+        return lax.while_loop(
+            cond, body, (u0, opt_state0, jnp.inf, jnp.array(0), jnp.array(False))
+        )
 
-    # final smoother on full sequence with full R_t
-    s_d, s_c = float(s_opt[0]), float(s_opt[1])
-    ms, Vs, nll = pupil_smooth(
-        smooth_params=[s_d, s_c],
-        ys=y_full, m0=m0_j, S0=S0_j, C=C_j, R=R_full,
-        diameters_var=diameters_var, x_var=x_var, y_var=y_var,
-        return_full=True
-    )
-    return [s_d, s_c], np.asarray(ms), np.asarray(Vs), float(nll)
+    u_f, _opt_state_f, last_loss, iters_f, _ = _run_tol_loop(u0, opt_state0)
+    s_opt = _to_stable_s(u_f)
+    if verbose:
+        print(f"[pupil/dynamax] iters={int(iters_f)}  "
+              f"s_diam={float(s_opt[0]):.6f}  s_com={float(s_opt[1]):.6f}  "
+              f"NLL={float(last_loss):.6f}")
+    return float(s_opt[0]), float(s_opt[1])
 
 
 @typechecked

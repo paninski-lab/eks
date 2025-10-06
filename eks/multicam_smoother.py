@@ -287,12 +287,12 @@ def ensemble_kalman_smoother_multicam(
 
     # Optimize smoothing
     s_finals, ms, Vs = run_kalman_smoother(
-        Qs=Qs,
-        ys=ys,
+        ys=jnp.asarray(ys),
         m0s=m0s,
         S0s=S0s,
-        Cs=Cs,
         As=As,
+        Cs=Cs,
+        Qs=Qs,
         ensemble_vars=np.swapaxes(ensemble_vars, 0, 1),
         s_frames=s_frames,
         smooth_param=smooth_param,
