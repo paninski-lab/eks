@@ -6,7 +6,7 @@ import pandas as pd
 from sklearn.decomposition import PCA
 from typeguard import typechecked
 
-from eks.core import ensemble, optimize_smooth_param
+from eks.core import ensemble, run_kalman_smoother
 from eks.marker_array import (
     MarkerArray,
     input_dfs_to_markerArray,
@@ -202,7 +202,6 @@ def ensemble_kalman_smoother_multicam(
     verbose: bool = False,
     pca_object: PCA | None = None,
     n_latent: int = 3,
-    backend: str = 'jax',
 ) -> tuple:
     """
     Use multi-view constraints to fit a 3D latent subspace for each body part.
@@ -287,7 +286,7 @@ def ensemble_kalman_smoother_multicam(
     ])
 
     # Optimize smoothing
-    s_finals, ms, Vs = optimize_smooth_param(
+    s_finals, ms, Vs = run_kalman_smoother(
         Qs=Qs,
         ys=ys,
         m0s=m0s,
