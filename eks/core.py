@@ -1,21 +1,14 @@
-from functools import partial
-
 import jax
-import jax.scipy as jsc
 import numpy as np
 import optax
-from jax import jit
-from jax import numpy as jnp
-from jax import vmap
+from dynamax.nonlinear_gaussian_ssm import ParamsNLGSSM, extended_kalman_filter, \
+    extended_kalman_smoother
+from jax import numpy as jnp, vmap, jit, value_and_grad, lax
 from typeguard import typechecked
-from typing import List, Literal, Optional, Tuple, Union
+from typing import Literal, Union, Optional, List, Tuple
 
 from eks.marker_array import MarkerArray
-from eks.utils import crop_frames
-
-# -------------------------------------------------------------------------------------
-# Kalman Functions: Functions related to performing filtering and smoothing
-# -------------------------------------------------------------------------------------
+from eks.utils import build_R_from_vars, crop_frames, crop_R
 
 
 @typechecked
@@ -86,352 +79,6 @@ def ensemble(
 
     return ensemble_marker_array
 
-@typechecked
-def kalman_filter_step(
-        carry,
-        inputs
-) -> Tuple[tuple, Tuple[jnp.ndarray, jnp.ndarray, jax.Array]]:
-    """
-    Performs a single Kalman filter update step using time-varying observation noise
-    from ensemble variance.
-
-    Used in a scan loop, updating the state mean and covariance
-    based on the current observation and its associated ensemble variance.
-
-    Args:
-        carry: Tuple containing the previous state and model parameters:
-            - m_prev (jnp.ndarray): Previous state estimate (mean vector).
-            - V_prev (jnp.ndarray): Previous state covariance matrix.
-            - A (jnp.ndarray): State transition matrix.
-            - Q (jnp.ndarray): Process noise covariance matrix.
-            - C (jnp.ndarray): Observation matrix.
-            - nll_net (float): Accumulated negative log-likelihood.
-        inputs: Tuple containing the current observation and its estimated ensemble variance:
-            - curr_y (jnp.ndarray): Current observation vector.
-            - curr_ensemble_var (jnp.ndarray): Estimated observation noise variance
-                                               (used to build time-varying R matrix).
-
-    Returns:
-        A tuple of two elements:
-            - carry (tuple): Updated (m_t, V_t, A, Q, C, nll_net) to pass to the next step.
-            - output (tuple): Tuple of:
-                - m_t (jnp.ndarray): Updated state mean.
-                - V_t (jnp.ndarray): Updated state covariance.
-                - nll_current (float, stored as jax.Array): NLL of the current observation.
-    """
-    m_prev, V_prev, A, Q, C, nll_net = carry
-    curr_y, curr_ensemble_var = inputs
-
-    # Update R with time-varying ensemble variance
-    R = jnp.diag(curr_ensemble_var)
-
-    # Predict
-    m_pred = jnp.dot(A, m_prev)
-    V_pred = jnp.dot(A, jnp.dot(V_prev, A.T)) + Q
-
-    # Update
-    innovation = curr_y - jnp.dot(C, m_pred)
-    innovation_cov = jnp.dot(C, jnp.dot(V_pred, C.T)) + R
-    K = jnp.dot(V_pred, jnp.dot(C.T, jnp.linalg.inv(innovation_cov)))
-    m_t = m_pred + jnp.dot(K, innovation)
-    V_t = jnp.dot((jnp.eye(V_pred.shape[0]) - jnp.dot(K, C)), V_pred)
-
-    nll_current = single_timestep_nll(innovation, innovation_cov)
-    nll_net = nll_net + nll_current
-
-    return (m_t, V_t, A, Q, C, nll_net), (m_t, V_t, nll_current)
-
-
-@typechecked
-def kalman_filter_step_nlls(
-    carry: tuple,
-    inputs: tuple
-) -> Tuple[tuple, Tuple[jnp.ndarray, jnp.ndarray, float]]:
-    """
-    Performs a single Kalman filter update step and records per-timestep negative
-    log-likelihoods (NLLs) into a preallocated array.
-
-    Used inside a `lax.scan` loop. In addition to updating the state estimate and total NLL,
-    it writes the NLL of each timestep into a persistent array for later analysis/plotting.
-
-    Args:
-        carry: Tuple containing:
-            - m_prev (jnp.ndarray): Previous state estimate (mean vector).
-            - V_prev (jnp.ndarray): Previous state covariance matrix.
-            - A (jnp.ndarray): State transition matrix.
-            - Q (jnp.ndarray): Process noise covariance matrix.
-            - C (jnp.ndarray): Observation matrix.
-            - nll_net (float): Cumulative negative log-likelihood.
-            - nll_array (jnp.ndarray): Preallocated array for per-step NLL values.
-            - t (int): Current timestep index into the NLL array.
-
-        inputs: Tuple containing:
-            - curr_y (jnp.ndarray): Current observation vector.
-            - curr_ensemble_var (jnp.ndarray): Estimated observation noise variance,
-                                               used to construct the time-varying R matrix.
-
-    Returns:
-        A tuple of:
-            - carry (tuple): Updated state and NLL tracking info for the next timestep.
-            - output (tuple):
-                - m_t (jnp.ndarray): Updated state mean.
-                - V_t (jnp.ndarray): Updated state covariance.
-                - nll_current (float): Negative log-likelihood of the current timestep.
-    """
-    # Unpack carry and inputs
-    m_prev, V_prev, A, Q, C, nll_net, nll_array, t = carry
-    curr_y, curr_ensemble_var = inputs
-
-    # Update R with the current ensemble variance
-    R = jnp.diag(curr_ensemble_var)
-
-    # Predict
-    m_pred = jnp.dot(A, m_prev)
-    V_pred = jnp.dot(A, jnp.dot(V_prev, A.T)) + Q
-
-    # Update
-    innovation = curr_y - jnp.dot(C, m_pred)
-    innovation_cov = jnp.dot(C, jnp.dot(V_pred, C.T)) + R
-    K = jnp.dot(V_pred, jnp.dot(C.T, jnp.linalg.inv(innovation_cov)))
-    m_t = m_pred + jnp.dot(K, innovation)
-    V_t = V_pred - jnp.dot(K, jnp.dot(C, V_pred))
-
-    # Compute the negative log-likelihood for the current time step
-    nll_current = single_timestep_nll(innovation, innovation_cov)
-
-    # Accumulate the negative log-likelihood
-    nll_net = nll_net + nll_current
-
-    # Save the current NLL to the preallocated array
-    nll_array = nll_array.at[t].set(nll_current)
-
-    # Increment the time step
-    t = t + 1
-
-    # Return the updated state and outputs
-    return (m_t, V_t, A, Q, C, nll_net, nll_array, t), (m_t, V_t, nll_current)
-
-
-@partial(jit, backend='cpu')
-def forward_pass(
-    y: jnp.ndarray,
-    m0: jnp.ndarray,
-    cov0: jnp.ndarray,
-    A: jnp.ndarray,
-    Q: jnp.ndarray,
-    C: jnp.ndarray,
-    ensemble_vars: jnp.ndarray
-) -> Tuple[jnp.ndarray, jnp.ndarray, float]:
-    """
-    Executes the Kalman filter forward pass for a single keypoint over time,
-    incorporating time-varying observation noise variances.
-
-    Computes filtered state means, covariances, and the cumulative
-    negative log-likelihood across all timesteps. Used within `vmap` to
-    handle multiple keypoints in parallel.
-
-    Args:
-        y: Array of shape (T, obs_dim). Sequence of observations over time.
-        m0: Array of shape (state_dim,). Initial state estimate.
-        cov0: Array of shape (state_dim, state_dim). Initial state covariance.
-        A: Array of shape (state_dim, state_dim). State transition matrix.
-        Q: Array of shape (state_dim, state_dim). Process noise covariance matrix.
-        C: Array of shape (obs_dim, state_dim). Observation matrix.
-        ensemble_vars: Array of shape (T, obs_dim). Per-frame observation noise variances.
-
-    Returns:
-        mfs: Array of shape (T, state_dim). Filtered mean estimates at each timestep.
-        Vfs: Array of shape (T, state_dim, state_dim). Filtered covariance estimates at each timestep.
-        nll_net: Scalar float. Total negative log-likelihood across all timesteps.
-    """
-    # Initialize carry
-    carry = (m0, cov0, A, Q, C, 0)
-    # Run the scan, passing y and ensemble_vars as inputs to kalman_filter_step
-    carry, outputs = jax.lax.scan(kalman_filter_step, carry, (y, ensemble_vars))
-    mfs, Vfs, _ = outputs
-    nll_net = carry[-1]
-    return mfs, Vfs, nll_net
-
-
-@typechecked
-def kalman_smoother_step(
-    carry: tuple,
-    X: list,
-) -> Tuple[tuple, Tuple[jnp.ndarray, jnp.ndarray]]:
-    """
-    Performs a single backward pass of the Kalman smoother.
-
-    Updates the smoothed state estimate and covariance based on the
-    current filtered estimate and the next time step's smoothed estimate. Used
-    within a `jax.lax.scan` in reverse over the time axis.
-
-    Args:
-        carry: Tuple containing:
-            - m_ahead_smooth (jnp.ndarray): Smoothed state mean at the next timestep.
-            - v_ahead_smooth (jnp.ndarray): Smoothed state covariance at the next timestep.
-            - A (jnp.ndarray): State transition matrix.
-            - Q (jnp.ndarray): Process noise covariance matrix.
-
-        X: Tuple containing:
-            - m_curr_filter (jnp.ndarray): Filtered mean estimate at the current timestep.
-            - v_curr_filter (jnp.ndarray): Filtered covariance at the current timestep.
-
-    Returns:
-        A tuple of:
-            - carry (tuple): Updated smoothed state (mean, cov) and model params for the next step.
-            - output (tuple):
-                - smoothed_state (jnp.ndarray): Smoothed mean estimate at the current timestep.
-                - smoothed_cov (jnp.ndarray): Smoothed covariance at the current timestep.
-    """
-    m_ahead_smooth, v_ahead_smooth, A, Q = carry
-    m_curr_filter, v_curr_filter = X[0], X[1]
-
-    # Compute the smoother gain
-    ahead_cov = jnp.dot(A, jnp.dot(v_curr_filter, A.T)) + Q
-
-    smoothing_gain = jsc.linalg.solve(ahead_cov, jnp.dot(A, v_curr_filter.T)).T
-    smoothed_state = m_curr_filter + jnp.dot(smoothing_gain, m_ahead_smooth - m_curr_filter)
-    smoothed_cov = v_curr_filter + jnp.dot(jnp.dot(smoothing_gain, v_ahead_smooth - ahead_cov),
-                                           smoothing_gain.T)
-
-    return (smoothed_state, smoothed_cov, A, Q), (smoothed_state, smoothed_cov)
-
-
-# @typechecked -- raises InstrumentationWarning as @jit rewrites into compiled form (JAX XLA)
-@partial(jit, backend='cpu')
-def backward_pass(
-    mfs: jnp.ndarray,
-    Vfs: jnp.ndarray,
-    A: jnp.ndarray,
-    Q: jnp.ndarray
-) -> Tuple[jnp.ndarray, jnp.ndarray]:
-    """
-    Executes the Kalman smoother backward pass using filtered means and covariances.
-
-    Refines forward-filtered estimates by incorporating future observations.
-    Used after a Kalman filter forward pass to recover more accurate state estimates.
-
-    Args:
-        mfs: Array of shape (T, state_dim). Filtered state means from the forward pass.
-        Vfs: Array of shape (T, state_dim, state_dim). Filtered covariances from the forward pass.
-        A: Array of shape (state_dim, state_dim). State transition matrix.
-        Q: Array of shape (state_dim, state_dim). Process noise covariance matrix.
-
-    Returns:
-        smoothed_states: Array of shape (T, state_dim). Smoothed state mean estimates.
-        smoothed_state_covariances: Array of shape (T, state_dim, state_dim).
-            Smoothed state covariance estimates.
-    """
-    carry = (mfs[-1], Vfs[-1], A, Q)
-
-    # Reverse scan over the time steps
-    carry, outputs = jax.lax.scan(
-        kalman_smoother_step,
-        carry,
-        [mfs[:-1], Vfs[:-1]],
-        reverse=True
-    )
-
-    smoothed_states, smoothed_state_covariances = outputs
-    smoothed_states = jnp.append(smoothed_states, jnp.expand_dims(mfs[-1], 0), 0)
-    smoothed_state_covariances = jnp.append(smoothed_state_covariances,
-                                            jnp.expand_dims(Vfs[-1], 0), 0)
-    return smoothed_states, smoothed_state_covariances
-
-
-@typechecked
-def single_timestep_nll(
-    innovation: jnp.ndarray,
-    innovation_cov: jnp.ndarray
-) -> jax.Array:
-    """
-    Computes the negative log-likelihood (NLL) of a single multivariate Gaussian observation.
-
-    Measures how well the predicted state explains the current observation.
-    A small regularization term (epsilon) is added to the covariance to ensure numerical stability.
-
-    Args:
-        innovation: Array of shape (D,). The difference between observed and predicted observation.
-        innovation_cov: Array of shape (D, D). Covariance of the innovation.
-
-    Returns:
-        nll_increment: Scalar float stored as a jax.Array.
-                       Negative log-likelihood of observing the current innovation.
-    """
-    epsilon = 1e-6
-    n_coords = innovation.shape[0]
-
-    # Regularize the innovation covariance matrix by adding epsilon to the diagonal
-    reg_innovation_cov = innovation_cov + epsilon * jnp.eye(n_coords)
-
-    # Compute the log determinant of the regularized covariance matrix
-    log_det_S = jnp.log(jnp.abs(jnp.linalg.det(reg_innovation_cov)) + epsilon)
-    solved_term = jnp.linalg.solve(reg_innovation_cov, innovation)
-    quadratic_term = jnp.dot(innovation, solved_term)
-
-    # Compute the NLL increment for the current time step
-    c = jnp.log(2 * jnp.pi) * n_coords  # The Gaussian normalization constant part
-    nll_increment = 0.5 * jnp.abs(log_det_S + quadratic_term + c)
-    return nll_increment
-
-
-@typechecked
-def final_forwards_backwards_pass(
-    process_cov: jnp.ndarray,
-    s: np.ndarray,
-    ys: np.ndarray,
-    m0s: jnp.ndarray,
-    S0s: jnp.ndarray,
-    Cs: jnp.ndarray,
-    As: jnp.ndarray,
-    ensemble_vars: np.ndarray,
-) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Runs the full Kalman forward-backward smoother across all keypoints using
-    optimized smoothing parameters.
-
-    Computes smoothed state means and covariances for each keypoint over time.
-    The process noise covariance is scaled per-keypoint by a learned smoothing parameter `s`.
-
-    Args:
-        process_cov: Array of shape (K, D, D). Base process noise covariance per keypoint.
-        s: Array of shape (K,). Smoothing scalars applied to process_cov per keypoint.
-        ys: Array of shape (K, T, obs_dim). Observations per keypoint over time.
-        m0s: Array of shape (K, D). Initial state mean per keypoint.
-        S0s: Array of shape (K, D, D). Initial state covariance per keypoint.
-        Cs: Array of shape (K, obs_dim, D). Observation matrix per keypoint.
-        As: Array of shape (K, D, D). State transition matrix per keypoint.
-        ensemble_vars: Array of shape (T, K, obs_dim). Time-varying obs variances per keypoint.
-
-    Returns:
-        smoothed_means: Array of shape (K, T, D). Smoothed state means for each keypoint over time.
-        smoothed_covariances: Array of shape (K, T, D, D). Smoothed state covariances over time.
-    """
-
-    # Initialize
-    n_keypoints = ys.shape[0]
-    ms_array = []
-    Vs_array = []
-    Qs = s[:, None, None] * process_cov
-
-    # Run forward and backward pass for each keypoint
-    for k in range(n_keypoints):
-        mf, Vf, nll = forward_pass(
-            ys[k], m0s[k], S0s[k], As[k], Qs[k], Cs[k], ensemble_vars[:, k, :])
-        ms, Vs = backward_pass(mf, Vf, As[k], Qs[k])
-
-        ms_array.append(np.array(ms))
-        Vs_array.append(np.array(Vs))
-
-    smoothed_means = np.stack(ms_array, axis=0)
-    smoothed_covariances = np.stack(Vs_array, axis=0)
-
-    return smoothed_means, smoothed_covariances
-
-# -------------------------------------------------------------------------------------
-# Optimization: Functions related to optimizing the smoothing hyperparameter
-# -------------------------------------------------------------------------------------
-
 
 @typechecked
 def compute_initial_guesses(
@@ -461,198 +108,298 @@ def compute_initial_guesses(
 
     # Compute temporal differences
     temporal_diffs = ensemble_vars[1:] - ensemble_vars[:-1]
-
     # Compute standard deviation across all temporal differences
     std_dev_guess = round(np.nanstd(temporal_diffs), 5)
     return float(std_dev_guess)
 
 
+def params_nlgssm_for_keypoint(m0, S0, Q, s, R, f_fn, h_fn) -> ParamsNLGSSM:
+    """
+    Construct the ParamsNLGSSM for a single (keypoint) sequence.
+    """
+    return ParamsNLGSSM(
+        initial_mean=jnp.asarray(m0),
+        initial_covariance=jnp.asarray(S0),
+        dynamics_function=f_fn,
+        dynamics_covariance=jnp.asarray(s) * jnp.asarray(Q),
+        emission_function=h_fn,
+        emission_covariance=jnp.asarray(R),
+    )
+
+
+# ----------------- Public API -----------------
 @typechecked
-def optimize_smooth_param(
-    cov_mats: jnp.ndarray,
-    ys: np.ndarray,
-    m0s: jnp.ndarray,
-    S0s: jnp.ndarray,
-    Cs: jnp.ndarray,
-    As: jnp.ndarray,
-    ensemble_vars: np.ndarray,
+def run_kalman_smoother(
+    ys: jnp.ndarray,                 # (K, T, obs)
+    m0s: jnp.ndarray,                # (K, D)
+    S0s: jnp.ndarray,                # (K, D, D)
+    As: jnp.ndarray,                 # (K, D, D)
+    Cs: jnp.ndarray,                 # (K, obs, D)
+    Qs: jnp.ndarray,                 # (K, D, D)
+    ensemble_vars: np.ndarray,       # (T, K, obs)
     s_frames: Optional[List] = None,
     smooth_param: Optional[Union[float, List[float]]] = None,
     blocks: Optional[List[List[int]]] = None,
-    maxiter: int = 1000,
     verbose: bool = False,
+    # JIT-closed constants:
+    lr: float = 0.25,
+    s_bounds_log: tuple = (-8.0, 8.0),
+    tol: float = 1e-3,
+    safety_cap: int = 5000,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
-    Optimize smoothing parameters for each keypoint (or block of keypoints) using
-    negative log-likelihood minimization, and apply final Kalman forward-backward smoothing.
+    Optimize the process-noise scale `s` (shared within each block of keypoints) by minimizing
+    the summed EKF filter negative log-likelihood (NLL) in a *linear* state-space model,
+    then run the EKF smoother for final trajectories.
 
-    If `smooth_param` is provided, it is used directly. Otherwise, the function computes
-    initial guesses and uses gradient descent to optimize per-block values of `s`.
+    Model per keypoint k:
+        x_{t+1} = A_k x_t + w_t,   y_t = C_k x_t + v_t
+        w_t ~ N(0, s * Q_k),       v_t ~ N(0, R_{k,t}),  with time-varying R_{k,t}.
 
     Args:
-        cov_mats: Array of shape (K, D, D). Base process noise covariances per keypoint.
-        ys: Array of shape (K, T, obs_dim). Observations per keypoint over time.
-        m0s: Array of shape (K, D). Initial state means per keypoint.
-        S0s: Array of shape (K, D, D). Initial state covariances per keypoint.
-        Cs: Array of shape (K, obs_dim, D). Observation matrices per keypoint.
-        As: Array of shape (K, D, D). State transition matrices per keypoint.
-        ensemble_vars: Array of shape (T, K, obs_dim). Time-varying ensemble variances.
-        s_frames: Optional list of frame indices for computing initial guess statistics.
-        smooth_param: Optional fixed value(s) of smoothing param `s`.
-                      Can be a float or list of floats (one per keypoint/block).
-        blocks: Optional list of lists of keypoint indices to share a smoothing param.
-                Defaults to treating each keypoint independently.
-        maxiter: Max number of optimization steps per block.
-        verbose: If True, print progress logs.
+        ys: (K, T, obs) observations per keypoint over time.
+        m0s: (K, D) initial state means.
+        S0s: (K, D, D) initial state covariances.
+        As: (K, D, D) transition matrices.
+        Cs: (K, obs, D) observation matrices.
+        Qs: (K, D, D) base process covariances (scaled by `s`).
+        ensemble_vars: (T, K, obs) per-frame ensemble variances; used to build R_{k,t}
+            via diag(clip(ensemble_vars[t, k, :], 1e-12, ∞)).
+        s_frames: Optional list of (start, end) tuples (1-based, inclusive end) to crop
+            the time axis *for the loss only*. Final smoothing uses the full sequence.
+        smooth_param: If provided, bypass optimization. Either a scalar (shared across K)
+            or a list of length K (per-keypoint).
+        blocks: Optional list of lists of keypoint indices; each block shares one `s`.
+            Default: each keypoint is its own block.
+        verbose: Print per-block optimization summaries if True.
+        lr: Adam learning rate (on log(s)).
+        s_bounds_log: Clamp bounds for log(s) during optimization.
+        tol: Relative tolerance on loss change for early stopping.
+        safety_cap: Hard iteration cap inside the jitted while-loop.
 
     Returns:
-        s_finals: Array of shape (K,). Final smoothing parameter per keypoint.
-        ms: Array of shape (K, T, D). Smoothed state means.
-        Vs: Array of shape (K, T, D, D). Smoothed state covariances.
+        s_finals: (K,) final `s` per keypoint (block optimum broadcast to members).
+        ms: (K, T, D) smoothed state means.
+        Vs: (K, T, D, D) smoothed state covariances.
     """
-
-    n_keypoints = ys.shape[0]
-    s_finals = []
-    if blocks is None:
-        blocks = []
-    if len(blocks) == 0:
-        for n in range(n_keypoints):
-            blocks.append([n])
+    K, T, obs_dim = ys.shape
+    if not blocks:
+        blocks = [[k] for k in range(K)]
     if verbose:
-        print(f'Correlated keypoint blocks: {blocks}')
+        print(f"Correlated keypoint blocks: {blocks}")
 
-    @partial(jit)
-    def nll_loss_sequential_scan(s, cov_mats, cropped_ys, m0s, S0s, Cs, As, ensemble_vars):
-        s = jnp.exp(s)  # To ensure positivity
-        return smooth_min(
-            s, cov_mats, cropped_ys, m0s, S0s, Cs, As, ensemble_vars)
+    # Build time-varying R (K, T, obs, obs)
+    Rs = jnp.asarray(build_R_from_vars(np.swapaxes(ensemble_vars, 0, 1)))
 
-    loss_function = nll_loss_sequential_scan
+    # Initial guesses per keypoint (host-side)
+    s_guess_per_k = np.empty(K, dtype=float)
+    for k in range(K):
+        g = float(compute_initial_guesses(ensemble_vars[:, k, :]) or 2.0)
+        s_guess_per_k[k] = g if (np.isfinite(g) and g > 0.0) else 2.0
 
-    # Optimize smooth_param
+    # Choose or optimize s
+    s_finals = np.empty(K, dtype=float)
     if smooth_param is not None:
-        if isinstance(smooth_param, float):
-            s_finals = [smooth_param]
-        elif isinstance(smooth_param, int):
-            s_finals = [float(smooth_param)]
+        if isinstance(smooth_param, (int, float)):
+            s_finals[:] = float(smooth_param)
         else:
-            s_finals = smooth_param
+            s_finals[:] = np.asarray(smooth_param, dtype=float)
     else:
-        guesses = []
-        cropped_ys = []
-        for k in range(n_keypoints):
-            current_guess = compute_initial_guesses(ensemble_vars[:, k, :])
-            guesses.append(current_guess)
-            if s_frames is None or len(s_frames) == 0:
-                cropped_ys.append(ys[k])
-            else:
-                cropped_ys.append(crop_frames(ys[k], s_frames))
+        optimize_smooth_param(
+            ys=ys,
+            m0s=m0s,
+            S0s=S0s,
+            As=As,
+            Cs=Cs,
+            Qs=Qs,
+            Rs=Rs,
+            blocks=blocks,
+            lr=lr,
+            s_bounds_log=s_bounds_log,
+            s_finals=s_finals,
+            s_frames=s_frames,
+            s_guess_per_k=s_guess_per_k,
+            tol=tol,
+            verbose=verbose,
+            safety_cap=safety_cap,
+        )
 
-        cropped_ys = np.array(cropped_ys)  # Concatenation of this list along dimension 0
+    # Final smoother pass (full R_t)
+    def _params_linear_for_k(k: int, s_val: float):
+        A_k, C_k = As[k], Cs[k]
+        f_fn = (lambda x, A=A_k: A @ x)
+        h_fn = (lambda x, C=C_k: C @ x)
+        return params_nlgssm_for_keypoint(
+            m0s[k], S0s[k], Qs[k], s_val, Rs[k], f_fn, h_fn)
 
-        # Optimize negative log likelihood
-        for block in blocks:
-            s_init = guesses[block[0]]
-            if s_init <= 0:
-                s_init = 2
-            s_init = jnp.log(s_init)
-            optimizer = optax.adam(learning_rate=0.25)
-            opt_state = optimizer.init(s_init)
+    means_list, covs_list = [], []
+    for k in range(K):
+        params_k = _params_linear_for_k(k, s_finals[k])
+        sm = extended_kalman_smoother(params_k, ys[k])
+        if hasattr(sm, "smoothed_means"):
+            m_k, V_k = sm.smoothed_means, sm.smoothed_covariances
+        else:
+            m_k, V_k = sm.filtered_means, sm.filtered_covariances
+        means_list.append(np.array(m_k))
+        covs_list.append(np.array(V_k))
 
-            selector = np.array(block).astype(int)
-            cov_mats_sub = cov_mats[selector]
-            m0s_crop = m0s[selector]
-            S0s_crop = S0s[selector]
-            Cs_crop = Cs[selector]
-            As_crop = As[selector]
-            y_subset = cropped_ys[selector]
-            ensemble_vars_crop = np.swapaxes(ensemble_vars[:, selector, :], 0, 1)
-
-            def step(s, opt_state):
-                loss, grads = jax.value_and_grad(loss_function)(
-                    s, cov_mats_sub, y_subset, m0s_crop, S0s_crop, Cs_crop, As_crop,
-                    ensemble_vars_crop)
-                updates, opt_state = optimizer.update(grads, opt_state)
-                s = optax.apply_updates(s, updates)
-                return s, opt_state, loss
-
-            prev_loss = jnp.inf
-            for iteration in range(maxiter):
-                s_init, opt_state, loss = step(s_init, opt_state)
-
-                if verbose and iteration % 10 == 0 or iteration == maxiter - 1:
-                    print(f'Iteration {iteration}, Current loss: {loss}, Current s: {s_init}')
-
-                tol = 0.001 * jnp.abs(jnp.log(prev_loss))
-                if jnp.linalg.norm(loss - prev_loss) < tol + 1e-6:
-                    break
-                prev_loss = loss
-
-            s_final = jnp.exp(s_init)  # Convert back from log-space
-
-            for b in block:
-                if verbose:
-                    print(f's={s_final} for keypoint {b}')
-                s_finals.append(s_final)
-
-    s_finals = np.array(s_finals)
-    # Final smooth with optimized s
-    ms, Vs = final_forwards_backwards_pass(
-        cov_mats, s_finals, ys, m0s, S0s, Cs, As, ensemble_vars,
-    )
-
+    ms = np.stack(means_list, axis=0)
+    Vs = np.stack(covs_list, axis=0)
     return s_finals, ms, Vs
 
 
-@typechecked
-def inner_smooth_min_routine(
-    y: jnp.ndarray,
-    m0: jnp.ndarray,
-    S0: jnp.ndarray,
-    A: jnp.ndarray,
-    Q: jnp.ndarray,
-    C: jnp.ndarray,
-    ensemble_var: jnp.ndarray
-) -> jax.Array:
-    # Run filtering with the current smooth_param
-    _, _, nll = forward_pass(y, m0, S0, A, Q, C, ensemble_var)
-    return nll
-
-
-inner_smooth_min_routine_vmap = vmap(inner_smooth_min_routine, in_axes=(0, 0, 0, 0, 0, 0, 0))
-
-
-@typechecked
-def smooth_min(
-    smooth_param: jax.Array,
-    cov_mats: jnp.ndarray,
-    ys: jnp.ndarray,
-    m0s: jnp.ndarray,
-    S0s: jnp.ndarray,
-    Cs: jnp.ndarray,
-    As: jnp.ndarray,
-    ensemble_vars: jnp.ndarray
-) -> jax.Array:
+# ----------------- Optimizer (blockwise s) -----------------
+def optimize_smooth_param(
+    ys: jnp.ndarray,            # (K, T, obs)
+    m0s: jnp.ndarray,           # (K, D)
+    S0s: jnp.ndarray,           # (K, D, D)
+    As: jnp.ndarray,            # (K, D, D)
+    Cs: jnp.ndarray,            # (K, obs, D)
+    Qs: jnp.ndarray,            # (K, D, D)
+    Rs: jnp.ndarray,            # (K, T, obs, obs) time-varying R_t
+    blocks: Optional[list],
+    lr: float,
+    s_bounds_log: tuple,
+    s_finals: np.ndarray,       # (K,), filled in-place
+    s_frames: Optional[list],
+    s_guess_per_k: np.ndarray,  # (K,)
+    tol: float,
+    verbose: bool,
+    safety_cap: int,
+) -> None:
     """
-    Computes the total negative log-likelihood (NLL) for a given smoothing parameter
-    by running a full forward-pass Kalman filter over all keypoints.
+    Optimize a single scalar process-noise scale `s` per block of keypoints by minimizing
+    the sum of EKF filter negative log-likelihoods, using time-varying observation noise
+    R_{k,t}. Writes results into `s_finals` in place.
 
-    This is the objective function minimized during smoothing parameter optimization.
+    Parameters
+    ----------
+    ys : jnp.ndarray, shape (K, T, obs)
+        Observations per keypoint (JAX). For cropped loss, host-side slices are created.
+    m0s : jnp.ndarray, shape (K, D)
+        Initial state means per keypoint.
+    S0s : jnp.ndarray, shape (K, D, D)
+        Initial state covariances per keypoint.
+    As : jnp.ndarray, shape (K, D, D)
+        State transition matrices.
+    Cs : jnp.ndarray, shape (K, obs, D)
+        Observation matrices.
+    Qs : jnp.ndarray, shape (K, D, D)
+        Base process covariances (scaled by `s` inside the model).
+    Rs : jnp.ndarray, shape (K, T, obs, obs)
+        Time-varying observation covariances for each keypoint.
+    blocks : list[list[int]] or None
+        Groups of keypoint indices that share a single `s`.
+        If None/empty, each keypoint is its own block.
+    lr : float
+        Adam learning rate (on log(s)).
+    s_bounds_log : (float, float)
+        Clamp bounds for log(s) to stabilize optimization.
+    s_finals : np.ndarray, shape (K,)
+        Output array filled with final per-keypoint `s` (block optimum broadcast).
+    s_frames : list or None
+        Frame ranges for cropping (list of (start, end); 1-based start, inclusive end).
+        Applied to both y and R_t for the loss only.
+    s_guess_per_k : np.ndarray, shape (K,)
+        Heuristic initial guesses of `s` per keypoint. Block init uses the mean over members.
+    tol : float
+        Relative tolerance on loss change for early stopping.
+    verbose : bool
+        If True, prints per-block optimization progress.
+    safety_cap : int
+        Maximum number of iterations inside the jitted while-loop.
 
-    Args:
-        smooth_param: Scalar float value of the smoothing parameter `s`.
-        cov_mats: Array of shape (K, D, D). Process noise covariance templates.
-        ys: Array of shape (K, T, obs_dim). Observations per keypoint.
-        m0s: Array of shape (K, D). Initial state means.
-        S0s: Array of shape (K, D, D). Initial state covariances.
-        Cs: Array of shape (K, obs_dim, D). Observation matrices.
-        As: Array of shape (K, D, D). State transition matrices.
-        ensemble_vars: Array of shape (T, K, obs_dim). Time-varying ensemble variances.
-
-    Returns:
-        nlls: Scalar JAX array. Total negative log-likelihood across all keypoints.
+    Returns
+    -------
+    None
+        Results are written into `s_finals`.
     """
-    # Adjust Q based on smooth_param and cov_matrix
-    Qs = smooth_param * cov_mats
-    nlls = jnp.sum(inner_smooth_min_routine_vmap(ys, m0s, S0s, As, Qs, Cs, ensemble_vars))
-    return nlls
+    optimizer = optax.adam(float(lr))
+    s_bounds_log_j = jnp.array(s_bounds_log, dtype=jnp.float32)
+    tol_j = float(tol)
+
+    def _params_linear(m0, S0, A, Q_base, s, R_any, C):
+        f_fn = (lambda x, A=A: A @ x)
+        h_fn = (lambda x, C=C: C @ x)
+        return params_nlgssm_for_keypoint(m0, S0, Q_base, s, R_any, f_fn, h_fn)
+
+    def _nll_one_keypoint(log_s, y_k, m0_k, S0_k, A_k, Q_k, C_k, R_k_tv):
+        s = jnp.exp(jnp.clip(log_s, s_bounds_log_j[0], s_bounds_log_j[1]))
+        params = _params_linear(m0_k, S0_k, A_k, Q_k, s, R_k_tv, C_k)
+        post = extended_kalman_filter(params, jnp.asarray(y_k))
+        return -post.marginal_loglik
+
+    def _nll_block(log_s, ys_b, m0s_b, S0s_b, As_b, Qs_b, Cs_b, Rs_b_tv):
+        nlls = jax.vmap(_nll_one_keypoint, in_axes=(None, 0, 0, 0, 0, 0, 0, 0))(
+            log_s, ys_b, m0s_b, S0s_b, As_b, Qs_b, Cs_b, Rs_b_tv
+        )
+        return jnp.sum(nlls)
+
+    @jit
+    def _opt_step(log_s, opt_state, ys_b, m0s_b, S0s_b, As_b, Qs_b, Cs_b, Rs_b_tv):
+        loss, grad = value_and_grad(_nll_block)(
+            log_s, ys_b, m0s_b, S0s_b, As_b, Qs_b, Cs_b, Rs_b_tv
+        )
+        updates, opt_state = optimizer.update(grad, opt_state)
+        log_s = optax.apply_updates(log_s, updates)
+        return log_s, opt_state, loss
+
+    @jit
+    def _run_tol_loop(log_s0, opt_state0, ys_b, m0s_b, S0s_b, As_b, Qs_b, Cs_b, Rs_b_tv):
+        def cond(carry):
+            _, _, prev_loss, iters, done = carry
+            return jnp.logical_and(~done, iters < safety_cap)
+
+        def body(carry):
+            log_s, opt_state, prev_loss, iters, _ = carry
+            log_s, opt_state, loss = _opt_step(
+                log_s, opt_state, ys_b, m0s_b, S0s_b, As_b, Qs_b, Cs_b, Rs_b_tv
+            )
+            rel_tol = tol_j * jnp.abs(jnp.log(jnp.maximum(prev_loss, 1e-12)))
+            done = jnp.where(
+                jnp.isfinite(prev_loss),
+                jnp.linalg.norm(loss - prev_loss) < (rel_tol + 1e-6),
+                False
+            )
+            return (log_s, opt_state, loss, iters + 1, done)
+
+        return lax.while_loop(
+            cond, body, (log_s0, opt_state0, jnp.inf, jnp.array(0), jnp.array(False))
+        )
+
+    # For cropping only: host view
+    Rs_np = np.asarray(Rs)
+    ys_np = np.asarray(ys)
+
+    # Optimize per block (shared s)
+    for block in (blocks or []):
+        sel = jnp.asarray(block, dtype=int)
+
+        if s_frames and len(s_frames) > 0:
+            y_block_list = [crop_frames(ys_np[int(k)], s_frames) for k in block]  # (T', obs)
+            R_block_list = [crop_R(Rs_np[int(k)], s_frames) for k in block]  # (T', obs, obs)
+            y_block = jnp.asarray(np.stack(y_block_list, axis=0))  # (B, T', obs)
+            R_block = jnp.asarray(np.stack(R_block_list, axis=0))  # (B, T', obs, obs)
+        else:
+            y_block = ys[sel]      # (B, T, obs)
+            R_block = Rs[sel]      # (B, T, obs, obs)
+
+        m0_block = m0s[sel]
+        S0_block = S0s[sel]
+        A_block  = As[sel]
+        Q_block  = Qs[sel]
+        C_block  = Cs[sel]
+
+        s0 = float(np.mean([s_guess_per_k[k] for k in block]))
+        log_s0 = jnp.array(np.log(max(s0, 1e-6)), dtype=jnp.float32)
+        opt_state0 = optimizer.init(log_s0)
+
+        log_s_f, opt_state_f, last_loss, iters_f, _done = _run_tol_loop(
+            log_s0, opt_state0, y_block, m0_block, S0_block, A_block, Q_block, C_block, R_block
+        )
+        s_star = float(jnp.exp(jnp.clip(log_s_f, s_bounds_log_j[0], s_bounds_log_j[1])))
+        for k in block:
+            s_finals[k] = s_star
+        if verbose:
+            print(f"[Block {block}] s={s_star:.6g}, "
+                  f"iters={int(iters_f)}, NLL={float(last_loss):.6f}")

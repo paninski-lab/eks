@@ -39,7 +39,7 @@ camera_dfs, s_finals, input_dfs, bodypart_list = fit_eks_multicam(
     quantile_keep_pca=quantile_keep_pca,
     verbose=verbose,
     inflate_vars=inflate_vars,
-    n_latent=args.n_latent
+    n_latent=args.n_latent,
 )
 
 # Plot results for a specific keypoint (default to last keypoint of last camera view)

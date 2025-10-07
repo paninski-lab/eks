@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 from typeguard import typechecked
 
-from eks.core import ensemble, optimize_smooth_param
+from eks.core import ensemble, run_kalman_smoother
 from eks.marker_array import MarkerArray, input_dfs_to_markerArray
 from eks.utils import center_predictions, format_data, make_dlc_pandas_index
 
@@ -94,7 +94,7 @@ def ensemble_kalman_smoother_singlecam(
         keypoint_names: List of body parts to run smoothing on
         smooth_param: value in (0, Inf); smaller values lead to more smoothing
         s_frames: List of frames for automatic computation of smoothing parameter
-        blocks: keypoints to be blocked for correlated noise. Generates on smoothing param per
+        blocks: keypoints to be blocked for correlated noise. Generates one smoothing param per
             block, as opposed to per keypoint.
             Specified by the form "x1, x2, x3; y1, y2" referring to keypoint indices (start at 0)
         avg_mode: mode for averaging across ensemble
@@ -134,12 +134,21 @@ def ensemble_kalman_smoother_singlecam(
 
     # Prepare params for singlecam_optimize_smooth()
     ys = emA_centered_preds.get_array(squeeze=True).transpose(1, 0, 2)
-    m0s, S0s, As, cov_mats, Cs = initialize_kalman_filter(emA_centered_preds)
+    m0s, S0s, As, Qs, Cs = initialize_kalman_filter(emA_centered_preds)
 
     # Main smoothing function
-    s_finals, ms, Vs = optimize_smooth_param(
-        cov_mats, ys, m0s, S0s, Cs, As, emA_vars.get_array(squeeze=True),
-        s_frames, smooth_param, blocks, verbose=verbose,
+    s_finals, ms, Vs = run_kalman_smoother(
+        ys=jnp.asarray(ys),
+        m0s=m0s,
+        S0s=S0s,
+        As=As,
+        Cs=Cs,
+        Qs=Qs,
+        ensemble_vars=emA_vars.get_array(squeeze=True),
+        s_frames=s_frames,
+        smooth_param=smooth_param,
+        blocks=blocks,
+        verbose=verbose
     )
 
     y_m_smooths = np.zeros((n_keypoints, n_frames, 2))

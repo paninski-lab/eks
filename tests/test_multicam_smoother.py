@@ -45,9 +45,10 @@ def test_ensemble_kalman_smoother_multicam():
         f"Expected {len(camera_names)} entries in camera_dfs, got {len(camera_dfs)}"
     assert isinstance(smooth_params_final, np.ndarray), \
         f"Expected smooth_param_final to be an array, got {type(smooth_params_final)}"
-    assert smooth_params_final == smooth_param, \
-        f"Expected smooth_param_final to match input smooth_param ({smooth_param}), " \
-        f"got {smooth_params_final}"
+    for k in range(len(keypoint_names)):
+        assert smooth_params_final[k] == smooth_param, \
+            f"Expected smooth_param_final to match input smooth_param ({smooth_param}), " \
+            f"got {smooth_params_final}"
 
     # ---------------------------------------------------
     # Run with variance inflation
@@ -69,9 +70,10 @@ def test_ensemble_kalman_smoother_multicam():
         f"Expected {len(camera_names)} entries in camera_dfs, got {len(camera_dfs)}"
     assert isinstance(smooth_params_final, np.ndarray), \
         f"Expected smooth_param_final to be an array, got {type(smooth_params_final)}"
-    assert smooth_params_final == smooth_param, \
-        f"Expected smooth_param_final to match input smooth_param ({smooth_param}), " \
-        f"got {smooth_params_final}"
+    for k in range(len(keypoint_names)):
+        assert smooth_params_final[k] == smooth_param, \
+            f"Expected smooth_param_final to match input smooth_param ({smooth_param}), " \
+            f"got {smooth_params_final}"
 
     # ---------------------------------------------------
     # Run with variance inflation + more maha kwargs
@@ -95,9 +97,10 @@ def test_ensemble_kalman_smoother_multicam():
         f"Expected {len(camera_names)} entries in camera_dfs, got {len(camera_dfs)}"
     assert isinstance(smooth_params_final, np.ndarray), \
         f"Expected smooth_param_final to be an array, got {type(smooth_params_final)}"
-    assert smooth_params_final == smooth_param, \
-        f"Expected smooth_param_final to match input smooth_param ({smooth_param}), " \
-        f"got {smooth_params_final}"
+    for k in range(len(keypoint_names)):
+        assert smooth_params_final[k] == smooth_param, \
+            f"Expected smooth_param_final to match input smooth_param ({smooth_param}), " \
+            f"got {smooth_params_final}"
 
     # ---------------------------------------------------
     # Run with variance inflation + more maha kwargs

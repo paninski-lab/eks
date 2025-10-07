@@ -6,7 +6,7 @@ import pandas as pd
 from sklearn.decomposition import PCA
 from typeguard import typechecked
 
-from eks.core import ensemble, optimize_smooth_param
+from eks.core import ensemble, run_kalman_smoother
 from eks.marker_array import (
     MarkerArray,
     input_dfs_to_markerArray,
@@ -129,7 +129,7 @@ def fit_eks_multicam(
     var_mode: str = 'confidence_weighted_var',
     inflate_vars: bool = False,
     verbose: bool = False,
-    n_latent: int = 3
+    n_latent: int = 3,
 ) -> tuple:
     """
     Fit the Ensemble Kalman Smoother for un-mirrored multi-camera data.
@@ -177,7 +177,7 @@ def fit_eks_multicam(
         var_mode=var_mode,
         verbose=verbose,
         inflate_vars=inflate_vars,
-        n_latent=n_latent
+        n_latent=n_latent,
     )
     # Save output DataFrames to CSVs (one per camera view)
     os.makedirs(save_dir, exist_ok=True)
@@ -201,7 +201,7 @@ def ensemble_kalman_smoother_multicam(
     inflate_vars_kwargs: dict = {},
     verbose: bool = False,
     pca_object: PCA | None = None,
-    n_latent: int = 3
+    n_latent: int = 3,
 ) -> tuple:
     """
     Use multi-view constraints to fit a 3D latent subspace for each body part.
@@ -254,8 +254,8 @@ def ensemble_kalman_smoother_multicam(
         n_components=n_latent,
         pca_object=pca_object,
     )
-
     if inflate_vars:
+        print('inflating')
         if inflate_vars_kwargs.get("mean", None) is not None:
             # set mean to zero since we are passing in centered predictions
             inflate_vars_kwargs["mean"] = np.zeros_like(inflate_vars_kwargs["mean"])
@@ -269,7 +269,7 @@ def ensemble_kalman_smoother_multicam(
     # Kalman Filter Section ------------------------------------------
 
     # Initialize Kalman filter parameters
-    m0s, S0s, As, cov_mats, Cs = initialize_kalman_filter_pca(
+    m0s, S0s, As, Qs, Cs = initialize_kalman_filter_pca(
         good_pcs_list=good_pcs_list,
         ensemble_pca=ensemble_pca,
         n_latent=n_latent,
@@ -286,17 +286,17 @@ def ensemble_kalman_smoother_multicam(
     ])
 
     # Optimize smoothing
-    s_finals, ms, Vs = optimize_smooth_param(
-        cov_mats=cov_mats,
-        ys=ys,
+    s_finals, ms, Vs = run_kalman_smoother(
+        ys=jnp.asarray(ys),
         m0s=m0s,
         S0s=S0s,
-        Cs=Cs,
         As=As,
+        Cs=Cs,
+        Qs=Qs,
         ensemble_vars=np.swapaxes(ensemble_vars, 0, 1),
         s_frames=s_frames,
         smooth_param=smooth_param,
-        verbose=verbose
+        verbose=verbose,
     )
     # Reproject from latent space back to observed space
     camera_arrs = [[] for _ in camera_names]
@@ -373,7 +373,6 @@ def initialize_kalman_filter_pca(
     ])
     As = np.tile(np.eye(n_latent), (n_keypoints, 1, 1))
     Cs = np.stack([pca.components_.T for pca in ensemble_pca])
-    Rs = np.tile(np.eye(n_latent), (n_keypoints, 1, 1))
 
     cov_mats = []
     for k in range(n_keypoints):
@@ -395,7 +394,7 @@ def initialize_kalman_filter_pca(
 
 
 def mA_compute_maha(centered_emA_preds, emA_vars, emA_likes, n_latent,
-                    inflate_vars_kwargs={}, threshold=5, scalar=2):
+                    inflate_vars_kwargs={}, threshold=5, scalar=10):
     """
     Reshape marker arrays for Mahalanobis computation, compute Mahalanobis distances,
     and optionally inflate variances for all keypoints.
@@ -427,7 +426,7 @@ def mA_compute_maha(centered_emA_preds, emA_vars, emA_likes, n_latent,
             inflate_vars_kwargs['v_quantile_threshold'] = 50.0
         inflated = True
         tmp_vars = vars
-
+        print(f'inflating keypoint: {k}')
         while inflated:
             # Compute Mahalanobis distances
             if inflate_vars_kwargs.get("likelihoods", None) is None:
