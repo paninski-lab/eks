@@ -27,6 +27,7 @@ quantile_keep_pca = args.quantile_keep_pca
 verbose = True if args.verbose == 'True' else False
 inflate_vars = True if args.inflate_vars == 'True' else False
 n_latent = args.n_latent
+calibration = args.calibration
 
 # Fit EKS using the provided input data
 camera_dfs, s_finals, input_dfs, bodypart_list = fit_eks_multicam(
@@ -40,6 +41,7 @@ camera_dfs, s_finals, input_dfs, bodypart_list = fit_eks_multicam(
     verbose=verbose,
     inflate_vars=inflate_vars,
     n_latent=args.n_latent,
+    calibration=calibration,
 )
 
 # Plot results for a specific keypoint (default to last keypoint of last camera view)

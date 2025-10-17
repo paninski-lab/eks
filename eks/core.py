@@ -3,9 +3,9 @@ import numpy as np
 import optax
 from dynamax.nonlinear_gaussian_ssm import ParamsNLGSSM, extended_kalman_filter, \
     extended_kalman_smoother
-from jax import numpy as jnp, vmap, jit, value_and_grad, lax
+from jax import numpy as jnp, jit, value_and_grad, lax
 from typeguard import typechecked
-from typing import Literal, Union, Optional, List, Tuple
+from typing import Literal, Union, Optional, List, Tuple, Dict, Any
 
 from eks.marker_array import MarkerArray
 from eks.utils import build_R_from_vars, crop_frames, crop_R
@@ -130,13 +130,13 @@ def params_nlgssm_for_keypoint(m0, S0, Q, s, R, f_fn, h_fn) -> ParamsNLGSSM:
 # ----------------- Public API -----------------
 @typechecked
 def run_kalman_smoother(
-    ys: jnp.ndarray,                 # (K, T, obs)
-    m0s: jnp.ndarray,                # (K, D)
-    S0s: jnp.ndarray,                # (K, D, D)
-    As: jnp.ndarray,                 # (K, D, D)
-    Cs: jnp.ndarray,                 # (K, obs, D)
-    Qs: jnp.ndarray,                 # (K, D, D)
-    ensemble_vars: np.ndarray,       # (T, K, obs)
+    ys: jnp.ndarray,                  # (K, T, obs)
+    m0s: jnp.ndarray,                 # (K, D)
+    S0s: jnp.ndarray,                 # (K, D, D)
+    As: jnp.ndarray,                  # (K, D, D)
+    Cs: jnp.ndarray,                  # (K, obs, D)
+    Qs: jnp.ndarray,                  # (K, D, D)
+    ensemble_vars: np.ndarray,        # (T, K, obs)
     s_frames: Optional[List] = None,
     smooth_param: Optional[Union[float, List[float]]] = None,
     blocks: Optional[List[List[int]]] = None,
@@ -146,15 +146,12 @@ def run_kalman_smoother(
     s_bounds_log: tuple = (-8.0, 8.0),
     tol: float = 1e-3,
     safety_cap: int = 5000,
+    # Observation function
+    h_fn = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
-    Optimize the process-noise scale `s` (shared within each block of keypoints) by minimizing
-    the summed EKF filter negative log-likelihood (NLL) in a *linear* state-space model,
-    then run the EKF smoother for final trajectories.
-
-    Model per keypoint k:
-        x_{t+1} = A_k x_t + w_t,   y_t = C_k x_t + v_t
-        w_t ~ N(0, s * Q_k),       v_t ~ N(0, R_{k,t}),  with time-varying R_{k,t}.
+     Optimize the process-noise scale `s` (shared within each block of keypoints) by minimizing
+    the summed EKF filter NLL, then run the EKF smoother.
 
     Args:
         ys: (K, T, obs) observations per keypoint over time.
@@ -176,6 +173,7 @@ def run_kalman_smoother(
         s_bounds_log: Clamp bounds for log(s) during optimization.
         tol: Relative tolerance on loss change for early stopping.
         safety_cap: Hard iteration cap inside the jitted while-loop.
+        h_fn: nonlinear observation function.
 
     Returns:
         s_finals: (K,) final `s` per keypoint (block optimum broadcast to members).
@@ -191,7 +189,7 @@ def run_kalman_smoother(
     # Build time-varying R (K, T, obs, obs)
     Rs = jnp.asarray(build_R_from_vars(np.swapaxes(ensemble_vars, 0, 1)))
 
-    # Initial guesses per keypoint (host-side)
+    # Initial s guesses (host-side)
     s_guess_per_k = np.empty(K, dtype=float)
     for k in range(K):
         g = float(compute_initial_guesses(ensemble_vars[:, k, :]) or 2.0)
@@ -222,24 +220,20 @@ def run_kalman_smoother(
             tol=tol,
             verbose=verbose,
             safety_cap=safety_cap,
+            h_fn_combined=h_fn,
         )
 
-    # Final smoother pass (full R_t)
-    def _params_linear_for_k(k: int, s_val: float):
-        A_k, C_k = As[k], Cs[k]
-        f_fn = (lambda x, A=A_k: A @ x)
-        h_fn = (lambda x, C=C_k: C @ x)
-        return params_nlgssm_for_keypoint(
-            m0s[k], S0s[k], Qs[k], s_val, Rs[k], f_fn, h_fn)
-
+    # ---- Final smoother pass (full sequence) ----
     means_list, covs_list = [], []
     for k in range(K):
-        params_k = _params_linear_for_k(k, s_finals[k])
-        sm = extended_kalman_smoother(params_k, ys[k])
-        if hasattr(sm, "smoothed_means"):
-            m_k, V_k = sm.smoothed_means, sm.smoothed_covariances
-        else:
-            m_k, V_k = sm.filtered_means, sm.filtered_covariances
+        s_final = float(s_finals[k])
+        A_k, C_k = As[k], Cs[k]
+        f_fn = (lambda x, A=A_k: A @ x)
+        if h_fn is None:
+            h_fn = (lambda x, C=C_k: C @ x)
+        params_k = params_nlgssm_for_keypoint(m0s[k], S0s[k], Qs[k], s_final, Rs[k], f_fn, h_fn,)
+        sm = extended_kalman_smoother(params_k, ys[k])  # EKF/RTS over full T
+        m_k, V_k = sm.smoothed_means, sm.smoothed_covariances
         means_list.append(np.array(m_k))
         covs_list.append(np.array(V_k))
 
@@ -254,23 +248,24 @@ def optimize_smooth_param(
     m0s: jnp.ndarray,           # (K, D)
     S0s: jnp.ndarray,           # (K, D, D)
     As: jnp.ndarray,            # (K, D, D)
-    Cs: jnp.ndarray,            # (K, obs, D)
+    Cs: jnp.ndarray,            # (K, obs, D) [ignored for nonlinear]
     Qs: jnp.ndarray,            # (K, D, D)
     Rs: jnp.ndarray,            # (K, T, obs, obs) time-varying R_t
     blocks: Optional[list],
-    lr: float,
-    s_bounds_log: tuple,
     s_finals: np.ndarray,       # (K,), filled in-place
     s_frames: Optional[list],
     s_guess_per_k: np.ndarray,  # (K,)
-    tol: float,
-    verbose: bool,
-    safety_cap: int,
+    lr: float = 0.25,
+    s_bounds_log: tuple = (-8.0, 8.0),
+    tol: float = 1e-3,
+    safety_cap: int = 300,
+    min_R_var: float = 1e-4,
+    h_fn_combined = None,
+    verbose: bool = False
 ) -> None:
     """
     Optimize a single scalar process-noise scale `s` per block of keypoints by minimizing
-    the sum of EKF filter negative log-likelihoods, using time-varying observation noise
-    R_{k,t}. Writes results into `s_finals` in place.
+    the sum of EKF filter negative log-likelihoods. Writes results into `s_finals` in place.
 
     Parameters
     ----------
@@ -314,92 +309,172 @@ def optimize_smooth_param(
     None
         Results are written into `s_finals`.
     """
-    optimizer = optax.adam(float(lr))
-    s_bounds_log_j = jnp.array(s_bounds_log, dtype=jnp.float32)
-    tol_j = float(tol)
 
-    def _params_linear(m0, S0, A, Q_base, s, R_any, C):
-        f_fn = (lambda x, A=A: A @ x)
-        h_fn = (lambda x, C=C: C @ x)
-        return params_nlgssm_for_keypoint(m0, S0, Q_base, s, R_any, f_fn, h_fn)
+    # Default blocks (individual keypoints)
+    if not blocks:
+        blocks = [[k] for k in range(ys.shape[0])]
 
-    def _nll_one_keypoint(log_s, y_k, m0_k, S0_k, A_k, Q_k, C_k, R_k_tv):
-        s = jnp.exp(jnp.clip(log_s, s_bounds_log_j[0], s_bounds_log_j[1]))
-        params = _params_linear(m0_k, S0_k, A_k, Q_k, s, R_k_tv, C_k)
-        post = extended_kalman_filter(params, jnp.asarray(y_k))
-        return -post.marginal_loglik
+    # Host arrays for cropping
+    ys_np = np.asarray(ys)  # (K,T,obs)
+    Rs_np = np.asarray(Rs)  # (K,T,obs,obs)
 
-    def _nll_block(log_s, ys_b, m0s_b, S0s_b, As_b, Qs_b, Cs_b, Rs_b_tv):
-        nlls = jax.vmap(_nll_one_keypoint, in_axes=(None, 0, 0, 0, 0, 0, 0, 0))(
-            log_s, ys_b, m0s_b, S0s_b, As_b, Qs_b, Cs_b, Rs_b_tv
-        )
-        return jnp.sum(nlls)
-
-    @jit
-    def _opt_step(log_s, opt_state, ys_b, m0s_b, S0s_b, As_b, Qs_b, Cs_b, Rs_b_tv):
-        loss, grad = value_and_grad(_nll_block)(
-            log_s, ys_b, m0s_b, S0s_b, As_b, Qs_b, Cs_b, Rs_b_tv
-        )
-        updates, opt_state = optimizer.update(grad, opt_state)
-        log_s = optax.apply_updates(log_s, updates)
-        return log_s, opt_state, loss
-
-    @jit
-    def _run_tol_loop(log_s0, opt_state0, ys_b, m0s_b, S0s_b, As_b, Qs_b, Cs_b, Rs_b_tv):
-        def cond(carry):
-            _, _, prev_loss, iters, done = carry
-            return jnp.logical_and(~done, iters < safety_cap)
-
-        def body(carry):
-            log_s, opt_state, prev_loss, iters, _ = carry
-            log_s, opt_state, loss = _opt_step(
-                log_s, opt_state, ys_b, m0s_b, S0s_b, As_b, Qs_b, Cs_b, Rs_b_tv
-            )
-            rel_tol = tol_j * jnp.abs(jnp.log(jnp.maximum(prev_loss, 1e-12)))
-            done = jnp.where(
-                jnp.isfinite(prev_loss),
-                jnp.linalg.norm(loss - prev_loss) < (rel_tol + 1e-6),
-                False
-            )
-            return (log_s, opt_state, loss, iters + 1, done)
-
-        return lax.while_loop(
-            cond, body, (log_s0, opt_state0, jnp.inf, jnp.array(0), jnp.array(False))
-        )
-
-    # For cropping only: host view
-    Rs_np = np.asarray(Rs)
-    ys_np = np.asarray(ys)
+    s_lo, s_hi = s_bounds_log
 
     # Optimize per block (shared s)
-    for block in (blocks or []):
-        sel = jnp.asarray(block, dtype=int)
+    for block in blocks:
+        B_idx = np.asarray(block, dtype=int)
 
-        if s_frames and len(s_frames) > 0:
-            y_block_list = [crop_frames(ys_np[int(k)], s_frames) for k in block]  # (T', obs)
-            R_block_list = [crop_R(Rs_np[int(k)], s_frames) for k in block]  # (T', obs, obs)
-            y_block = jnp.asarray(np.stack(y_block_list, axis=0))  # (B, T', obs)
-            R_block = jnp.asarray(np.stack(R_block_list, axis=0))  # (B, T', obs, obs)
-        else:
-            y_block = ys[sel]      # (B, T, obs)
-            R_block = Rs[sel]      # (B, T, obs, obs)
+        # ---- Build per-member cropped y and constant R ----
+        y_list, Rconst_list = [], []
+        m0_list, S0_list, A_list, Q_list = [], [], [], []
+        C_list = []  # only for linear
 
-        m0_block = m0s[sel]
-        S0_block = S0s[sel]
-        A_block  = As[sel]
-        Q_block  = Qs[sel]
-        C_block  = Cs[sel]
+        for k in B_idx:
+            y_k_np = ys_np[k]  # (T,obs)
+            R_k_np = Rs_np[k]  # (T,obs,obs)
+            if s_frames:
+                y_k_np = crop_frames(y_k_np, s_frames)
+                R_k_np = crop_R(R_k_np, s_frames)
 
-        s0 = float(np.mean([s_guess_per_k[k] for k in block]))
-        log_s0 = jnp.array(np.log(max(s0, 1e-6)), dtype=jnp.float32)
-        opt_state0 = optimizer.init(log_s0)
+            R_const_np = _constant_R_from_timevarying(R_k_np, min_var=min_R_var)  # (obs,obs)
 
-        log_s_f, opt_state_f, last_loss, iters_f, _done = _run_tol_loop(
-            log_s0, opt_state0, y_block, m0_block, S0_block, A_block, Q_block, C_block, R_block
-        )
-        s_star = float(jnp.exp(jnp.clip(log_s_f, s_bounds_log_j[0], s_bounds_log_j[1])))
-        for k in block:
+            y_list.append(y_k_np)
+            Rconst_list.append(R_const_np)
+            m0_list.append(np.asarray(m0s[k]))
+            S0_list.append(np.asarray(S0s[k]))
+            A_list.append(np.asarray(As[k]))
+            Q_list.append(np.asarray(Qs[k]))
+            C_list.append(np.asarray(Cs[k]))
+
+        # Stack to device arrays (B, ...)
+        yB = jnp.asarray(np.stack(y_list, axis=0))  # (B,T',obs)
+        RconstB = jnp.asarray(np.stack(Rconst_list, axis=0))  # (B,obs,obs)
+        m0B = jnp.asarray(np.stack(m0_list, axis=0))  # (B,D)
+        S0B = jnp.asarray(np.stack(S0_list, axis=0))  # (B,D,D)
+        AB = jnp.asarray(np.stack(A_list, axis=0))  # (B,D,D)
+        QB = jnp.asarray(np.stack(Q_list, axis=0))  # (B,D,D)
+        CB = jnp.asarray(np.stack(C_list, axis=0))  # (B,obs,D)
+
+        # Shared s init for the block (from guesses)
+        s0 = float(np.mean([s_guess_per_k[k] for k in B_idx]))
+        s0 = float(np.clip(s0, 1e-6, 1e3))
+        s_log0 = jnp.asarray(np.log(s0), dtype=jnp.float32)
+
+        # ---- Build block loss that uses only JAX arrays (no Python callables) ----
+        if h_fn_combined is None:  # linear case
+            def block_loss(s_log):
+                s_log = jnp.clip(s_log, s_lo, s_hi)
+                s = jnp.exp(s_log)
+
+                def one_member(i, acc):
+                    y_k = yB[i]
+                    m0_k = m0B[i]
+                    S0_k = S0B[i]
+                    A_k = AB[i]
+                    Q_k = QB[i]
+                    C_k = CB[i]
+                    Rc_k = RconstB[i]
+
+                    f_fn = (lambda x, A=A_k: A @ x)
+                    h_fn = (lambda x, C=C_k: C @ x)
+
+                    params = params_nlgssm_for_keypoint(m0_k, S0_k, Q_k, s, Rc_k, f_fn, h_fn)
+                    post = extended_kalman_filter(params, y_k)
+                    nll = -post.marginal_loglik
+                    nll = jnp.where(jnp.isfinite(nll), nll, 1e12)
+                    return acc + nll
+
+                B = yB.shape[0]
+                total = lax.fori_loop(0, B, one_member, 0.0)
+                return total
+        else:  # nonlinear case
+            h_fn = _wrap_emission_fn(h_fn_combined)  # shared across members
+
+            def block_loss(s_log):
+                s_log = jnp.clip(s_log, s_lo, s_hi)
+                s = jnp.exp(s_log)
+
+                def one_member(i, acc):
+                    y_k = yB[i]
+                    m0_k = m0B[i]
+                    S0_k = S0B[i]
+                    A_k = AB[i]
+                    Q_k = QB[i]
+                    Rc_k = RconstB[i]
+
+                    # dynamics and emission for this member
+                    f_fn = (lambda x, A=A_k: A @ x)
+
+                    params = params_nlgssm_for_keypoint(m0_k, S0_k, Q_k, s, Rc_k, f_fn, h_fn)
+                    post = extended_kalman_filter(params, y_k)
+                    nll = -post.marginal_loglik
+                    nll = jnp.where(jnp.isfinite(nll), nll, 1e12)
+                    return acc + nll
+
+                B = yB.shape[0]
+                total = lax.fori_loop(0, B, one_member, 0.0)
+                return total
+
+        # value_and_grad of block loss
+        loss_and_grad = value_and_grad(block_loss)
+
+        # Scale grads by lr so we can use adam(1.0)
+        @jit
+        def _scaled_loss_and_grad(s_log):
+            loss, g = loss_and_grad(s_log)
+            return loss, g * lr
+
+        # ---- JIT-compiled tol loop that CLOSES OVER the block loss (no callable arg) ----
+        @jit
+        def _run_tol_loop_local(s_log_init):
+            opt_state = optax.adam(1.0).init(s_log_init)
+
+            def cond(carry):
+                _, _, prev_loss, iters, done = carry
+                return jnp.logical_and(~done, iters < safety_cap)
+
+            def body(carry):
+                s_log, opt_state, prev_loss, iters, _ = carry
+                loss, grad = _scaled_loss_and_grad(s_log)
+                updates, opt_state = optax.adam(1.0).update(grad, opt_state)
+                s_log = optax.apply_updates(s_log, updates)
+                rel_tol = tol * jnp.abs(jnp.log(jnp.maximum(prev_loss, 1e-12)))
+                stop = jnp.where(jnp.isfinite(prev_loss),
+                                 jnp.linalg.norm(loss - prev_loss) < (rel_tol + 1e-6),
+                                 False)
+                return (s_log, opt_state, loss, iters + 1, stop)
+
+            s_log_f, opt_state_f, last_loss, iters_f, _done = lax.while_loop(
+                cond, body, (s_log_init, opt_state, jnp.inf, jnp.array(0), jnp.array(False))
+            )
+            return s_log_f, last_loss, iters_f
+
+        s_log_f, last_loss, iters_f = _run_tol_loop_local(s_log0)
+        s_star = float(jnp.exp(jnp.clip(s_log_f, s_lo, s_hi)))
+
+        # write result to all members in the block
+        for k in B_idx:
             s_finals[k] = s_star
+
         if verbose:
-            print(f"[Block {block}] s={s_star:.6g}, "
-                  f"iters={int(iters_f)}, NLL={float(last_loss):.6f}")
+            print(
+                f"[opt s | block {list(B_idx)}] s={s_star:.6g}, iters={int(iters_f)}, NLL={float(last_loss):.6f}")
+
+
+def _constant_R_from_timevarying(R_t_np: np.ndarray, min_var: float = 1e-4) -> np.ndarray:
+    """
+    R_t_np: (T', obs, obs) -> constant diag R via median over time (obs, obs).
+    """
+    diag_ts = np.diagonal(R_t_np, axis1=-2, axis2=-1)  # (T', obs)
+    med = np.nanmedian(diag_ts, axis=0)                # (obs,)
+    med = np.clip(med, min_var, np.inf)                # px^2 floor
+    return np.diag(med).astype(R_t_np.dtype)
+
+
+def _wrap_emission_fn(h_fn_combined):
+    """
+    Wraps emission h(x)->y to a signature EKF is happy with (x, t, u) -> y.
+    """
+    def h(x, t=None, u=None):
+        return h_fn_combined(x)
+    return h
