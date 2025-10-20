@@ -230,8 +230,10 @@ def run_kalman_smoother(
         A_k, C_k = As[k], Cs[k]
         f_fn = (lambda x, A=A_k: A @ x)
         if h_fn is None:
-            h_fn = (lambda x, C=C_k: C @ x)
-        params_k = params_nlgssm_for_keypoint(m0s[k], S0s[k], Qs[k], s_final, Rs[k], f_fn, h_fn,)
+            h_fn_k = (lambda x, C=C_k: C @ x)
+        else:
+            h_fn_k = h_fn
+        params_k = params_nlgssm_for_keypoint(m0s[k], S0s[k], Qs[k], s_final, Rs[k], f_fn, h_fn_k,)
         sm = extended_kalman_smoother(params_k, ys[k])  # EKF/RTS over full T
         m_k, V_k = sm.smoothed_means, sm.smoothed_covariances
         means_list.append(np.array(m_k))

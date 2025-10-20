@@ -335,7 +335,36 @@ def ensemble_kalman_smoother_multicam(
         h_fn_combined = None
 
     # Smoother ------------------------------------------------------------------------------------
-    print(ys)
+
+    def _dbg_array(name, arr, n_show=3):
+        try:
+            shp = tuple(arr.shape)
+        except Exception:
+            shp = "<no shape>"
+        arr_np = np.asarray(arr)
+        print(f"[DBG] {name:>16}: shape={shp} dtype={arr_np.dtype} "
+              f"nan={np.isnan(arr_np).any()} "
+              f"min={np.nanmin(arr_np):.4g} max={np.nanmax(arr_np):.4g}")
+        # peek first/last timesteps/keypoints a bit
+        if arr_np.ndim >= 2:
+            print(f"       {name} sample[0,...]:", np.array2string(arr_np.take(indices=0, axis=0),
+                                                                   precision=3,
+                                                                   suppress_small=True))
+            print(f"       {name} sample[-1,...]:",
+                  np.array2string(arr_np.take(indices=-1, axis=0),
+                                  precision=3, suppress_small=True))
+
+    # Call these right before run_kalman_smoother(...)
+    _dbg_array("ys", ys)  # (K,T,obs)
+    _dbg_array("m0s", m0s)  # (K,D)
+    _dbg_array("S0s", S0s)  # (K,D,D)
+    _dbg_array("As", As)  # (K,D,D)
+    _dbg_array("Cs", Cs if Cs is not None else np.array([]))  # (K,obs,D) or empty
+    _dbg_array("Qs", Qs)  # (K,D,D)
+    _dbg_array("ensemble_vars", ensemble_vars)  # (T,K,obs) <-- note axes!
+    print("[DBG] K,T,obs,D =", ys.shape[0], ys.shape[1], ys.shape[2], m0s.shape[1])
+    print("[DBG] h_fn is None? ->", h_fn_combined is None)
+
     s_finals, ms, Vs = run_kalman_smoother(
         ys=jnp.asarray(ys),  # (K, T, 2C)
         m0s=m0s, S0s=S0s, As=As, Qs=Qs, Cs=Cs,
@@ -485,14 +514,13 @@ def initialize_kalman_filter_geometric(ys: np.ndarray) -> Tuple[jnp.ndarray, ...
             - m0s: (K, 3) initial means
             - S0s: (K, 3, 3) initial covariances
             - As: (K, 3, 3) transition matrices
-            - Qs: (K, 3, 3) process noise covariances
+            - Qs: (K, 3, 3) process noise covariances (from robust lag-1 diffs)
             - Cs: (K, 3, 3) observation matrices
     """
     K, T, D = ys.shape
 
-    # Initial state means
-    m0s = [ys[k, :10].mean(axis=0) for k in range(K)]
-    # Use variance across time to estimate initial uncertainty
+    # Initial state means (can also use ys[:, 0, :] if preferred)
+    m0s = np.array([ys[k, :10].mean(axis=0) for k in range(K)])
     S0s = np.array([
         np.diag([
             np.nanvar(ys[k, :, d]) + 1e-4  # avoid degenerate matrices
@@ -501,17 +529,29 @@ def initialize_kalman_filter_geometric(ys: np.ndarray) -> Tuple[jnp.ndarray, ...
         for k in range(K)
     ])  # (K, 3, 3)
 
-    # Identity matrices
+    # Identity transition and observation matrices
     As = np.tile(np.eye(D), (K, 1, 1))
-    Qs = np.tile(np.eye(D), (K, 1, 1)) * 1e-3  # small default process noise
     Cs = np.tile(np.eye(D), (K, 1, 1))
+
+    # process noise covariances from lag-1 differences
+    Qs = []
+    for k in range(K):
+        x = ys[k]                       # (T, 3)
+        dx = np.diff(x, axis=0)         # (T-1, 3) with A = I
+        # Median absolute deviation per dim
+        med = np.median(dx, axis=0)
+        mad = np.median(np.abs(dx - med), axis=0) + 1e-12
+        sigma = 1.4826 * mad            # MAD → std under Gaussian assumption
+        var = np.maximum(sigma**2, 1e-8)
+        Qs.append(np.diag(var))
+    Qs = np.array(Qs)                   # (K, 3, 3)
 
     return (
         jnp.array(m0s),
         jnp.array(S0s),
         jnp.array(As),
         jnp.array(Qs),
-        jnp.array(Cs)
+        jnp.array(Cs),
     )
 
 
