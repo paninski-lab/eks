@@ -517,7 +517,7 @@ def test_make_projection_from_camgroup_single_point_concat_order():
     camB = _MockCam(rvecB, tvecB, KB, distB)
 
     cg = _MockCamGroup([camA, camB])
-    h_combined, h_cams = make_projection_from_camgroup(cg, camera_names=["A", "B"])
+    h_combined, h_cams = make_projection_from_camgroup(cg)
 
     x = _random_points(1, rng)[0]
     uv0 = np.array(h_cams[0](jnp.asarray(x)))  # (2,)
@@ -550,7 +550,7 @@ def test_triangulate_3d_models_calls_camgroup_and_shapes():
     cams = [_MockCam(np.eye(3), np.zeros(3), np.eye(3), np.zeros(14)) for _ in range(C)]
     cg = _MockCamGroup(cams)
 
-    tri = triangulate_3d_models(markers, cg, verbose=False)
+    tri = triangulate_3d_models(markers, cg)
     assert tri.shape == (M, K, T, 3)
 
     for m in range(M):
