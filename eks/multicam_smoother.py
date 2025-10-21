@@ -1,15 +1,15 @@
 import os
-import cv2
+from typing import Tuple
 
-import jax.numpy as jnp
+import cv2
 import jax
-from jax import jacfwd, vmap, jit
+import jax.numpy as jnp
 import numpy as np
 import pandas as pd
 from aniposelib.cameras import CameraGroup
+from jax import jit, vmap
 from sklearn.decomposition import PCA
 from typeguard import typechecked
-from typing import Dict, Callable, Tuple, List
 
 from eks.core import ensemble, run_kalman_smoother
 from eks.marker_array import (
@@ -276,8 +276,8 @@ def ensemble_kalman_smoother_multicam(
 
     using_nonlinear = camgroup is not None
     if using_nonlinear:
-        if verbose: print(
-            "[EKS] Nonlinear path: triangulate + geometric init + calibrated projection")
+        if verbose:
+            print("[EKS] Nonlinear path: triangulate + geometric init + calibrated projection")
 
         # camera order default from camgroup if needed
         if camera_names is None:
@@ -287,7 +287,6 @@ def ensemble_kalman_smoother_multicam(
         # 1) triangulate (M,K,T,3) → average over models → ys_3d (K,T,3)
         tri_models = triangulate_3d_models(marker_array, camgroup)
         ys_3d = tri_models.mean(axis=0)  # (K,T,3)
-        ensemble_vars_3d = tri_models.var(axis=0)  # (K, T, 3)
 
         # 2) init KF params for 3D latent from geometric helper
         m0s, S0s, As, Qs, Cs = initialize_kalman_filter_geometric(ys_3d)
@@ -317,7 +316,8 @@ def ensemble_kalman_smoother_multicam(
         ensemble_vars = np.stack(Rs_list, 0)  # (K, T, 2C)
 
     else:
-        if verbose: print("[EKS] Linear path: PCA subspace + linear emissions")
+        if verbose:
+            print("[EKS] Linear path: PCA subspace + linear emissions")
 
         # 1) PCA + C
         (ensemble_pca, good_pcs_list) = compute_pca(
@@ -651,9 +651,10 @@ def rodrigues(rvec):
                        [-ry, rx,  0.0]])
         s = jnp.sin(theta)
         c = jnp.cos(theta)
-        return jnp.eye(3) + s*K + (1.0 - c) * (K @ K)
+        return jnp.eye(3) + (s * K) + (1.0 - c) * (K @ K)
 
     return jax.lax.cond(theta < 1e-12, small_angle, general, operand=None)
+
 
 def parse_dist(dist_coeffs):
     """
@@ -673,8 +674,8 @@ def make_jax_projection_fn(rvec, tvec, K, dist_coeffs):
     """
     rvec = jnp.asarray(rvec, dtype=jnp.float64)
     tvec = jnp.asarray(tvec, dtype=jnp.float64)
-    K    = jnp.asarray(K,    dtype=jnp.float64)
-    fx, fy, cx, cy, skew = K[0,0], K[1,1], K[0,2], K[1,2], K[0,1]
+    K = jnp.asarray(K, dtype=jnp.float64)
+    fx, fy, cx, cy, skew = K[0, 0], K[1, 1], K[0, 2], K[1, 2], K[0, 1]
     d = parse_dist(dist_coeffs)
     R = rodrigues(rvec)
 
@@ -689,16 +690,16 @@ def make_jax_projection_fn(rvec, tvec, K, dist_coeffs):
         x = X / Z
         y = Y / Z
 
-        r2  = x * x + y * y
-        r4  = r2 * r2
-        r6  = r4 * r2
-        r8  = r4 * r4
+        r2 = x * x + y * y
+        r4 = r2 * r2
+        r6 = r4 * r2
+        r8 = r4 * r4
         r10 = r8 * r2
         r12 = r6 * r6
 
         radial = 1.0 + d["k1"] * r2 + d["k2"] * r4 + d["k3"] * r6 + d["k4"] * r8 + d["k5"] * r10 \
-                 + d["k6"] * r12
-        x_tan = 2.0*d["p1"] * x * y + d["p2"] * (r2 + 2.0 * x * x)
+            + d["k6"] * r12
+        x_tan = 2.0 * d["p1"] * x * y + d["p2"] * (r2 + 2.0 * x * x)
         y_tan = d["p1"] * (r2 + 2.0 * y * y) + 2.0 * d["p2"] * x * y
         # thin-prism
         x_tp = d["s1"] * r2 + d["s2"] * r4

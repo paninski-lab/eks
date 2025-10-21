@@ -1,18 +1,24 @@
 import os
-import math
+
+import cv2
+import jax
+import jax.numpy as jnp
 import numpy as np
 from sklearn.decomposition import PCA
 
 from eks.marker_array import MarkerArray
-from eks.multicam_smoother import ensemble_kalman_smoother_multicam, inflate_variance, \
-    rodrigues, parse_dist, make_jax_projection_fn, make_projection_from_camgroup, \
-    triangulate_3d_models, project_3d_covariance_to_2d
+from eks.multicam_smoother import (
+    ensemble_kalman_smoother_multicam,
+    inflate_variance,
+    make_jax_projection_fn,
+    make_projection_from_camgroup,
+    parse_dist,
+    project_3d_covariance_to_2d,
+    rodrigues,
+    triangulate_3d_models,
+)
 from eks.utils import center_predictions
 
-import jax
-import jax.numpy as jnp
-
-import cv2
 
 def test_ensemble_kalman_smoother_multicam():
     """Test the basic functionality of ensemble_kalman_smoother_multicam."""
@@ -26,7 +32,6 @@ def test_ensemble_kalman_smoother_multicam():
     num_fields = len(data_fields)
 
     # Create mock MarkerArray with explicit data_fields
-    dump_array = np.random.randn(n_models, n_cameras, n_frames, len(keypoint_names), num_fields)
     markers_array = np.random.randn(n_models, n_cameras, n_frames, len(keypoint_names), num_fields)
     marker_array = MarkerArray(markers_array, data_fields=data_fields)
 
@@ -331,6 +336,7 @@ def test_center_predictions_min_frames():
     assert emA_good_centered_preds.array.shape[2] == min_frames_expected, \
         f"Expected {min_frames_expected} frames, but got {emA_good_centered_preds.array.shape[2]}"
 
+
 # ----------- Calibration Tests ------------
 """
 Tests for calibration helpers:
@@ -366,7 +372,7 @@ def _random_rvec_tvec_K_dist(with_dist=True, rng=None):
     fy = rng.uniform(500, 1500)
     cx = rng.uniform(200, 800)
     cy = rng.uniform(200, 800)
-    K = np.array([[fx, 0.0,  cx],
+    K = np.array([[fx, 0.0, cx],
                   [0.0, fy, cy],
                   [0.0, 0.0, 1.0]], dtype=np.float64)
 
@@ -417,14 +423,14 @@ def test_parse_dist_padding_and_ordering():
     """Validates ordering (k1,k2,p1,p2,k3,...) and zero-padding up to 14 OpenCV coeff slots."""
     raw = np.array([0.1, -0.2, 0.01, -0.01, 0.001], dtype=np.float64)
     d = parse_dist(raw)
-    for k in ["k1","k2","p1","p2","k3","k4","k5","k6","s1","s2","s3","s4"]:
+    for k in ["k1", "k2", "p1", "p2", "k3", "k4", "k5", "k6", "s1", "s2", "s3", "s4"]:
         assert k in d
     assert d["k1"] == raw[0]
     assert d["k2"] == raw[1]
     assert d["p1"] == raw[2]
     assert d["p2"] == raw[3]
     assert d["k3"] == raw[4]
-    for k in ["k4","k5","k6","s1","s2","s3","s4"]:
+    for k in ["k4", "k5", "k6", "s1", "s2", "s3", "s4"]:
         assert d[k] == 0.0
 
 
@@ -432,8 +438,8 @@ def test_parse_dist_full_length_ignores_tx_ty():
     """Ensures parser drops tx,ty (tilt) and returns only the 12 named distortion fields."""
     raw14 = np.arange(14, dtype=np.float64) / 100.0
     d = parse_dist(raw14)
-    k1,k2,p1,p2,k3,k4,k5,k6,s1,s2,s3,s4,tx,ty = raw14
-    gold = dict(k1=k1,k2=k2,p1=p1,p2=p2,k3=k3,k4=k4,k5=k5,k6=k6,s1=s1,s2=s2,s3=s3,s4=s4)
+    k1, k2, p1, p2, k3, k4, k5, k6, s1, s2, s3, s4, tx, ty = raw14
+    gold = dict(k1=k1, k2=k2, p1=p1, p2=p2, k3=k3, k4=k4, k5=k5, k6=k6, s1=s1, s2=s2, s3=s3, s4=s4)
     for k, v in gold.items():
         assert d[k] == v
 
@@ -445,7 +451,7 @@ def test_project_matches_cv2_no_dist():
     rvec, tvec, K, dist = _random_rvec_tvec_K_dist(with_dist=False, rng=rng)
     proj = make_jax_projection_fn(rvec, tvec, K, dist)
     X = _random_points(100, rng)
-    uv_cv, _ = cv2.projectPoints(X, rvec.reshape(3,1), tvec.reshape(3,1), K, dist)
+    uv_cv, _ = cv2.projectPoints(X, rvec.reshape(3, 1), tvec.reshape(3, 1), K, dist)
     uv_cv = uv_cv.reshape(-1, 2)
     uv_jax = np.asarray(proj(jnp.asarray(X)), dtype=np.float64)
     np.testing.assert_allclose(uv_jax, uv_cv, atol=1e-6, rtol=1e-6)
@@ -457,7 +463,7 @@ def test_project_matches_cv2_with_dist():
     rvec, tvec, K, dist = _random_rvec_tvec_K_dist(with_dist=True, rng=rng)
     proj = make_jax_projection_fn(rvec, tvec, K, dist)
     X = _random_points(120, rng)
-    uv_cv, _ = cv2.projectPoints(X, rvec.reshape(3,1), tvec.reshape(3,1), K, dist)
+    uv_cv, _ = cv2.projectPoints(X, rvec.reshape(3, 1), tvec.reshape(3, 1), K, dist)
     uv_cv = uv_cv.reshape(-1, 2)
     uv_jax = np.asarray(proj(jnp.asarray(X)), dtype=np.float64)
     np.testing.assert_allclose(uv_jax, uv_cv, atol=1e-6, rtol=1e-6)
@@ -482,6 +488,7 @@ class _MockCam:
         self._translation = translation
         self._K = K
         self._dist = dist
+
     def get_rotation(self): return self._rotation
     def get_translation(self): return self._translation
     def get_camera_matrix(self): return self._K
@@ -492,9 +499,10 @@ class _MockCamGroup:
     """Mock camgroup that also provides a dummy triangulate(xy_views) API."""
     def __init__(self, cameras):
         self.cameras = cameras
+
     def triangulate(self, xy_views, fast=True):
         xy = np.asarray(xy_views)
-        return np.array([xy[:,0].mean(), xy[:,1].mean(), 1.0], dtype=float)
+        return np.array([xy[:, 0].mean(), xy[:, 1].mean(), 1.0], dtype=float)
 
 
 def test_make_projection_from_camgroup_single_point_concat_order():
@@ -509,7 +517,7 @@ def test_make_projection_from_camgroup_single_point_concat_order():
     camB = _MockCam(rvecB, tvecB, KB, distB)
 
     cg = _MockCamGroup([camA, camB])
-    h_combined, h_cams = make_projection_from_camgroup(cg, camera_names=["A","B"])
+    h_combined, h_cams = make_projection_from_camgroup(cg, camera_names=["A", "B"])
 
     x = _random_points(1, rng)[0]
     uv0 = np.array(h_cams[0](jnp.asarray(x)))  # (2,)
@@ -565,7 +573,7 @@ def _finite_diff_jacobian(f, x, eps=1e-5):
     for i in range(x.size):
         e = np.zeros_like(x)
         e[i] = eps
-        y_plus  = np.asarray(f(x + e), dtype=np.float64)
+        y_plus = np.asarray(f(x + e), dtype=np.float64)
         y_minus = np.asarray(f(x - e), dtype=np.float64)
         J[:, i] = (y_plus - y_minus) / (2.0 * eps)
     return J

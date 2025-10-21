@@ -6,10 +6,7 @@ from scipy.interpolate import interp1d
 from sklearn.decomposition import PCA
 from typeguard import typechecked
 
-from eks.marker_array import (
-    MarkerArray,
-    input_dfs_to_markerArray,
-)
+from eks.marker_array import MarkerArray, input_dfs_to_markerArray
 from eks.multicam_smoother import ensemble_kalman_smoother_multicam
 from eks.utils import convert_lp_dlc
 

@@ -1,11 +1,17 @@
+from typing import List, Literal, Optional, Tuple, Union
+
 import jax
 import numpy as np
 import optax
-from dynamax.nonlinear_gaussian_ssm import ParamsNLGSSM, extended_kalman_filter, \
-    extended_kalman_smoother
-from jax import numpy as jnp, jit, value_and_grad, lax
+from dynamax.nonlinear_gaussian_ssm import (
+    ParamsNLGSSM,
+    extended_kalman_filter,
+    extended_kalman_smoother,
+)
+from jax import jit, lax
+from jax import numpy as jnp
+from jax import value_and_grad
 from typeguard import typechecked
-from typing import Literal, Union, Optional, List, Tuple, Dict, Any
 
 from eks.marker_array import MarkerArray
 from eks.utils import build_R_from_vars, crop_frames, crop_R
@@ -147,7 +153,7 @@ def run_kalman_smoother(
     tol: float = 1e-2,
     safety_cap: int = 300,
     # Observation function
-    h_fn = None,
+    h_fn=None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
      Optimize the process-noise scale `s` (shared within each block of keypoints) by minimizing
@@ -262,7 +268,7 @@ def optimize_smooth_param(
     tol: float = 1e-3,
     safety_cap: int = 300,
     min_R_var: float = 1e-4,
-    h_fn_combined = None,
+    h_fn_combined=None,
     verbose: bool = False
 ) -> None:
     """
@@ -338,7 +344,7 @@ def optimize_smooth_param(
                 y_k_np = crop_frames(y_k_np, s_frames)
                 R_k_np = crop_R(R_k_np, s_frames)
 
-            R_const_np = _constant_R_from_timevarying(R_k_np, min_var=min_R_var)  # (obs,obs)
+            R_const_np = constant_R_from_timevarying(R_k_np, min_var=min_R_var)  # (obs,obs)
 
             y_list.append(y_k_np)
             Rconst_list.append(R_const_np)
@@ -390,7 +396,7 @@ def optimize_smooth_param(
                 total = lax.fori_loop(0, B, one_member, 0.0)
                 return total
         else:  # nonlinear case
-            h_fn = _wrap_emission_fn(h_fn_combined)  # shared across members
+            h_fn = wrap_emission_fn(h_fn_combined)  # shared across members
 
             def block_loss(s_log):
                 s_log = jnp.clip(s_log, s_lo, s_hi)
@@ -464,7 +470,7 @@ def optimize_smooth_param(
                 f"iters={int(iters_f)}, NLL={float(last_loss):.6f}")
 
 
-def _constant_R_from_timevarying(R_t_np: np.ndarray, min_var: float = 1e-4) -> np.ndarray:
+def constant_R_from_timevarying(R_t_np: np.ndarray, min_var: float = 1e-4) -> np.ndarray:
     """
     R_t_np: (T', obs, obs) -> constant diag R via median over time (obs, obs).
     """
@@ -474,7 +480,7 @@ def _constant_R_from_timevarying(R_t_np: np.ndarray, min_var: float = 1e-4) -> n
     return np.diag(med).astype(R_t_np.dtype)
 
 
-def _wrap_emission_fn(h_fn_combined):
+def wrap_emission_fn(h_fn_combined):
     """
     Wraps emission h(x)->y to a signature EKF is happy with (x, t, u) -> y.
     """
