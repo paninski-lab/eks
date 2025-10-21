@@ -285,7 +285,7 @@ def ensemble_kalman_smoother_multicam(
                             enumerate(camgroup.cameras)]
 
         # 1) triangulate (M,K,T,3) → average over models → ys_3d (K,T,3)
-        tri_models = triangulate_3d_models(marker_array, camgroup, verbose=verbose)
+        tri_models = triangulate_3d_models(marker_array, camgroup)
         ys_3d = tri_models.mean(axis=0)  # (K,T,3)
         ensemble_vars_3d = tri_models.var(axis=0)  # (K, T, 3)
 
@@ -293,7 +293,7 @@ def ensemble_kalman_smoother_multicam(
         m0s, S0s, As, Qs, Cs = initialize_kalman_filter_geometric(ys_3d)
 
         # 3) make multi-view h_fn (ℝ³ → ℝ^{2V})
-        h_fn_combined, h_cams = make_projection_from_camgroup(camgroup, camera_names)
+        h_fn_combined, h_cams = make_projection_from_camgroup(camgroup)
 
         # 4) 2D observations and variances
         ys_list, Rs_list = [], []
@@ -335,36 +335,6 @@ def ensemble_kalman_smoother_multicam(
         h_fn_combined = None
 
     # Smoother ------------------------------------------------------------------------------------
-
-    def _dbg_array(name, arr, n_show=3):
-        try:
-            shp = tuple(arr.shape)
-        except Exception:
-            shp = "<no shape>"
-        arr_np = np.asarray(arr)
-        print(f"[DBG] {name:>16}: shape={shp} dtype={arr_np.dtype} "
-              f"nan={np.isnan(arr_np).any()} "
-              f"min={np.nanmin(arr_np):.4g} max={np.nanmax(arr_np):.4g}")
-        # peek first/last timesteps/keypoints a bit
-        if arr_np.ndim >= 2:
-            print(f"       {name} sample[0,...]:", np.array2string(arr_np.take(indices=0, axis=0),
-                                                                   precision=3,
-                                                                   suppress_small=True))
-            print(f"       {name} sample[-1,...]:",
-                  np.array2string(arr_np.take(indices=-1, axis=0),
-                                  precision=3, suppress_small=True))
-
-    # Call these right before run_kalman_smoother(...)
-    _dbg_array("ys", ys)  # (K,T,obs)
-    _dbg_array("m0s", m0s)  # (K,D)
-    _dbg_array("S0s", S0s)  # (K,D,D)
-    _dbg_array("As", As)  # (K,D,D)
-    _dbg_array("Cs", Cs if Cs is not None else np.array([]))  # (K,obs,D) or empty
-    _dbg_array("Qs", Qs)  # (K,D,D)
-    _dbg_array("ensemble_vars", ensemble_vars)  # (T,K,obs) <-- note axes!
-    print("[DBG] K,T,obs,D =", ys.shape[0], ys.shape[1], ys.shape[2], m0s.shape[1])
-    print("[DBG] h_fn is None? ->", h_fn_combined is None)
-
     s_finals, ms, Vs = run_kalman_smoother(
         ys=jnp.asarray(ys),  # (K, T, 2C)
         m0s=m0s, S0s=S0s, As=As, Qs=Qs, Cs=Cs,
@@ -376,20 +346,18 @@ def ensemble_kalman_smoother_multicam(
 
     # Reprojection & packaging --------------------------------------------------------------------
     camera_arrs = [[] for _ in camera_names]
-    cam_xy = [[c * 2, c * 2 + 1] for c in range(len(camera_names))]
 
     if using_nonlinear:
         for k in range(K):
             ms_k = ms[k]
             Vs_k = Vs[k]
-            inflated_vars_k = ensemble_vars_3d[k]
 
             for c, _ in enumerate(camera_names):
                 xy_proj = np.array(vmap(h_cams[c])(ms_k))  # (T, 2)
 
                 try:
                     var_x, var_y = project_3d_covariance_to_2d(ms_k, Vs_k, h_cams[c],
-                                                               inflated_vars_k)
+                                                               ensemble_vars[k])
                 except AttributeError:
                     var_x = np.full(ms_k.shape[0], np.nan)
                     var_y = np.full(ms_k.shape[0], np.nan)
@@ -415,7 +383,6 @@ def ensemble_kalman_smoother_multicam(
             C_k = Cs[k]
             ms_k = ms[k]
             Vs_k = Vs[k]
-            inflated_vars_k = ensemble_vars[k]
             y_m_smooth = np.dot(C_k, ms_k.T).T
             y_v_smooth = np.swapaxes(np.dot(C_k, np.dot(Vs_k, C_k.T)), 0, 1)
             # Final cleanup
@@ -439,8 +406,8 @@ def ensemble_kalman_smoother_multicam(
                         "var_x").get_array(squeeze=True),
                     emA_inflated_vars.slice("keypoints", k).slice("cameras", c).slice_fields(
                         "var_y").get_array(squeeze=True),
-                    y_v_smooth[:, x_i, x_i] + inflated_vars_k[:, x_i],
-                    y_v_smooth[:, y_i, y_i] + inflated_vars_k[:, y_i],
+                    y_v_smooth[:, x_i, x_i] + ensemble_vars[k, :, x_i],
+                    y_v_smooth[:, y_i, y_i] + ensemble_vars[k, :, y_i]
                 ])
 
     labels = ['x', 'y', 'likelihood', 'x_ens_median', 'y_ens_median',
@@ -666,8 +633,7 @@ def inflate_variance(
 # Calibration helpers (only used when `calibration` TOML is given)
 # ================================================================
 
-
-def _rodrigues(rvec):
+def rodrigues(rvec):
     """OpenCV-style Rodrigues: rvec (3,) -> R (3,3)."""
     theta = jnp.linalg.norm(rvec)
 
@@ -689,11 +655,10 @@ def _rodrigues(rvec):
 
     return jax.lax.cond(theta < 1e-12, small_angle, general, operand=None)
 
-def _parse_dist(dist_coeffs):
+def parse_dist(dist_coeffs):
     """
     OpenCV pinhole distortion ordering:
       [k1, k2, p1, p2, k3, k4, k5, k6, s1, s2, s3, s4, tx, ty]
-    We support up to s1..s4; tilt is ignored.
     """
     dc = jnp.pad(jnp.asarray(dist_coeffs, dtype=jnp.float64), (0, max(0, 14 - len(dist_coeffs))))
     k1, k2, p1, p2, k3, k4, k5, k6, s1, s2, s3, s4, tx, ty = [dc[i] for i in range(14)]
@@ -703,7 +668,6 @@ def _parse_dist(dist_coeffs):
 def make_jax_projection_fn(rvec, tvec, K, dist_coeffs):
     """
     JAX-compatible replacement for cv2.projectPoints.
-
     rvec: (3,), tvec: (3,), K: (3,3) with optional skew K[0,1], dist_coeffs: OpenCV order.
     Returns: project(object_points: (...,3)) -> (...,2)
     """
@@ -711,8 +675,8 @@ def make_jax_projection_fn(rvec, tvec, K, dist_coeffs):
     tvec = jnp.asarray(tvec, dtype=jnp.float64)
     K    = jnp.asarray(K,    dtype=jnp.float64)
     fx, fy, cx, cy, skew = K[0,0], K[1,1], K[0,2], K[1,2], K[0,1]
-    d = _parse_dist(dist_coeffs)
-    R = _rodrigues(rvec)
+    d = parse_dist(dist_coeffs)
+    R = rodrigues(rvec)
 
     @jit
     def project(object_points):
@@ -725,19 +689,20 @@ def make_jax_projection_fn(rvec, tvec, K, dist_coeffs):
         x = X / Z
         y = Y / Z
 
-        r2  = x*x + y*y
-        r4  = r2*r2
-        r6  = r4*r2
-        r8  = r4*r4
-        r10 = r8*r2
-        r12 = r6*r6
+        r2  = x * x + y * y
+        r4  = r2 * r2
+        r6  = r4 * r2
+        r8  = r4 * r4
+        r10 = r8 * r2
+        r12 = r6 * r6
 
-        radial = 1.0 + d["k1"]*r2 + d["k2"]*r4 + d["k3"]*r6 + d["k4"]*r8 + d["k5"]*r10 + d["k6"]*r12
-        x_tan = 2.0*d["p1"]*x*y + d["p2"]*(r2 + 2.0*x*x)
-        y_tan = d["p1"]*(r2 + 2.0*y*y) + 2.0*d["p2"]*x*y
+        radial = 1.0 + d["k1"] * r2 + d["k2"] * r4 + d["k3"] * r6 + d["k4"] * r8 + d["k5"] * r10 \
+                 + d["k6"] * r12
+        x_tan = 2.0*d["p1"] * x * y + d["p2"] * (r2 + 2.0 * x * x)
+        y_tan = d["p1"] * (r2 + 2.0 * y * y) + 2.0 * d["p2"] * x * y
         # thin-prism
-        x_tp = d["s1"]*r2 + d["s2"]*r4
-        y_tp = d["s3"]*r2 + d["s4"]*r4
+        x_tp = d["s1"] * r2 + d["s2"] * r4
+        y_tp = d["s3"] * r2 + d["s4"] * r4
 
         xd = x * radial + x_tan + x_tp
         yd = y * radial + y_tan + y_tp
@@ -750,7 +715,7 @@ def make_jax_projection_fn(rvec, tvec, K, dist_coeffs):
     return project
 
 
-def make_projection_from_camgroup(camgroup, camera_names):
+def make_projection_from_camgroup(camgroup):
     """
     Build a combined multi-view projector h_fn: (B,3) -> (B, 2*C),
     and also return per-camera heads (3,) -> (2,) for variance projection.
@@ -781,7 +746,7 @@ def make_projection_from_camgroup(camgroup, camera_names):
     return h_fn_combined, h_cams
 
 
-def triangulate_3d_models(marker_array, camgroup, verbose: bool=False) -> np.ndarray:
+def triangulate_3d_models(marker_array, camgroup) -> np.ndarray:
     """Triangulate per-model, per-kpt, per-frame: (M,K,T,3)."""
     M, C, T, K, _ = marker_array.shape
     raw = marker_array.get_array()  # (M,C,T,K,3)

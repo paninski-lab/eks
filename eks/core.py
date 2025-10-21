@@ -144,8 +144,8 @@ def run_kalman_smoother(
     # JIT-closed constants:
     lr: float = 0.25,
     s_bounds_log: tuple = (-8.0, 8.0),
-    tol: float = 1e-3,
-    safety_cap: int = 5000,
+    tol: float = 1e-2,
+    safety_cap: int = 300,
     # Observation function
     h_fn = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -460,7 +460,8 @@ def optimize_smooth_param(
 
         if verbose:
             print(
-                f"[opt s | block {list(B_idx)}] s={s_star:.6g}, iters={int(iters_f)}, NLL={float(last_loss):.6f}")
+                f"[opt s | block {list(B_idx)}] s={s_star:.6g}, "
+                f"iters={int(iters_f)}, NLL={float(last_loss):.6f}")
 
 
 def _constant_R_from_timevarying(R_t_np: np.ndarray, min_var: float = 1e-4) -> np.ndarray:

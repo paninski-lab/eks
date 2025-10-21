@@ -1,10 +1,18 @@
+import os
+import math
 import numpy as np
 from sklearn.decomposition import PCA
 
 from eks.marker_array import MarkerArray
-from eks.multicam_smoother import ensemble_kalman_smoother_multicam, inflate_variance
+from eks.multicam_smoother import ensemble_kalman_smoother_multicam, inflate_variance, \
+    rodrigues, parse_dist, make_jax_projection_fn, make_projection_from_camgroup, \
+    triangulate_3d_models, project_3d_covariance_to_2d
 from eks.utils import center_predictions
 
+import jax
+import jax.numpy as jnp
+
+import cv2
 
 def test_ensemble_kalman_smoother_multicam():
     """Test the basic functionality of ensemble_kalman_smoother_multicam."""
@@ -322,3 +330,267 @@ def test_center_predictions_min_frames():
     # Ensure the returned good predictions have exactly `min_frames_expected` frames for all kps
     assert emA_good_centered_preds.array.shape[2] == min_frames_expected, \
         f"Expected {min_frames_expected} frames, but got {emA_good_centered_preds.array.shape[2]}"
+
+# ----------- Calibration Tests ------------
+"""
+Tests for calibration helpers:
+- Rodrigues vs OpenCV
+- Distortion parsing semantics
+- JAX projection vs cv2.projectPoints (with/without distortion)
+- Combined multi-view projector concatenation
+- Triangulation wrapper call/shape behavior
+- Covariance projection via Jacobian vs finite differences
+"""
+
+os.environ.setdefault("JAX_ENABLE_X64", "true")
+jax.config.update("jax_enable_x64", True)
+
+
+def _rng():
+    """Deterministic NumPy RNG used across tests for reproducibility."""
+    return np.random.default_rng(0)
+
+
+def _random_rvec_tvec_K_dist(with_dist=True, rng=None):
+    """
+    Generate a random (rvec, tvec, K, dist) tuple.
+
+    - Distortion uses the standard 5-term model (k1,k2,p1,p2,k3),
+      with sensor tilt (tx,ty) set to zero to match the JAX projector (no tilt).
+    """
+    rng = _rng() if rng is None else rng
+    rvec = (rng.normal(size=3) * rng.uniform(0.0, 2.0)).astype(np.float64)
+    tvec = (rng.normal(size=3) * 0.5).astype(np.float64)
+
+    fx = rng.uniform(500, 1500)
+    fy = rng.uniform(500, 1500)
+    cx = rng.uniform(200, 800)
+    cy = rng.uniform(200, 800)
+    K = np.array([[fx, 0.0,  cx],
+                  [0.0, fy, cy],
+                  [0.0, 0.0, 1.0]], dtype=np.float64)
+
+    if with_dist:
+        dist = np.zeros(14, dtype=np.float64)
+        dist[0] = rng.normal(scale=1e-3)   # k1
+        dist[1] = rng.normal(scale=1e-4)   # k2
+        dist[2] = rng.normal(scale=1e-4)   # p1
+        dist[3] = rng.normal(scale=1e-4)   # p2
+        dist[4] = rng.normal(scale=1e-5)   # k3
+        dist[12] = 0.0  # tx OFF
+        dist[13] = 0.0  # ty OFF
+    else:
+        dist = np.zeros(14, dtype=np.float64)
+
+    return rvec, tvec, K, dist
+
+
+def _random_points(N, rng=None):
+    """Generate N random 3D points with positive Z (in front of the camera)."""
+    rng = _rng() if rng is None else rng
+    X = rng.normal(size=(N, 3)).astype(np.float64)
+    X[:, 2] = np.abs(X[:, 2]) + 0.5  # in front of camera
+    return X
+
+
+# ---------- _rodrigues ----------
+def test_rodrigues_small_angle_matches_cv2():
+    """Checks small-angle branch: JAX Rodrigues equals cv2.Rodrigues for ~zero rotation."""
+    rvec_small = np.array([1e-10, -2e-10, 3e-10], dtype=np.float64)
+    R_cv, _ = cv2.Rodrigues(rvec_small)
+    R_jax = rodrigues(jnp.asarray(rvec_small, dtype=jnp.float64))
+    np.testing.assert_allclose(np.array(R_jax), R_cv, atol=1e-12, rtol=1e-12)
+
+
+def test_rodrigues_general_matches_cv2():
+    """Checks general-case Rodrigues: random rotations match OpenCV within tight tolerance."""
+    rng = _rng()
+    for _ in range(5):
+        rvec = rng.normal(size=3).astype(np.float64)
+        R_cv, _ = cv2.Rodrigues(rvec)
+        R_jax = rodrigues(jnp.asarray(rvec, dtype=jnp.float64))
+        np.testing.assert_allclose(np.array(R_jax), R_cv, atol=1e-10, rtol=1e-10)
+
+
+# ---------- _parse_dist ----------
+def test_parse_dist_padding_and_ordering():
+    """Validates ordering (k1,k2,p1,p2,k3,...) and zero-padding up to 14 OpenCV coeff slots."""
+    raw = np.array([0.1, -0.2, 0.01, -0.01, 0.001], dtype=np.float64)
+    d = parse_dist(raw)
+    for k in ["k1","k2","p1","p2","k3","k4","k5","k6","s1","s2","s3","s4"]:
+        assert k in d
+    assert d["k1"] == raw[0]
+    assert d["k2"] == raw[1]
+    assert d["p1"] == raw[2]
+    assert d["p2"] == raw[3]
+    assert d["k3"] == raw[4]
+    for k in ["k4","k5","k6","s1","s2","s3","s4"]:
+        assert d[k] == 0.0
+
+
+def test_parse_dist_full_length_ignores_tx_ty():
+    """Ensures parser drops tx,ty (tilt) and returns only the 12 named distortion fields."""
+    raw14 = np.arange(14, dtype=np.float64) / 100.0
+    d = parse_dist(raw14)
+    k1,k2,p1,p2,k3,k4,k5,k6,s1,s2,s3,s4,tx,ty = raw14
+    gold = dict(k1=k1,k2=k2,p1=p1,p2=p2,k3=k3,k4=k4,k5=k5,k6=k6,s1=s1,s2=s2,s3=s3,s4=s4)
+    for k, v in gold.items():
+        assert d[k] == v
+
+
+# ---------- make_jax_projection_fn vs cv2.projectPoints ----------
+def test_project_matches_cv2_no_dist():
+    """Checks projection parity with OpenCV when distortion=0."""
+    rng = _rng()
+    rvec, tvec, K, dist = _random_rvec_tvec_K_dist(with_dist=False, rng=rng)
+    proj = make_jax_projection_fn(rvec, tvec, K, dist)
+    X = _random_points(100, rng)
+    uv_cv, _ = cv2.projectPoints(X, rvec.reshape(3,1), tvec.reshape(3,1), K, dist)
+    uv_cv = uv_cv.reshape(-1, 2)
+    uv_jax = np.asarray(proj(jnp.asarray(X)), dtype=np.float64)
+    np.testing.assert_allclose(uv_jax, uv_cv, atol=1e-6, rtol=1e-6)
+
+
+def test_project_matches_cv2_with_dist():
+    """Checks projection parity with OpenCV for standard 5-term distortion."""
+    rng = _rng()
+    rvec, tvec, K, dist = _random_rvec_tvec_K_dist(with_dist=True, rng=rng)
+    proj = make_jax_projection_fn(rvec, tvec, K, dist)
+    X = _random_points(120, rng)
+    uv_cv, _ = cv2.projectPoints(X, rvec.reshape(3,1), tvec.reshape(3,1), K, dist)
+    uv_cv = uv_cv.reshape(-1, 2)
+    uv_jax = np.asarray(proj(jnp.asarray(X)), dtype=np.float64)
+    np.testing.assert_allclose(uv_jax, uv_cv, atol=1e-6, rtol=1e-6)
+
+
+def test_projection_jit_smoke():
+    """Smoke test: ensure projector JIT-compiles and returns the expected shape."""
+    rng = _rng()
+    rvec, tvec, K, dist = _random_rvec_tvec_K_dist(with_dist=True, rng=rng)
+    proj = make_jax_projection_fn(rvec, tvec, K, dist)
+    proj_jit = jax.jit(proj)
+    X = _random_points(32, rng)
+    uv = proj_jit(jnp.asarray(X))
+    assert np.array(uv).shape == (32, 2)
+
+
+# ---------- make_projection_from_camgroup ----------
+class _MockCam:
+    """Minimal camera mock exposing rotation/translation/K/dist getters."""
+    def __init__(self, rotation, translation, K, dist):
+        self._rotation = rotation
+        self._translation = translation
+        self._K = K
+        self._dist = dist
+    def get_rotation(self): return self._rotation
+    def get_translation(self): return self._translation
+    def get_camera_matrix(self): return self._K
+    def get_distortions(self): return self._dist
+
+
+class _MockCamGroup:
+    """Mock camgroup that also provides a dummy triangulate(xy_views) API."""
+    def __init__(self, cameras):
+        self.cameras = cameras
+    def triangulate(self, xy_views, fast=True):
+        xy = np.asarray(xy_views)
+        return np.array([xy[:,0].mean(), xy[:,1].mean(), 1.0], dtype=float)
+
+
+def test_make_projection_from_camgroup_single_point_concat_order():
+    """Verifies combined h_fn concatenates per-camera (2,) projections into (4,) in order."""
+    rng = _rng()
+    # Camera A given as rotation matrix
+    rvecA, tvecA, KA, distA = _random_rvec_tvec_K_dist(with_dist=True, rng=rng)
+    RA, _ = cv2.Rodrigues(rvecA)
+    camA = _MockCam(RA, tvecA, KA, distA)
+    # Camera B given as rvec
+    rvecB, tvecB, KB, distB = _random_rvec_tvec_K_dist(with_dist=False, rng=rng)
+    camB = _MockCam(rvecB, tvecB, KB, distB)
+
+    cg = _MockCamGroup([camA, camB])
+    h_combined, h_cams = make_projection_from_camgroup(cg, camera_names=["A","B"])
+
+    x = _random_points(1, rng)[0]
+    uv0 = np.array(h_cams[0](jnp.asarray(x)))  # (2,)
+    uv1 = np.array(h_cams[1](jnp.asarray(x)))  # (2,)
+    uv_comb = np.array(h_combined(jnp.asarray(x)))  # expected shape (4,)
+    assert uv_comb.shape == (4,), f"Expected (4,), got {uv_comb.shape}"
+    np.testing.assert_allclose(uv_comb, np.concatenate([uv0, uv1], axis=0))
+
+
+# ---------- triangulate_3d_models ----------
+class _MockMarkerArray:
+    """Minimal stand-in for MarkerArray exposing .shape and .get_array()."""
+    def __init__(self, arr):
+        self._arr = arr
+
+    @property
+    def shape(self):
+        return self._arr.shape
+
+    def get_array(self):
+        return self._arr
+
+
+def test_triangulate_3d_models_calls_camgroup_and_shapes():
+    """Asserts triangulation wrapper iterates correctly and returns (M,K,T,3) w expected values."""
+    rng = _rng()
+    M, C, T, K = 2, 3, 5, 4
+    arr = rng.normal(size=(M, C, T, K, 3)).astype(np.float64)
+    markers = _MockMarkerArray(arr)
+    cams = [_MockCam(np.eye(3), np.zeros(3), np.eye(3), np.zeros(14)) for _ in range(C)]
+    cg = _MockCamGroup(cams)
+
+    tri = triangulate_3d_models(markers, cg, verbose=False)
+    assert tri.shape == (M, K, T, 3)
+
+    for m in range(M):
+        for k in range(K):
+            for t in range(T):
+                xy_views = [arr[m, c, t, k, :2] for c in range(C)]
+                expected = np.array([
+                    np.mean([xy[0] for xy in xy_views]),
+                    np.mean([xy[1] for xy in xy_views]),
+                    1.0
+                ])
+                np.testing.assert_allclose(tri[m, k, t], expected, atol=1e-12)
+
+
+# ---------- project_3d_covariance_to_2d ----------
+def _finite_diff_jacobian(f, x, eps=1e-5):
+    """Central-difference Jacobian of a 2D function f: R^3 -> R^2 evaluated at x."""
+    x = np.asarray(x, dtype=np.float64)
+    J = np.zeros((2, x.size), dtype=np.float64)
+    for i in range(x.size):
+        e = np.zeros_like(x)
+        e[i] = eps
+        y_plus  = np.asarray(f(x + e), dtype=np.float64)
+        y_minus = np.asarray(f(x - e), dtype=np.float64)
+        J[:, i] = (y_plus - y_minus) / (2.0 * eps)
+    return J
+
+
+def test_project_3d_covariance_to_2d_matches_fd_linearization():
+    """
+    Validates covariance projection:
+    diag(J V J^T) + inflated_vars matches a finite-difference linearization of h_cam at ms_k[t].
+    """
+    rng = _rng()
+    rvec, tvec, K, dist = _random_rvec_tvec_K_dist(with_dist=True, rng=rng)
+    h_cam = make_jax_projection_fn(rvec, tvec, K, dist)
+
+    T = 8
+    ms_k = _random_points(T, rng)
+    A = rng.normal(size=(T, 3, 3)).astype(np.float64) * 1e-2
+    Vs_k = np.einsum("tij,tik->tjk", A, A) + np.eye(3)[None] * 1e-6
+    inflated = np.abs(rng.normal(size=(T, 3)).astype(np.float64)) * 1e-4
+
+    var_x, var_y = project_3d_covariance_to_2d(ms_k, Vs_k, h_cam, inflated)
+
+    # check a few timesteps
+    for t in [0, 3, 5, 7]:
+        J_fd = _finite_diff_jacobian(lambda x: np.array(h_cam(jnp.asarray(x))), ms_k[t])
+        cov2d_fd = J_fd @ Vs_k[t] @ J_fd.T
+        np.testing.assert_allclose(var_x[t] - inflated[t, 0], cov2d_fd[0, 0], rtol=1e-4, atol=1e-6)
+        np.testing.assert_allclose(var_y[t] - inflated[t, 1], cov2d_fd[1, 1], rtol=1e-4, atol=1e-6)
