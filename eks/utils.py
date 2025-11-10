@@ -3,7 +3,6 @@ import os
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from jax import numpy as jnp
 from sleap_io.io.slp import read_labels
 from typeguard import typechecked
 
@@ -221,34 +220,61 @@ def plot_results(
     print(f'see example EKS output at {save_file}')
 
 
-@typechecked
-def crop_frames(y: np.ndarray | jnp.ndarray, s_frames: list | tuple) -> np.ndarray | jnp.ndarray:
-    """ Crops frames as specified by s_frames to be used for auto-tuning s."""
-    # Create an empty list to store arrays
-    result = []
+def crop_frames(y: np.ndarray,
+                s_frames: list[tuple[int | None, int | None]] | None) -> np.ndarray:
+    """
+    Crop frames from `y` according to `s_frames`.
 
-    for frame in s_frames:
-        # Unpack the frame, setting defaults for empty start or end
+    Rules (1-based, inclusive user spans):
+      - Each element is (start, end), where start/end are 1-based, inclusive.
+        Use None for open ends (e.g., (None, 100) → frames [0:100), (250, None) → [249:end)).
+      - s_frames is None or [(None, None)] → return y unchanged.
+    """
+    n = len(y)
+
+    # Case 1: No cropping at all
+    if s_frames is None or (len(s_frames) == 1 and s_frames[0] == (None, None)):
+        return y
+
+    # Type enforcement
+    if not isinstance(s_frames, list):
+        raise TypeError("s_frames must be a list of (start, end) tuples or None.")
+
+    spans = []
+    for i, frame in enumerate(s_frames):
+        if not (isinstance(frame, tuple) and len(frame) == 2):
+            raise ValueError(f"s_frames[{i}] must be a (start, end) tuple, got {frame!r}")
+
         start, end = frame
-        # Default start to 0 if not specified (and adjust for zero indexing)
-        start = start - 1 if start is not None else 0
-        # Default end to the length of ys if not specified
-        end = end if end is not None else len(y)
 
-        # Cap the indices within valid range
-        start = max(0, start)
-        end = min(len(y), end)
+        if start is not None and not isinstance(start, int):
+            raise ValueError(f"s_frames[{i}].start must be int or None, got {start!r}")
+        if end is not None and not isinstance(end, int):
+            raise ValueError(f"s_frames[{i}].end must be int or None, got {end!r}")
 
-        # Validate the keys
-        if start >= end:
-            raise ValueError(f"Index range ({start + 1}, {end}) "
-                             f"is out of bounds for the list of length {len(y)}.")
+        # Convert 1-based inclusive to 0-based half-open
+        start_idx = 0 if start is None else start - 1
+        end_idx = n if end is None else end
 
-        # Use numpy slicing to preserve the data structure
-        result.append(y[start:end])
+        if start_idx < 0 or end_idx > n:
+            raise ValueError(f"Range ({start_idx + 1}, {end_idx}) out of bounds for length {n}.")
+        if start_idx >= end_idx:
+            raise ValueError(f"Invalid range ({start_idx + 1}, {end_idx}).")
 
-    # Concatenate all slices into a single numpy array
-    return np.concatenate(result)
+        spans.append((start_idx, end_idx))
+
+    # Ensure ascending, non-overlapping order
+    spans.sort(key=lambda s: s[0])
+    for i in range(1, len(spans)):
+        if spans[i][0] < spans[i - 1][1]:
+            raise ValueError(
+                f"Overlapping or out-of-order intervals: {spans[i - 1]} and {spans[i]}")
+
+    # Perform crop
+    if len(spans) == 1:
+        s, e = spans[0]
+        return y[s:e]
+    return np.concatenate([y[s:e] for s, e in spans], axis=0)
 
 
 @typechecked()
