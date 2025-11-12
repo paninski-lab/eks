@@ -225,15 +225,17 @@ def crop_frames(y: np.ndarray,
     """
     Crop frames from `y` according to `s_frames`.
 
-    Rules (1-based, inclusive user spans):
-      - Each element is (start, end), where start/end are 1-based, inclusive.
-        Use None for open ends (e.g., (None, 100) → frames [0:100), (250, None) → [249:end)).
+    Rules:
+      - Each element is (start, end), where start/end are 0-based, [start, end) half-open.
+        Use None for open ends (e.g., (None, 100) → frames [0:100), (250, None) → [250:end)).
       - s_frames is None or [(None, None)] → return y unchanged.
     """
     n = len(y)
 
     # Case 1: No cropping at all
     if s_frames is None or (len(s_frames) == 1 and s_frames[0] == (None, None)):
+        return y
+    if len(s_frames) == 0:
         return y
 
     # Type enforcement
@@ -252,14 +254,13 @@ def crop_frames(y: np.ndarray,
         if end is not None and not isinstance(end, int):
             raise ValueError(f"s_frames[{i}].end must be int or None, got {end!r}")
 
-        # Convert 1-based inclusive to 0-based half-open
-        start_idx = 0 if start is None else start - 1
+        start_idx = 0 if start is None else start
         end_idx = n if end is None else end
 
         if start_idx < 0 or end_idx > n:
-            raise ValueError(f"Range ({start_idx + 1}, {end_idx}) out of bounds for length {n}.")
+            raise ValueError(f"Range ({start_idx}, {end_idx}) out of bounds for length {n}.")
         if start_idx >= end_idx:
-            raise ValueError(f"Invalid range ({start_idx + 1}, {end_idx}).")
+            raise ValueError(f"Invalid range ({start_idx}, {end_idx}).")
 
         spans.append((start_idx, end_idx))
 
