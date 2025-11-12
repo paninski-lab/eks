@@ -50,11 +50,10 @@ def handle_parse_args(script_type):
     parser.add_argument(
         '--s-frames',
         help='frames to be considered for smoothing '
-             'parameter optimization, first 2k frames by default. Moot if --s is specified. '
-             'Format: "[(start_int, end_int), (start_int, end_int), ... ]" or int. '
-             'Inputting a single int uses all frames from 1 to the int. '
+             'parameter optimization. Moot if --s is specified. '
+             'Format: "[(start_int, end_int), (start_int, end_int), ... ]". '
              '(None, end_int) starts from first frame; (start_int, None) proceeds to last frame.',
-        default=[(None, 10000)],
+        default=None,
         type=parse_s_frames,
     )
     parser.add_argument(

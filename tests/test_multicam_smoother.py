@@ -169,7 +169,7 @@ def test_ensemble_kalman_smoother_multicam_no_smooth_param():
 
     camera_names = ['cam1', 'cam2']
     quantile_keep_pca = 90
-    s_frames = [(0, 100)]
+    s_frames = None
 
     # Run the smoother without providing smooth_param
     camera_dfs, smooth_params_final = ensemble_kalman_smoother_multicam(
@@ -204,7 +204,7 @@ def test_ensemble_kalman_smoother_multicam_n_latent():
 
     camera_names = ['cam1', 'cam2']
     quantile_keep_pca = 90
-    s_frames = [(0, 10)]
+    s_frames = None
 
     for n_latent in [2, 3, 5]:  # Test different PCA dimensions
         camera_dfs, _ = ensemble_kalman_smoother_multicam(
