@@ -34,7 +34,7 @@ def test_crop_frames_open_ended_spans():
     # (None,3) -> [0,1,2]
     # (7,None) -> [7,8,9]
     out = crop_frames(y, [(None, 3), (7, None)])
-    np.testing.assert_array_equal(out, np.array([0, 1, 2, 6, 7, 8, 9]))
+    np.testing.assert_array_equal(out, np.array([0, 1, 2, 7, 8, 9]))
 
 
 def test_crop_frames_invalid_tuple_shape():
