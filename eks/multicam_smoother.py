@@ -189,7 +189,7 @@ def fit_eks_multicam(
         verbose=verbose,
         inflate_vars=inflate_vars,
         n_latent=n_latent,
-        camgroup=camgroup
+        camgroup=camgroup,
     )
     # Save output DataFrames to CSVs (one per camera view)
     os.makedirs(save_dir, exist_ok=True)
@@ -214,7 +214,7 @@ def ensemble_kalman_smoother_multicam(
     verbose: bool = False,
     pca_object: PCA | None = None,
     n_latent: int = 3,
-    camgroup: CameraGroup | None = None
+    camgroup: CameraGroup | None = None,
 ) -> tuple:
     """
     Multi-view EKS with optional nonlinear camera projection (EKF) when calibration TOML exists.
@@ -341,7 +341,7 @@ def ensemble_kalman_smoother_multicam(
         ensemble_vars=np.swapaxes(ensemble_vars, 0, 1),  # (T,K,2C)
         s_frames=s_frames, smooth_param=smooth_param,
         verbose=verbose,
-        h_fn=h_fn_combined
+        h_fn=h_fn_combined,
     )
 
     # Reprojection & packaging --------------------------------------------------------------------

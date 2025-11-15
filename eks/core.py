@@ -156,30 +156,44 @@ def run_kalman_smoother(
     h_fn=None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
-     Optimize the process-noise scale `s` (shared within each block of keypoints) by minimizing
-    the summed EKF filter NLL, then run the EKF smoother.
+    Optimize the process-noise scale `s` (shared within each block of keypoints) by
+    minimizing the summed EKF filter negative log-likelihood, then run the EKF smoother.
+
+    Linear model per keypoint k (default, when `h_fn` is None):
+        x_{t+1} = A_k x_t + w_t
+        y_t     = C_k x_t + v_t
+
+        w_t ~ N(0, s_k * Q_k),   v_t ~ N(0, R_{k,t})
+
+    Nonlinear observation model (when `h_fn` is not None):
+        x_{t+1} = A_k x_t + w_t
+        y_t     = h_fn(x_t) + v_t
+
+    where R_{k,t} is built from the ensemble variance at time t and keypoint k.
 
     Args:
         ys: (K, T, obs) observations per keypoint over time.
         m0s: (K, D) initial state means.
         S0s: (K, D, D) initial state covariances.
         As: (K, D, D) transition matrices.
-        Cs: (K, obs, D) observation matrices.
+        Cs: (K, obs, D) observation matrices (used when `h_fn` is None).
         Qs: (K, D, D) base process covariances (scaled by `s`).
-        ensemble_vars: (T, K, obs) per-frame ensemble variances; used to build R_{k,t}
-            via diag(clip(ensemble_vars[t, k, :], 1e-12, ∞)).
-        s_frames: Optional list of (start, end) tuples (1-based, inclusive end) to crop
-            the time axis *for the loss only*. Final smoothing uses the full sequence.
-        smooth_param: If provided, bypass optimization. Either a scalar (shared across K)
-            or a list of length K (per-keypoint).
-        blocks: Optional list of lists of keypoint indices; each block shares one `s`.
-            Default: each keypoint is its own block.
-        verbose: Print per-block optimization summaries if True.
-        lr: Adam learning rate (on log(s)).
+        ensemble_vars: (T, K, obs) per-frame ensemble variances; used to build
+            R_{k,t} via diag(clip(ensemble_vars[t, k, :], 1e-12, ∞)).
+        s_frames: Optional list of (start, end) tuples (1-based, inclusive end)
+            to crop the time axis *for the loss only*. Final smoothing always
+            uses the full sequence.
+        smooth_param: If provided, bypass optimization. Either a scalar (shared
+            across all keypoints) or a list/array of length K (per-keypoint).
+        blocks: Optional list of lists of keypoint indices; each block shares one
+            `s`. Default: each keypoint is its own block.
+        verbose: If True, print per-block optimization summaries.
+        lr: Adam learning rate on log(s).
         s_bounds_log: Clamp bounds for log(s) during optimization.
         tol: Relative tolerance on loss change for early stopping.
         safety_cap: Hard iteration cap inside the jitted while-loop.
-        h_fn: nonlinear observation function.
+        h_fn: Optional nonlinear observation function implementing y_t = h_fn(x_t).
+            If None, the linear observation model y_t = C_k x_t is used.
 
     Returns:
         s_finals: (K,) final `s` per keypoint (block optimum broadcast to members).
@@ -195,7 +209,7 @@ def run_kalman_smoother(
     # Build time-varying R (K, T, obs, obs)
     Rs = jnp.asarray(build_R_from_vars(np.swapaxes(ensemble_vars, 0, 1)))
 
-    # Initial s guesses (host-side)
+    # Initial s guesses
     s_guess_per_k = np.empty(K, dtype=float)
     for k in range(K):
         g = float(compute_initial_guesses(ensemble_vars[:, k, :]) or 2.0)
@@ -275,7 +289,7 @@ def optimize_smooth_param(
     Optimize a single scalar process-noise scale `s` per block of keypoints by minimizing
     the sum of EKF filter negative log-likelihoods. Writes results into `s_finals` in place.
 
-    Parameters
+     Parameters
     ----------
     ys : jnp.ndarray, shape (K, T, obs)
         Observations per keypoint (JAX). For cropped loss, host-side slices are created.
@@ -286,31 +300,42 @@ def optimize_smooth_param(
     As : jnp.ndarray, shape (K, D, D)
         State transition matrices.
     Cs : jnp.ndarray, shape (K, obs, D)
-        Observation matrices.
+        Linear observation matrices (used if no nonlinear observation function is supplied).
     Qs : jnp.ndarray, shape (K, D, D)
         Base process covariances (scaled by `s` inside the model).
     Rs : jnp.ndarray, shape (K, T, obs, obs)
-        Time-varying observation covariances for each keypoint.
+        Time-varying observation covariances for each keypoint and time.
     blocks : list[list[int]] or None
-        Groups of keypoint indices that share a single `s`.
-        If None/empty, each keypoint is its own block.
+        Groups of keypoint indices that share a single `s`. If None or empty,
+        each keypoint is treated as its own block.
+    s_finals : np.ndarray, shape (K,)
+        Output array filled with final per-keypoint `s` (block optimum broadcast
+        to all members of that block). Modified in place.
+    s_frames : list[tuple[int, int]] or None
+        Optional list of frame ranges (start, end), using 1-based indexing with
+        inclusive end. These ranges are used to crop the time axis *for the loss
+        computation only* (both y and R_t); optimization ignores frames outside
+        these ranges. If None, all frames [1, T] are used.
+    s_guess_per_k : np.ndarray, shape (K,)
+        Heuristic initial guesses of `s` per keypoint. For each block, the
+        initial log(s) is seeded from the mean of member guesses.
     lr : float
         Adam learning rate (on log(s)).
     s_bounds_log : (float, float)
         Clamp bounds for log(s) to stabilize optimization.
-    s_finals : np.ndarray, shape (K,)
-        Output array filled with final per-keypoint `s` (block optimum broadcast).
-    s_frames : list or None
-        Frame ranges for cropping (list of (start, end); 1-based start, inclusive end).
-        Applied to both y and R_t for the loss only.
-    s_guess_per_k : np.ndarray, shape (K,)
-        Heuristic initial guesses of `s` per keypoint. Block init uses the mean over members.
     tol : float
         Relative tolerance on loss change for early stopping.
-    verbose : bool
-        If True, prints per-block optimization progress.
     safety_cap : int
         Maximum number of iterations inside the jitted while-loop.
+    min_R_var : float
+        Minimum variance floor applied to the diagonals of R_{k,t}, to prevent
+        degenerately small observation noise from destabilizing the EKF.
+    h_fn_combined : callable or None
+        Optional nonlinear observation function used by the EKF when modeling
+        y_t = h_fn_combined(x_t, k, ...) instead of y_t = C_k x_t. If None, the
+        linear observation model with C_k is used.
+    verbose : bool
+        If True, prints per-block optimization progress.
 
     Returns
     -------
