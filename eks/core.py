@@ -3,15 +3,11 @@ from typing import List, Literal, Optional, Tuple, Union
 import jax
 import numpy as np
 import optax
-from dynamax.nonlinear_gaussian_ssm import (
-    ParamsNLGSSM,
-    extended_kalman_filter,
-    extended_kalman_smoother,
-)
-from jax import jit, lax
-from jax import numpy as jnp
-from jax import value_and_grad
+from dynamax.nonlinear_gaussian_ssm import ParamsNLGSSM, extended_kalman_filter, \
+    extended_kalman_smoother
+from jax import numpy as jnp, jit, value_and_grad, lax
 from typeguard import typechecked
+from typing import Literal, Union, List, Tuple
 
 from eks.marker_array import MarkerArray
 from eks.utils import build_R_from_vars, crop_frames, crop_R
@@ -136,16 +132,16 @@ def params_nlgssm_for_keypoint(m0, S0, Q, s, R, f_fn, h_fn) -> ParamsNLGSSM:
 # ----------------- Public API -----------------
 @typechecked
 def run_kalman_smoother(
-    ys: jnp.ndarray,                  # (K, T, obs)
-    m0s: jnp.ndarray,                 # (K, D)
-    S0s: jnp.ndarray,                 # (K, D, D)
-    As: jnp.ndarray,                  # (K, D, D)
-    Cs: jnp.ndarray,                  # (K, obs, D)
-    Qs: jnp.ndarray,                  # (K, D, D)
-    ensemble_vars: np.ndarray,        # (T, K, obs)
-    s_frames: Optional[List] = None,
-    smooth_param: Optional[Union[float, List[float]]] = None,
-    blocks: Optional[List[List[int]]] = None,
+    ys: jnp.ndarray,                 # (K, T, obs)
+    m0s: jnp.ndarray,                # (K, D)
+    S0s: jnp.ndarray,                # (K, D, D)
+    As: jnp.ndarray,                 # (K, D, D)
+    Cs: jnp.ndarray,                 # (K, obs, D)
+    Qs: jnp.ndarray,                 # (K, D, D)
+    ensemble_vars: np.ndarray,       # (T, K, obs)
+    s_frames: list | None = None,
+    smooth_param: Union[float, List[float]] | None = None,
+    blocks: List[List[int]] | None = None,
     verbose: bool = False,
     # JIT-closed constants:
     lr: float = 0.25,
@@ -273,9 +269,11 @@ def optimize_smooth_param(
     Cs: jnp.ndarray,            # (K, obs, D) [ignored for nonlinear]
     Qs: jnp.ndarray,            # (K, D, D)
     Rs: jnp.ndarray,            # (K, T, obs, obs) time-varying R_t
-    blocks: Optional[list],
+    blocks: list | None,
+    lr: float,
+    s_bounds_log: tuple,
     s_finals: np.ndarray,       # (K,), filled in-place
-    s_frames: Optional[list],
+    s_frames: list | None,
     s_guess_per_k: np.ndarray,  # (K,)
     lr: float = 0.25,
     s_bounds_log: tuple = (-8.0, 8.0),
