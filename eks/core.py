@@ -270,8 +270,6 @@ def optimize_smooth_param(
     Qs: jnp.ndarray,            # (K, D, D)
     Rs: jnp.ndarray,            # (K, T, obs, obs) time-varying R_t
     blocks: list | None,
-    lr: float,
-    s_bounds_log: tuple,
     s_finals: np.ndarray,       # (K,), filled in-place
     s_frames: list | None,
     s_guess_per_k: np.ndarray,  # (K,)
