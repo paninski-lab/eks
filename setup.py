@@ -24,6 +24,8 @@ def get_version(rel_path):
 
 # basic requirements
 install_requires = [
+    'aniposelib',
+    'dynamax',
     'ipykernel',
     'jax',
     'jaxlib',
@@ -38,10 +40,6 @@ install_requires = [
     'tqdm',
     'typeguard',
     'typing',
-    'sleap_io',
-    'jax',
-    'jaxlib',
-    'dynamax'
 ]
 
 # additional requirements

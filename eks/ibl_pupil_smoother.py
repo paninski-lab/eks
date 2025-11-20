@@ -1,20 +1,20 @@
 import os
 import warnings
-
-from dynamax.nonlinear_gaussian_ssm.inference_ekf import (
-    extended_kalman_filter,
-    extended_kalman_smoother,
-)
+from numbers import Real
+from typing import List, Optional, Sequence, Tuple
 
 import jax
 import numpy as np
 import optax
 import pandas as pd
-from jax import jit, lax, value_and_grad
+from dynamax.nonlinear_gaussian_ssm.inference_ekf import (
+    extended_kalman_filter,
+    extended_kalman_smoother,
+)
+from jax import jit, lax
 from jax import numpy as jnp
-from numbers import Real
+from jax import value_and_grad
 from typeguard import typechecked
-from typing import List, Optional, Sequence, Tuple
 
 from eks.core import ensemble, params_nlgssm_for_keypoint
 from eks.marker_array import MarkerArray, input_dfs_to_markerArray

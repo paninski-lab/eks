@@ -1,6 +1,5 @@
 import jax.numpy as jnp
 import numpy as np
-import pytest
 
 from eks.core import ensemble
 from eks.marker_array import MarkerArray

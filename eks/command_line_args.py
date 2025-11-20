@@ -80,6 +80,7 @@ def handle_parse_args(script_type):
         add_s(parser)
         add_inflate_vars(parser)
         add_n_latent(parser)
+        add_calibration(parser)
     elif script_type == 'ibl_pupil':
         add_diameter_s(parser)
         add_com_s(parser)
@@ -216,5 +217,15 @@ def add_n_latent(parser):
         help='user-specified number of latent dimensions to keep from PCA',
         default=3,
         type=int,
+    )
+    return parser
+
+
+def add_calibration(parser):
+    parser.add_argument(
+        '--calibration',
+        help='file path for calibration.toml file',
+        default=None,
+        type=str,
     )
     return parser
