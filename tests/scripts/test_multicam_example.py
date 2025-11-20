@@ -19,5 +19,30 @@ def test_multicam_example_fixed_smooth_param(run_script, tmpdir, pytestconfig):
         output_dir=tmpdir,
         bodypart_list=['paw1LH', 'paw2LF'],  # , 'paw3RF', 'paw4RH'],  # unneeded computation
         camera_names=['top', 'bot'],
-        s=10
+        s=10,
+    )
+
+
+def test_multicam_example_defaults_nonlinear(run_script, tmpdir, pytestconfig):
+
+    run_script(
+        script_file=str(pytestconfig.rootpath / 'scripts' / 'multicam_example.py'),
+        input_dir=str(pytestconfig.rootpath / 'data' / 'fly'),
+        output_dir=tmpdir,
+        bodypart_list=['L1A', 'L1B'],
+        camera_names=['Cam-A', 'Cam-B', 'Cam-C'],
+        calibration=str(pytestconfig.rootpath / 'data' / 'fly' / 'calibration.toml'),
+    )
+
+
+def test_multicam_example_fixed_smooth_param_nonlinear(run_script, tmpdir, pytestconfig):
+
+    run_script(
+        script_file=str(pytestconfig.rootpath / 'scripts' / 'multicam_example.py'),
+        input_dir=str(pytestconfig.rootpath / 'data' / 'fly'),
+        output_dir=tmpdir,
+        bodypart_list=['L1A', 'L1B'],
+        camera_names=['Cam-A', 'Cam-B', 'Cam-C'],
+        calibration=str(pytestconfig.rootpath / 'data' / 'fly' / 'calibration.toml'),
+        s=10,
     )
