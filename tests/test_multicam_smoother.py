@@ -32,6 +32,7 @@ def test_ensemble_kalman_smoother_multicam():
     num_fields = len(data_fields)
 
     # Create mock MarkerArray with explicit data_fields
+    np.random.seed(0)
     markers_array = np.random.randn(n_models, n_cameras, n_frames, len(keypoint_names), num_fields)
     marker_array = MarkerArray(markers_array, data_fields=data_fields)
 
@@ -164,6 +165,7 @@ def test_ensemble_kalman_smoother_multicam_no_smooth_param():
     num_fields = len(data_fields)
 
     # Create mock MarkerArray with explicit data_fields
+    np.random.seed(1)
     markers_array = np.random.randn(3, n_cameras, n_frames, len(keypoint_names), num_fields)
     markerArray = MarkerArray(markers_array, data_fields=data_fields)  # Ensure data_fields is set
 
