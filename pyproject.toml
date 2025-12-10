@@ -3,7 +3,7 @@ requires = ["poetry-core>=2.0.0"]
 build-backend = "poetry.core.masonry.api"
 
 [project]
-name = "ensemble-kalman-smoother"
+name = "eks"
 version = "4.4.0"
 description = "Ensembling and kalman smoothing for pose estimation"
 license = "MIT"
