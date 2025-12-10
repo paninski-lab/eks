@@ -1,0 +1,91 @@
+[build-system]
+requires = ["poetry-core>=2.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[project]
+name = "ensemble-kalman-smoother"
+version = "4.4.0"
+description = "Ensembling and kalman smoothing for pose estimation"
+license = "MIT"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    { name = "Cole Hurwitz"},
+    { name = "Keemin Lee"},
+    { name = "Matt Whiteaway" },
+]
+maintainers = [
+    { name = "Matt Whiteway"},
+]
+keywords = ["machine learning", "state space models", "pose estimation"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Image Processing",
+    "Topic :: Scientific/Engineering :: Visualization",
+]
+
+dependencies = [
+    "aniposelib",
+    "dynamax",
+    "jax",
+    "jaxlib",
+    "matplotlib",
+    "numpy (>=2.0.0)",
+    "opencv-python-headless",
+    "optax",
+    "pandas",
+    "scikit-learn",
+    "scipy (>=1.2.0)",
+    "sleap_io",
+    "tqdm",
+    "typeguard",
+    "typing",
+]
+
+[project.urls]
+repository = "https://github.com/paninski-lab/eks"
+documentation = "https://github.com/paninski-lab/eks"
+
+
+# project.dependencies are used for metadata when building the project, tool.poetry.dependencies is only used to enrich
+# project.dependencies for locking
+[tool.poetry.dependencies]
+python = ">=3.10,<3.13"
+
+[project.optional-dependencies]
+dev = [
+    "black",
+    "flake8",
+    "isort",
+    "pytest",
+]
+
+[tool.flake8]
+max-line-length = 99
+ignore = ["F821", "W503"]
+extend-ignore = ["E203"]
+exclude = [
+    ".git",
+    "__pycache__",
+    "__init__.py",
+    "build",
+    "dist",
+    "docs/",
+    "scripts/",
+]
+
+[tool.isort]
+line_length = 99
+profile = "black"
+src_paths = ["eks", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = "tests"
+generate_report_on_test = "True"
