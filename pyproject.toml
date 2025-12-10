@@ -3,7 +3,7 @@ requires = ["poetry-core>=2.0.0"]
 build-backend = "poetry.core.masonry.api"
 
 [project]
-name = "eks"
+name = "ensemble-kalman-smoother"
 version = "4.4.0"
 description = "Ensembling and kalman smoothing for pose estimation"
 license = "MIT"
@@ -53,6 +53,10 @@ dependencies = [
 repository = "https://github.com/paninski-lab/eks"
 documentation = "https://github.com/paninski-lab/eks"
 
+[tool.poetry]
+packages = [
+    {include = "eks"}
+]
 
 # project.dependencies are used for metadata when building the project, tool.poetry.dependencies is only used to enrich
 # project.dependencies for locking
