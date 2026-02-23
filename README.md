@@ -155,10 +155,7 @@ python scripts/ibl_paw_multiview_example.py --input-dir ./data/ibl-paw
 
 ### Authors
 
-Cole Hurwitz
-
-Keemin Lee
-
-Amol Pasarkar
-
-Matt Whiteway
+* [Cole Hurwitz](https://github.com/colehurwitz)
+* [Keemin Lee](https://github.com/keeminlee)
+* [Amol Pasarkar](https://github.com/apasarkar)
+* [Matt Whiteway](https://github.com/themattinthehatt)

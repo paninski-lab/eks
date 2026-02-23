@@ -68,6 +68,7 @@ python = ">=3.10,<3.13"
 dev = [
     "autopep8",
     "flake8",
+    "ipython",  # dumb dependency issue in fastprogress, installing here so CI doesn't fail
     "isort",
     "pytest",
 ]
