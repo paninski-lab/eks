@@ -12,7 +12,7 @@ requires-python = ">=3.10"
 authors = [
     { name = "Cole Hurwitz"},
     { name = "Keemin Lee"},
-    { name = "Matt Whiteaway" },
+    { name = "Matt Whiteway" },
 ]
 maintainers = [
     { name = "Matt Whiteway"},
