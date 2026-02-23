@@ -28,9 +28,10 @@ def __get_package_version() -> str:
         # Fall back on getting it from a local pyproject.toml.
         # This works in a development environment where the
         # package has not been installed from a distribution.
-        import toml
         import warnings
         from pathlib import Path
+
+        import toml
         warnings.warn(
             "ensemble-kalman-smoother not pip-installed, getting version from pyproject.toml."
         )
