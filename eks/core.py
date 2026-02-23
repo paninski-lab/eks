@@ -1,5 +1,3 @@
-from typing import List, Literal, Optional, Tuple, Union
-
 import jax
 import numpy as np
 import optax
