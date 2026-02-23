@@ -95,14 +95,29 @@ implementations, including fast smoothing parameter auto-tuning using GPU-driven
 [Here](docs/singlecam_overview.md) is a detailed overview of the workflow.
 
 ### Multi-camera datasets
-The `multicam_example.py` script demonstrates how to run the EKS code for multi-camera
-setups where the pose predictions for a given model are all stored a separate csv file per camera.
-We provide example data in the `data/mirror-mouse-separate` directory inside this repo, 
-for a two-view video of a mouse with cameras named `top` and `bot`. 
-To run the EKS on the example data provided, execute the following command from inside this repo:
+The `multicam_example.py` script supports two modes for multi-camera setups, 
+depending on whether camera calibration information is available.
+In both cases, pose predictions should be stored a separate csv file per camera.
+
+#### Without calibration (linear EKS)
+We provide example data in `data/mirror-mouse-separate`, 
+containing two-view mouse video with cameras named `top` and `bot`. 
+To run linear EKS on this data , execute the following command from inside this repo:
 
 ```console 
 python scripts/multicam_example.py --input-dir ./data/mirror-mouse-separate --bodypart-list paw1LH paw2LF paw3RF paw4RH --camera-names top bot
+```
+
+#### With calibration (nonlinear EKS)
+
+If camera calibration information is available, you can run a nonlinear version of EKS. 
+Calibration data must be stored in `.toml` files using the [Anipose](https://anipose.readthedocs.io/) format. 
+We provide example data in `data/fly`, containing multi-view fly video with cameras named 
+`Cam-A`, `Cam-B`, and `Cam-C`, along with a corresponding `calibration.toml` file. 
+To run nonlinear EKS on this data, execute the following command from inside this repo:
+
+```console 
+python scripts/multicam_example.py --input-dir ./data/fly --bodypart-list L1A L1B --camera-names Cam-A Cam-B Cam-C --calibration ./data/fly/calibration.toml
 ```
  
 ### Mirrored multi-camera datasets
@@ -140,10 +155,7 @@ python scripts/ibl_paw_multiview_example.py --input-dir ./data/ibl-paw
 
 ### Authors
 
-Cole Hurwitz
-
-Keemin Lee
-
-Amol Pasarkar
-
-Matt Whiteway
+* [Cole Hurwitz](https://github.com/colehurwitz)
+* [Keemin Lee](https://github.com/keeminlee)
+* [Amol Pasarkar](https://github.com/apasarkar)
+* [Matt Whiteway](https://github.com/themattinthehatt)

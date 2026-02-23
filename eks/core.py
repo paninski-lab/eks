@@ -1,13 +1,17 @@
-from typing import List, Literal, Optional, Tuple, Union
+from typing import List, Literal, Tuple, Union
 
 import jax
 import numpy as np
 import optax
-from dynamax.nonlinear_gaussian_ssm import ParamsNLGSSM, extended_kalman_filter, \
-    extended_kalman_smoother
-from jax import numpy as jnp, jit, value_and_grad, lax
+from dynamax.nonlinear_gaussian_ssm import (
+    ParamsNLGSSM,
+    extended_kalman_filter,
+    extended_kalman_smoother,
+)
+from jax import jit, lax
+from jax import numpy as jnp
+from jax import value_and_grad
 from typeguard import typechecked
-from typing import Literal, Union, List, Tuple
 
 from eks.marker_array import MarkerArray
 from eks.utils import build_R_from_vars, crop_frames, crop_R

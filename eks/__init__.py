@@ -1,6 +1,7 @@
+import importlib.metadata
 from typing import Any
 
-from eks import *
+# from eks import *
 
 
 # Hacky way to get version from pypackage.toml.
@@ -28,13 +29,12 @@ def __get_package_version() -> str:
         # This works in a development environment where the
         # package has not been installed from a distribution.
         import warnings
+        from pathlib import Path
 
         import toml
-
         warnings.warn(
             "ensemble-kalman-smoother not pip-installed, getting version from pyproject.toml."
         )
-
         pyproject_toml_file = Path(__file__).parent.parent / "pyproject.toml"
         __package_version = toml.load(pyproject_toml_file)["project"]["version"]
 

@@ -485,6 +485,7 @@ def test_projection_jit_smoke():
 # ---------- make_projection_from_camgroup ----------
 class _MockCam:
     """Minimal camera mock exposing rotation/translation/K/dist getters."""
+
     def __init__(self, rotation, translation, K, dist):
         self._rotation = rotation
         self._translation = translation
@@ -499,6 +500,7 @@ class _MockCam:
 
 class _MockCamGroup:
     """Mock camgroup that also provides a dummy triangulate(xy_views) API."""
+
     def __init__(self, cameras):
         self.cameras = cameras
 
@@ -532,6 +534,7 @@ def test_make_projection_from_camgroup_single_point_concat_order():
 # ---------- triangulate_3d_models ----------
 class _MockMarkerArray:
     """Minimal stand-in for MarkerArray exposing .shape and .get_array()."""
+
     def __init__(self, arr):
         self._arr = arr
 

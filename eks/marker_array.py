@@ -148,10 +148,10 @@ class MarkerArray:
             assert isinstance(other, MarkerArray), \
                 "All elements in 'others' must be MarkerArray instances."
             assert reference.array.shape[:reference.axis_map[axis]] + \
-                   reference.array.shape[reference.axis_map[axis] + 1:] \
-                   == other.array.shape[:reference.axis_map[axis]] + \
-                   other.array.shape[reference.axis_map[axis] + 1:], \
-                   f"Shape mismatch: Cannot stack along '{axis}' due to differing dimensions."
+                reference.array.shape[reference.axis_map[axis] + 1:] \
+                == other.array.shape[:reference.axis_map[axis]] + \
+                other.array.shape[reference.axis_map[axis] + 1:], \
+                f"Shape mismatch: Cannot stack along '{axis}' due to differing dimensions."
 
         # Stack all arrays along the specified axis
         stacked_array = np.concatenate([other.array for other in others],

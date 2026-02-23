@@ -389,8 +389,8 @@ def run_pupil_kalman_smoother(
     A = jnp.diag(jnp.array([s_d_j, s_c_j, s_c_j]))
     Q = jnp.diag(jnp.array([
         jnp.asarray(diameters_var) * (1.0 - s_d_j**2),
-        jnp.asarray(x_var)         * (1.0 - s_c_j**2),
-        jnp.asarray(y_var)         * (1.0 - s_c_j**2),
+        jnp.asarray(x_var) * (1.0 - s_c_j**2),
+        jnp.asarray(y_var) * (1.0 - s_c_j**2),
     ]))
 
     f_fn = (lambda x: A @ x)
@@ -467,7 +467,7 @@ def pupil_optimize_smooth(
 
     # Cropping for loss (host-side), then back to JAX
     ys_np = np.asarray(ys)
-    R_np  = np.asarray(R)
+    R_np = np.asarray(R)
     if s_frames and len(s_frames) > 0:
         y_loss = jnp.asarray(crop_frames(ys_np, s_frames))   # (T', 8)
         R_loss = jnp.asarray(crop_R(R_np, s_frames))         # (T', 8, 8)
@@ -487,8 +487,8 @@ def pupil_optimize_smooth(
         A = jnp.diag(jnp.array([s_d, s_c, s_c]))
         Q = jnp.diag(jnp.array([
             jnp.asarray(diameters_var) * (1.0 - s_d**2),
-            jnp.asarray(x_var)         * (1.0 - s_c**2),
-            jnp.asarray(y_var)         * (1.0 - s_c**2),
+            jnp.asarray(x_var) * (1.0 - s_c**2),
+            jnp.asarray(y_var) * (1.0 - s_c**2),
         ]))
         params = _params_linear(m0, S0, A, Q, R_loss, C)
         post = extended_kalman_filter(params, y_loss)
