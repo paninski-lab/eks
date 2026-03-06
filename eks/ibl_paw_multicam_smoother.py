@@ -174,7 +174,7 @@ def fit_eks_multicam_ibl_paw(
     )
 
     # run eks
-    camera_dfs, smooth_params_final = ensemble_kalman_smoother_multicam(
+    camera_dfs, smooth_params_final, df_3d = ensemble_kalman_smoother_multicam(
         marker_array=marker_array,
         keypoint_names=bodypart_list,
         smooth_param=smooth_param,

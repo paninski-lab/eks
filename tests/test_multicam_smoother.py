@@ -4,6 +4,7 @@ import cv2
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pandas as pd
 from sklearn.decomposition import PCA
 
 from eks.marker_array import MarkerArray
@@ -44,7 +45,7 @@ def test_ensemble_kalman_smoother_multicam():
     # ---------------------------------------------------
     # Run the smoother
     # ---------------------------------------------------
-    camera_dfs, smooth_params_final = ensemble_kalman_smoother_multicam(
+    camera_dfs, smooth_params_final, df_3d = ensemble_kalman_smoother_multicam(
         marker_array=marker_array,
         keypoint_names=keypoint_names,
         smooth_param=smooth_param,
@@ -63,11 +64,12 @@ def test_ensemble_kalman_smoother_multicam():
         assert smooth_params_final[k] == smooth_param, \
             f"Expected smooth_param_final to match input smooth_param ({smooth_param}), " \
             f"got {smooth_params_final}"
+    assert isinstance(df_3d, pd.DataFrame), "Expected output to be a pandas dataframe"
 
     # ---------------------------------------------------
     # Run with variance inflation
     # ---------------------------------------------------
-    camera_dfs, smooth_params_final = ensemble_kalman_smoother_multicam(
+    camera_dfs, smooth_params_final, df_3d = ensemble_kalman_smoother_multicam(
         marker_array=marker_array,
         keypoint_names=keypoint_names,
         smooth_param=smooth_param,
@@ -88,11 +90,12 @@ def test_ensemble_kalman_smoother_multicam():
         assert smooth_params_final[k] == smooth_param, \
             f"Expected smooth_param_final to match input smooth_param ({smooth_param}), " \
             f"got {smooth_params_final}"
+    assert isinstance(df_3d, pd.DataFrame), "Expected output to be a pandas dataframe"
 
     # ---------------------------------------------------
     # Run with variance inflation + more maha kwargs
     # ---------------------------------------------------
-    camera_dfs, smooth_params_final = ensemble_kalman_smoother_multicam(
+    camera_dfs, smooth_params_final, df_3d = ensemble_kalman_smoother_multicam(
         marker_array=marker_array,
         keypoint_names=keypoint_names,
         smooth_param=smooth_param,
@@ -115,6 +118,7 @@ def test_ensemble_kalman_smoother_multicam():
         assert smooth_params_final[k] == smooth_param, \
             f"Expected smooth_param_final to match input smooth_param ({smooth_param}), " \
             f"got {smooth_params_final}"
+    assert isinstance(df_3d, pd.DataFrame), "Expected output to be a pandas dataframe"
 
     # ---------------------------------------------------
     # Run with variance inflation + more maha kwargs
@@ -136,7 +140,7 @@ def test_ensemble_kalman_smoother_multicam():
     markers_array[..., 2] = 1.0
     marker_array = MarkerArray(markers_array, data_fields=data_fields)
     # run with variance inflation
-    camera_dfs, smooth_params_final = ensemble_kalman_smoother_multicam(
+    camera_dfs, smooth_params_final, df_3d = ensemble_kalman_smoother_multicam(
         marker_array=marker_array,
         keypoint_names=keypoint_names,
         smooth_param=smooth_param,
@@ -174,7 +178,7 @@ def test_ensemble_kalman_smoother_multicam_no_smooth_param():
     s_frames = None
 
     # Run the smoother without providing smooth_param
-    camera_dfs, smooth_params_final = ensemble_kalman_smoother_multicam(
+    camera_dfs, smooth_params_final, df_3d = ensemble_kalman_smoother_multicam(
         marker_array=markerArray,
         keypoint_names=keypoint_names,
         smooth_param=None,
@@ -208,8 +212,8 @@ def test_ensemble_kalman_smoother_multicam_n_latent():
     quantile_keep_pca = 90
     s_frames = None
 
-    for n_latent in [2, 3, 5]:  # Test different PCA dimensions
-        camera_dfs, _ = ensemble_kalman_smoother_multicam(
+    for n_latent in [3, 4, 5]:  # Test different PCA dimensions
+        camera_dfs, _, _ = ensemble_kalman_smoother_multicam(
             marker_array=markerArray,
             keypoint_names=keypoint_names,
             smooth_param=1,  # Fixed smooth_param to speed up test

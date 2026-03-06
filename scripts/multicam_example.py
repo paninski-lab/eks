@@ -30,7 +30,7 @@ n_latent = args.n_latent
 calibration = args.calibration
 
 # Fit EKS using the provided input data
-camera_dfs, s_finals, input_dfs, bodypart_list = fit_eks_multicam(
+camera_dfs, s_finals, input_dfs, bodypart_list, df_3d = fit_eks_multicam(
     input_source=input_source,
     save_dir=save_dir,
     bodypart_list=bodypart_list,
