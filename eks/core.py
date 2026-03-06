@@ -58,10 +58,16 @@ def ensemble(
         conf_per_keypoint = jnp.sum(data_lh, axis=0)
         mean_conf_per_keypoint = conf_per_keypoint / n_models
 
-        var_x = jnp.nanvar(data_x, axis=0) / mean_conf_per_keypoint if var_mode in [
-            'conf_weighted_var', 'confidence_weighted_var'] else jnp.nanvar(data_x, axis=0)
-        var_y = jnp.nanvar(data_y, axis=0) / mean_conf_per_keypoint if var_mode in [
-            'conf_weighted_var', 'confidence_weighted_var'] else jnp.nanvar(data_y, axis=0)
+        if n_models == 1:
+            single_var = 1.0 / jnp.maximum(mean_conf_per_keypoint, 0.05)
+            var_x = single_var
+            var_y = single_var
+        elif var_mode in ['conf_weighted_var', 'confidence_weighted_var']:
+            var_x = jnp.nanvar(data_x, axis=0) / mean_conf_per_keypoint
+            var_y = jnp.nanvar(data_y, axis=0) / mean_conf_per_keypoint
+        else:
+            var_x = jnp.nanvar(data_x, axis=0)
+            var_y = jnp.nanvar(data_y, axis=0)
 
         # Replace NaNs in variance with chosen value
         var_x = jnp.nan_to_num(var_x, nan=nan_replacement)
