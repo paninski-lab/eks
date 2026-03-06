@@ -754,9 +754,10 @@ def triangulate_3d_models(marker_array, camgroup) -> np.ndarray:
     tri = np.zeros((M, K, T, 3), dtype=float)
     for m in range(M):
         for k in range(K):
-            for t in range(T):
-                xy_views = [raw[m, c, t, k, :2] for c in range(C)]
-                tri[m, k, t] = camgroup.triangulate(np.array(xy_views), fast=True)
+            # Batch all T frames together: shape (C, T, 2)
+            xy_views = raw[m, :, :, k, :2]  # (C, T, 2)
+            # triangulate expects (C, N, 2) and returns (N, 3)
+            tri[m, k, :, :] = camgroup.triangulate(xy_views, fast=True)
     return tri
 
 
