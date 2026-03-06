@@ -505,8 +505,17 @@ class _MockCamGroup:
         self.cameras = cameras
 
     def triangulate(self, xy_views, fast=True):
-        xy = np.asarray(xy_views)
-        return np.array([xy[:, 0].mean(), xy[:, 1].mean(), 1.0], dtype=float)
+        xy = np.asarray(xy_views)  # (C, 2) or (C, N, 2)
+        if xy.ndim == 2:
+            # single point: (C, 2) -> (3,)
+            return np.array([xy[:, 0].mean(), xy[:, 1].mean(), 1.0], dtype=float)
+        else:
+            # batched: (C, N, 2) -> (N, 3)
+            return np.stack([
+                xy[:, :, 0].mean(axis=0),
+                xy[:, :, 1].mean(axis=0),
+                np.ones(xy.shape[1]),
+            ], axis=-1).astype(float)
 
 
 def test_make_projection_from_camgroup_single_point_concat_order():
