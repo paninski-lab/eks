@@ -93,7 +93,7 @@ def fit_eks_mirrored_multicam(
     marker_array = input_dfs_to_markerArray(camera_model_dfs, bodypart_list, camera_names)
 
     # Run the ensemble Kalman smoother for multi-camera data
-    camera_dfs, smooth_params_final = ensemble_kalman_smoother_multicam(
+    camera_dfs, smooth_params_final, df_3d = ensemble_kalman_smoother_multicam(
         marker_array=marker_array,
         keypoint_names=bodypart_list,
         smooth_param=smooth_param,
@@ -135,7 +135,8 @@ def fit_eks_multicam(
     inflate_vars: bool = False,
     verbose: bool = False,
     n_latent: int = 3,
-    calibration: str | None = None
+    calibration: str | None = None,
+    save_3d_outputs: bool = True,
 ) -> tuple:
     """
     Fit the Ensemble Kalman Smoother for un-mirrored multi-camera data.
@@ -155,6 +156,7 @@ def fit_eks_multicam(
         verbose: True to print out details
         n_latent: number of dimensions to keep from PCA
         calibration: path to the .toml calibration file for nonlinear projection
+        save_3d_outputs: if True and calibration is not None, save 3D latents to CSV
 
     Returns:
         tuple:
@@ -162,6 +164,7 @@ def fit_eks_multicam(
             s_finals (list): List of optimized smoothing factors for each keypoint.
             input_dfs (list): List of input DataFrames for plotting.
             bodypart_list (list): List of body parts used.
+            df_3d (pd.DataFrame): DataFrame with 3D latent states and posterior variances.
 
     """
     # Load and format input files
@@ -177,7 +180,7 @@ def fit_eks_multicam(
     marker_array = input_dfs_to_markerArray(input_dfs_list, bodypart_list, camera_names)
 
     # Run the ensemble Kalman smoother for multi-camera data
-    camera_dfs, smooth_params_final = ensemble_kalman_smoother_multicam(
+    camera_dfs, smooth_params_final, df_3d = ensemble_kalman_smoother_multicam(
         marker_array=marker_array,
         keypoint_names=bodypart_list,
         smooth_param=smooth_param,
@@ -196,7 +199,9 @@ def fit_eks_multicam(
     for c, camera in enumerate(camera_names):
         save_filename = f'multicam_{camera}_results.csv'
         camera_dfs[c].to_csv(os.path.join(save_dir, save_filename))
-    return camera_dfs, smooth_params_final, input_dfs_list, bodypart_list
+    if save_3d_outputs and calibration is not None:
+        df_3d.to_csv(os.path.join(save_dir, 'multicam_3d_results.csv'))
+    return camera_dfs, smooth_params_final, input_dfs_list, bodypart_list, df_3d
 
 
 @typechecked
@@ -246,7 +251,7 @@ def ensemble_kalman_smoother_multicam(
         camgroup: loaded calibration file for nonlinear projection
 
     Returns:
-        tuple: Dataframes with smoothed predictions, final smoothing parameters.
+        tuple: Dataframes with smoothed predictions, final smoothing parameters, 3D latent df.
     """
 
     M, V, T, K, _ = marker_array.shape  # n_models, n_cameras, n_timesteps, n_keypoints, (n_coords)
@@ -420,7 +425,24 @@ def ensemble_kalman_smoother_multicam(
         camera_df = pd.DataFrame(camera_arr.T, columns=pdindex)
         camera_dfs.append(camera_df)
 
-    return camera_dfs, s_finals
+    # Build 3D latent dataframe from Kalman smoother outputs
+    labels_3d = ['x', 'y', 'z', 'x_posterior_var', 'y_posterior_var', 'z_posterior_var']
+    pdindex_3d = make_dlc_pandas_index(keypoint_names, labels=labels_3d)
+    arr_3d = []
+    for k in range(K):
+        ms_k = np.array(ms[k])  # (T, 3)
+        Vs_k = np.array(Vs[k])  # (T, 3, 3)
+        arr_3d.extend([
+            ms_k[:, 0],
+            ms_k[:, 1],
+            ms_k[:, 2],
+            Vs_k[:, 0, 0],
+            Vs_k[:, 1, 1],
+            Vs_k[:, 2, 2],
+        ])
+    df_3d = pd.DataFrame(np.asarray(arr_3d).T, columns=pdindex_3d)
+
+    return camera_dfs, s_finals, df_3d
 
 
 def initialize_kalman_filter_pca(
