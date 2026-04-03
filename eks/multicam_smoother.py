@@ -30,7 +30,7 @@ def fit_eks_mirrored_multicam(
     smooth_param: float | list | None = None,
     s_frames: list | None = None,
     camera_names: list | None = None,
-    quantile_keep_pca: float = 95.0,
+    quantile_keep_pca: float = 50.0,
     avg_mode: str = 'median',
     var_mode: str = 'confidence_weighted_var',
     verbose: bool = False,
@@ -45,9 +45,15 @@ def fit_eks_mirrored_multicam(
         save_file: Directory to save output DataFrame.
         bodypart_list: List of body parts.
         smooth_param: Value in (0, Inf); smaller values lead to more smoothing.
-        s_frames: Frames for automatic optimization if smooth_param is not provided.
+        s_frames: Frame ranges used to optimize the smoothing parameter, as a list of
+            (start, end) tuples. Indices are 0-based with half-open intervals [start, end),
+            so end is excluded. Use None for open ends: (None, 100) selects frames 0–99,
+            (50, None) selects frame 50 through the last frame. Multiple non-overlapping
+            ranges are allowed, e.g. [(0, 100), (200, 300)]. If None (default), all frames
+            are used. Ignored when smooth_param is provided. Note: only affects parameter
+            optimization; final smoothing always runs over all frames.
         camera_names: List of camera names corresponding to the input data.
-        quantile_keep_pca: Percentage of points kept for PCA (default: 95).
+        quantile_keep_pca: Percentage of points kept for PCA (default: 50.0).
         avg_mode: Mode for averaging across ensemble ('median', 'mean').
         var_mode: mode for computing ensemble variance
             'var' | 'confidence_weighted_var'
@@ -129,7 +135,7 @@ def fit_eks_multicam(
     smooth_param: float | list | None = None,
     s_frames: list | None = None,
     camera_names: list | None = None,
-    quantile_keep_pca: float = 95.0,
+    quantile_keep_pca: float = 50.0,
     avg_mode: str = 'median',
     var_mode: str = 'confidence_weighted_var',
     inflate_vars: bool = False,
@@ -146,9 +152,15 @@ def fit_eks_multicam(
         save_dir: Directory to save output DataFrame.
         bodypart_list: List of body parts.
         smooth_param: Value in (0, Inf); smaller values lead to more smoothing.
-        s_frames: Frames for automatic optimization if smooth_param is not provided.
+        s_frames: Frame ranges used to optimize the smoothing parameter, as a list of
+            (start, end) tuples. Indices are 0-based with half-open intervals [start, end),
+            so end is excluded. Use None for open ends: (None, 100) selects frames 0–99,
+            (50, None) selects frame 50 through the last frame. Multiple non-overlapping
+            ranges are allowed, e.g. [(0, 100), (200, 300)]. If None (default), all frames
+            are used. Ignored when smooth_param is provided. Note: only affects parameter
+            optimization; final smoothing always runs over all frames.
         camera_names: List of camera names corresponding to the input data.
-        quantile_keep_pca: Percentage of points kept for PCA (default: 95).
+        quantile_keep_pca: Percentage of points kept for PCA (default: 50.0).
         avg_mode: Mode for averaging across ensemble ('median', 'mean').
         var_mode: mode for computing ensemble variance
             'var' | 'confidence_weighted_var'
@@ -209,7 +221,7 @@ def ensemble_kalman_smoother_multicam(
     marker_array: MarkerArray,
     keypoint_names: list,
     smooth_param: float | list | None = None,
-    quantile_keep_pca: float = 95.0,
+    quantile_keep_pca: float = 50.0,
     camera_names: list | None = None,
     s_frames: list | None = None,
     avg_mode: str = 'median',
@@ -236,9 +248,15 @@ def ensemble_kalman_smoother_multicam(
             Shape (n_models, n_cameras, n_frames, n_keypoints, 3 (for x, y, likelihood))
         keypoint_names: List of body parts to run smoothing on
         smooth_param: Value in (0, Inf); smaller values lead to more smoothing (default: None).
-        quantile_keep_pca: Percentage of points kept for PCA (default: 95).
+        quantile_keep_pca: Percentage of points kept for PCA (default: 50.0).
         camera_names: List of camera names corresponding to the input data (default: None).
-        s_frames: Frames for auto-optimization if smooth_param is not provided (default: None).
+        s_frames: Frame ranges used to optimize the smoothing parameter, as a list of
+            (start, end) tuples. Indices are 0-based with half-open intervals [start, end),
+            so end is excluded. Use None for open ends: (None, 100) selects frames 0–99,
+            (50, None) selects frame 50 through the last frame. Multiple non-overlapping
+            ranges are allowed, e.g. [(0, 100), (200, 300)]. If None (default), all frames
+            are used. Ignored when smooth_param is provided. Note: only affects parameter
+            optimization; final smoothing always runs over all frames.
         avg_mode: mode for averaging across ensemble
             'median' | 'mean'
         var_mode: mode for computing ensemble variance

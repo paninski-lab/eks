@@ -40,7 +40,7 @@ def fit_eks_multicam_ibl_paw(
     save_dir: str,
     smooth_param: float | list | None = None,
     s_frames: list | None = None,
-    quantile_keep_pca: float = 95.0,
+    quantile_keep_pca: float = 50.0,
     avg_mode: str = 'median',
     var_mode: str = 'confidence_weighted_var',
     verbose: bool = False,
@@ -55,8 +55,14 @@ def fit_eks_multicam_ibl_paw(
             input_source: Directory path or list of CSV file paths with columns for all cameras.
             save_dir: Directory to save output DataFrame.
             smooth_param: Value in (0, Inf); smaller values lead to more smoothing.
-            s_frames: Frames for automatic optimization if smooth_param is not provided.
-            quantile_keep_pca: Percentage of points kept for PCA (default: 95).
+            s_frames: Frame ranges used to optimize the smoothing parameter, as a list of
+                (start, end) tuples. Indices are 0-based with half-open intervals [start, end),
+                so end is excluded. Use None for open ends: (None, 100) selects frames 0–99,
+                (50, None) selects frame 50 through the last frame. Multiple non-overlapping
+                ranges are allowed, e.g. [(0, 100), (200, 300)]. If None (default), all frames
+                are used. Ignored when smooth_param is provided. Note: only affects parameter
+                optimization; final smoothing always runs over all frames.
+            quantile_keep_pca: Percentage of points kept for PCA (default: 50.0).
             avg_mode: Mode for averaging across ensemble ('median', 'mean').
             var_mode: mode for computing ensemble variance
                 'var' | 'confidence_weighted_var'
