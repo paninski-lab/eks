@@ -30,7 +30,13 @@ def fit_eks_singlecam(
         save_file: File to save output dataframe.
         bodypart_list: list of body parts to analyze.
         smooth_param: value in (0, Inf); smaller values lead to more smoothing
-        s_frames: Frames for automatic optimization if smooth_param is not provided.
+        s_frames: Frame ranges used to optimize the smoothing parameter, as a list of
+            (start, end) tuples. Indices are 0-based with half-open intervals [start, end),
+            so end is excluded. Use None for open ends: (None, 100) selects frames 0–99,
+            (50, None) selects frame 50 through the last frame. Multiple non-overlapping
+            ranges are allowed, e.g. [(0, 100), (200, 300)]. If None (default), all frames
+            are used. Ignored when smooth_param is provided. Note: only affects parameter
+            optimization; final smoothing always runs over all frames.
         blocks: keypoints to be blocked for correlated noise. Generates on smoothing param per
             block, as opposed to per keypoint.
             Specified by the form "x1, x2, x3; y1, y2" referring to keypoint indices (start at 0)
@@ -93,7 +99,13 @@ def ensemble_kalman_smoother_singlecam(
             Shape (n_models, n_cameras, n_frames, n_keypoints, 3 (for x, y, likelihood))
         keypoint_names: List of body parts to run smoothing on
         smooth_param: value in (0, Inf); smaller values lead to more smoothing
-        s_frames: List of frames for automatic computation of smoothing parameter
+        s_frames: Frame ranges used to optimize the smoothing parameter, as a list of
+            (start, end) tuples. Indices are 0-based with half-open intervals [start, end),
+            so end is excluded. Use None for open ends: (None, 100) selects frames 0–99,
+            (50, None) selects frame 50 through the last frame. Multiple non-overlapping
+            ranges are allowed, e.g. [(0, 100), (200, 300)]. If None (default), all frames
+            are used. Ignored when smooth_param is provided. Note: only affects parameter
+            optimization; final smoothing always runs over all frames.
         blocks: keypoints to be blocked for correlated noise. Generates one smoothing param per
             block, as opposed to per keypoint.
             Specified by the form "x1, x2, x3; y1, y2" referring to keypoint indices (start at 0)

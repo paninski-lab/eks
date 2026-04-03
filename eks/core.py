@@ -186,9 +186,9 @@ def run_kalman_smoother(
         Qs: (K, D, D) base process covariances (scaled by `s`).
         ensemble_vars: (T, K, obs) per-frame ensemble variances; used to build
             R_{k,t} via diag(clip(ensemble_vars[t, k, :], 1e-12, ∞)).
-        s_frames: Optional list of (start, end) tuples (1-based, inclusive end)
+        s_frames: Optional list of (start, end) tuples (0-based, half-open [start, end))
             to crop the time axis *for the loss only*. Final smoothing always
-            uses the full sequence.
+            uses the full sequence. Use None for open ends.
         smooth_param: If provided, bypass optimization. Either a scalar (shared
             across all keypoints) or a list/array of length K (per-keypoint).
         blocks: Optional list of lists of keypoint indices; each block shares one
@@ -317,11 +317,12 @@ def optimize_smooth_param(
     s_finals : np.ndarray, shape (K,)
         Output array filled with final per-keypoint `s` (block optimum broadcast
         to all members of that block). Modified in place.
-    s_frames : list[tuple[int, int]] or None
-        Optional list of frame ranges (start, end), using 1-based indexing with
-        inclusive end. These ranges are used to crop the time axis *for the loss
-        computation only* (both y and R_t); optimization ignores frames outside
-        these ranges. If None, all frames [1, T] are used.
+    s_frames : list[tuple[int | None, int | None]] or None
+        Optional list of frame ranges (start, end), using 0-based indexing with
+        half-open intervals [start, end). These ranges are used to crop the time
+        axis *for the loss computation only* (both y and R_t); optimization ignores
+        frames outside these ranges. Use None for open ends. If None, all frames
+        are used.
     s_guess_per_k : np.ndarray, shape (K,)
         Heuristic initial guesses of `s` per keypoint. For each block, the
         initial log(s) is seeded from the mean of member guesses.

@@ -111,7 +111,13 @@ def fit_eks_pupil(
         save_file: File to save output dataframe.
         smooth_params: [diameter param, center of mass param]
             each value should be in (0, 1); closer to 1 means more smoothing
-        s_frames: Frames for automatic optimization if needed.
+        s_frames: Frame ranges used to optimize the smoothing parameter, as a list of
+            (start, end) tuples. Indices are 0-based with half-open intervals [start, end),
+            so end is excluded. Use None for open ends: (None, 100) selects frames 0–99,
+            (50, None) selects frame 50 through the last frame. Multiple non-overlapping
+            ranges are allowed, e.g. [(0, 100), (200, 300)]. If None (default), all frames
+            are used. Ignored when smooth_params are fully provided. Note: only affects
+            parameter optimization; final smoothing always runs over all frames.
         avg_mode: mode for averaging across ensemble
             'median' | 'mean'
         var_mode: mode for computing ensemble variance
@@ -173,7 +179,13 @@ def ensemble_kalman_smoother_ibl_pupil(
             each list element is a dataframe of predictions from one ensemble member
         keypoint_names: List of body parts to run smoothing on
         smooth_params: contains smoothing parameters for diameter and center of mass
-        s_frames: frames for automatic optimization if s is not provided
+        s_frames: Frame ranges used to optimize the smoothing parameter, as a list of
+            (start, end) tuples. Indices are 0-based with half-open intervals [start, end),
+            so end is excluded. Use None for open ends: (None, 100) selects frames 0–99,
+            (50, None) selects frame 50 through the last frame. Multiple non-overlapping
+            ranges are allowed, e.g. [(0, 100), (200, 300)]. If None (default), all frames
+            are used. Ignored when smooth_params are fully provided. Note: only affects
+            parameter optimization; final smoothing always runs over all frames.
         avg_mode: mode for averaging across ensemble
             'median' | 'mean'
         var_mode: mode for computing ensemble variance
@@ -444,7 +456,8 @@ def pupil_optimize_smooth(
     x_var, y_var : Real
         Variance scales for com_x and com_y latents.
     s_frames : list[(start, end)] or None
-        1-based start, inclusive end cropping ranges for the loss only.
+        0-based, half-open [start, end) cropping ranges for the loss only.
+        Use None for open ends.
     smooth_params : Optional[Sequence[Real]]
         If provided and both values are not None, bypass optimization and use them directly.
     lr : float
