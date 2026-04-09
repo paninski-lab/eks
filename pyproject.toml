@@ -33,8 +33,12 @@ classifiers = [
 
 dependencies = [
     "aniposelib",
-    "dynamax",
-    "jax",
+    # Transient dep of dynamax, pinned to prevent starlette upgrade which breaks LPA.
+    # https://github.com/paninski-lab/eks/issues/70#issuecomment-4217129266
+    "python-fasthtml (<=0.12.50)",
+    "dynamax (<=1.0.1)",
+    # Dynamax needs jax pinned: https://github.com/paninski-lab/eks/issues/70
+    "jax (<=0.4.36)",
     "jaxlib",
     "matplotlib",
     "numpy (>=2.0.0)",
