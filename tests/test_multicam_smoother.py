@@ -1,5 +1,3 @@
-import os
-
 import cv2
 import jax
 import jax.numpy as jnp
@@ -354,7 +352,6 @@ Tests for calibration helpers:
 - Covariance projection via Jacobian vs finite differences
 """
 
-os.environ.setdefault("JAX_ENABLE_X64", "true")
 jax.config.update("jax_enable_x64", True)
 
 
