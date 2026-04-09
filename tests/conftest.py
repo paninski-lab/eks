@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 
 # URL of the zipped golden files. Update this after uploading a new release to GitHub.
-GOLDEN_URL = 'https://github.com/paninski-lab/eks-test-fixtures/releases/download/v1/eks_golden.zip'
+GOLDEN_URL = 'https://github.com/paninski-lab/eks-test-fixtures/releases/download/v1/eks_golden.zip'  # noqa: E501
 
 
 def pytest_addoption(parser):
