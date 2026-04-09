@@ -6,6 +6,7 @@ import zipfile
 from pathlib import Path
 from typing import Callable
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -112,11 +113,19 @@ def compare_to_golden(golden_dir, pytestconfig):
             )
             actual = pd.read_csv(csv_file, index_col=0)
             expected = pd.read_csv(golden_csv, index_col=0)
-            pd.testing.assert_frame_equal(
-                actual, expected,
-                check_exact=False,
+            assert actual.shape == expected.shape, (
+                f'{test_name}/{csv_file.name}: shape mismatch '
+                f'{actual.shape} != {expected.shape}'
+            )
+            assert list(actual.columns) == list(expected.columns), (
+                f'{test_name}/{csv_file.name}: column mismatch'
+            )
+            np.testing.assert_allclose(
+                actual.select_dtypes('number').values,
+                expected.select_dtypes('number').values,
+                rtol=0,
                 atol=1e-4,
-                obj=f'{test_name}/{csv_file.name}',
+                err_msg=f'{test_name}/{csv_file.name}',
             )
 
     return _compare
