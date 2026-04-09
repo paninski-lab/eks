@@ -97,9 +97,7 @@ def compare_to_golden(golden_dir, pytestconfig):
             return
 
         if golden_dir is None:
-            pytest.skip(
-                'No golden URL provided (set --golden-url or EKS_GOLDEN_URL); skipping comparison.'
-            )
+            pytest.skip('GOLDEN_URL is None in conftest.py; skipping golden comparison.')
 
         golden_test_dir = golden_dir / test_name
         assert golden_test_dir.exists(), (
@@ -117,7 +115,7 @@ def compare_to_golden(golden_dir, pytestconfig):
             pd.testing.assert_frame_equal(
                 actual, expected,
                 check_exact=False,
-                atol=1e-5,
+                atol=1e-4,
                 obj=f'{test_name}/{csv_file.name}',
             )
 

@@ -9,7 +9,7 @@ against a set of **golden files** — a reference snapshot of known-good outputs
 
 - **Without golden files**: tests only verify that the scripts exit without error (original behavior).
 - **With golden files**: after each script runs, all CSV outputs are compared against the
-  corresponding golden CSVs using `pandas.testing.assert_frame_equal` with `atol=1e-5`.
+  corresponding golden CSVs using `pandas.testing.assert_frame_equal` with `atol=1e-4`.
 
 ---
 
