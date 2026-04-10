@@ -1,3 +1,4 @@
+import time
 from typing import List, Literal, Tuple, Union
 
 import jax
@@ -10,7 +11,7 @@ from dynamax.nonlinear_gaussian_ssm import (
 )
 from jax import jit, lax
 from jax import numpy as jnp
-from jax import value_and_grad
+from jax import value_and_grad, vmap
 from typeguard import typechecked
 
 from eks.marker_array import MarkerArray
@@ -213,7 +214,10 @@ def run_kalman_smoother(
         print(f"Correlated keypoint blocks: {blocks}")
 
     # Build time-varying R (K, T, obs, obs)
+    _t0_ks = time.perf_counter()
     Rs = jnp.asarray(build_R_from_vars(np.swapaxes(ensemble_vars, 0, 1)))
+    if verbose:
+        print(f"[profile]   build_R: {time.perf_counter() - _t0_ks:.3f}s")
 
     # Initial s guesses
     s_guess_per_k = np.empty(K, dtype=float)
@@ -229,6 +233,7 @@ def run_kalman_smoother(
         else:
             s_finals[:] = np.asarray(smooth_param, dtype=float)
     else:
+        _t0_opt = time.perf_counter()
         optimize_smooth_param(
             ys=ys,
             m0s=m0s,
@@ -248,25 +253,30 @@ def run_kalman_smoother(
             safety_cap=safety_cap,
             h_fn_combined=h_fn,
         )
+        if verbose:
+            print(f"[profile]   optimize_smooth_param: {time.perf_counter() - _t0_opt:.3f}s")
 
-    # ---- Final smoother pass (full sequence) ----
-    means_list, covs_list = [], []
-    for k in range(K):
-        s_final = float(s_finals[k])
-        A_k, C_k = As[k], Cs[k]
-        f_fn = (lambda x, A=A_k: A @ x)
-        if h_fn is None:
-            h_fn_k = (lambda x, C=C_k: C @ x)
-        else:
-            h_fn_k = h_fn
-        params_k = params_nlgssm_for_keypoint(m0s[k], S0s[k], Qs[k], s_final, Rs[k], f_fn, h_fn_k,)
-        sm = extended_kalman_smoother(params_k, ys[k])  # EKF/RTS over full T
-        m_k, V_k = sm.smoothed_means, sm.smoothed_covariances
-        means_list.append(np.array(m_k))
-        covs_list.append(np.array(V_k))
+    # ---- Final smoother pass (full sequence) — vmapped over keypoints ----
+    _t0_sm = time.perf_counter()
 
-    ms = np.stack(means_list, axis=0)
-    Vs = np.stack(covs_list, axis=0)
+    _h_fn = h_fn  # fixed across all keypoints; None on linear path
+
+    def _smooth_one(y_k, m0_k, S0_k, A_k, Q_k, C_k, s_k, R_k):
+        def f_fn(x): return A_k @ x
+        h_fn_k = (lambda x: C_k @ x) if _h_fn is None else _h_fn
+        params = params_nlgssm_for_keypoint(m0_k, S0_k, Q_k, s_k, R_k, f_fn, h_fn_k)
+        sm = extended_kalman_smoother(params, y_k)
+        return sm.smoothed_means, sm.smoothed_covariances
+
+    ms_arr, Vs_arr = vmap(_smooth_one)(
+        ys, m0s, S0s, As, Qs, Cs, jnp.asarray(s_finals), Rs,
+    )
+    ms = np.array(ms_arr)   # (K, T, D)
+    Vs = np.array(Vs_arr)   # (K, T, D, D)
+
+    if verbose:
+        print(
+            f"[profile]   final smoother pass ({K} keypoints): {time.perf_counter() - _t0_sm:.3f}s")
     return s_finals, ms, Vs
 
 
