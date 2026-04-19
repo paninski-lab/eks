@@ -370,7 +370,18 @@ def optimize_smooth_param(
 
     s_lo, s_hi = s_bounds_log
 
-    # Optimize per block (shared s)
+    # ── Fast path: all singleton blocks → one jit+vmap over all K keypoints ──
+    if all(len(b) == 1 for b in blocks):
+        _vmap_optimize_singletons(
+            ys_np=ys_np, Rs_np=Rs_np, m0s=m0s, S0s=S0s, As=As, Qs=Qs, Cs=Cs,
+            blocks=blocks, s_finals=s_finals, s_frames=s_frames,
+            s_guess_per_k=s_guess_per_k, s_lo=s_lo, s_hi=s_hi, lr=lr,
+            tol=tol, safety_cap=safety_cap, min_R_var=min_R_var,
+            h_fn_combined=h_fn_combined, verbose=verbose,
+        )
+        return
+
+    # ── Slow path: correlated blocks with >1 member ───────────────────────────
     for block in blocks:
         B_idx = np.asarray(block, dtype=int)
 
@@ -510,6 +521,120 @@ def optimize_smooth_param(
             print(
                 f"[opt s | block {list(B_idx)}] s={s_star:.6g}, "
                 f"iters={int(iters_f)}, NLL={float(last_loss):.6f}")
+
+
+def _vmap_optimize_singletons(
+    ys_np, Rs_np, m0s, S0s, As, Qs, Cs,
+    blocks, s_finals, s_frames,
+    s_guess_per_k, s_lo, s_hi, lr, tol, safety_cap, min_R_var,
+    h_fn_combined, verbose,
+):
+    """
+    Fast path for optimize_smooth_param when every block is a single keypoint.
+
+    Instead of compiling a new @jit function per keypoint (28 separate XLA
+    compilations), we stack all K keypoints into batched arrays and run a
+    single jit(vmap(_optimize_one)) call — one compilation, all keypoints in
+    parallel.
+    """
+    block_order = [b[0] for b in blocks]
+    K = len(block_order)
+
+    # Pre-process: crop + constant-R for every keypoint, then stack
+    y_list, Rconst_list, m0_list, S0_list, A_list, Q_list, C_list = [], [], [], [], [], [], []
+    s_log_init_list = []
+
+    for k in block_order:
+        y_k_np = ys_np[k]
+        R_k_np = Rs_np[k]
+        if s_frames:
+            y_k_np = crop_frames(y_k_np, s_frames)
+            R_k_np = crop_R(R_k_np, s_frames)
+        R_const_np = constant_R_from_timevarying(R_k_np, min_var=min_R_var)
+
+        y_list.append(y_k_np)
+        Rconst_list.append(R_const_np)
+        m0_list.append(np.asarray(m0s[k]))
+        S0_list.append(np.asarray(S0s[k]))
+        A_list.append(np.asarray(As[k]))
+        Q_list.append(np.asarray(Qs[k]))
+        C_list.append(np.asarray(Cs[k]))
+
+        s0 = float(np.clip(s_guess_per_k[k], 1e-6, 1e3))
+        s_log_init_list.append(np.log(s0))
+
+    yAll      = jnp.asarray(np.stack(y_list))       # (K, T', obs)
+    RconstAll = jnp.asarray(np.stack(Rconst_list))  # (K, obs, obs)
+    m0All     = jnp.asarray(np.stack(m0_list))      # (K, D)
+    S0All     = jnp.asarray(np.stack(S0_list))      # (K, D, D)
+    AAll      = jnp.asarray(np.stack(A_list))       # (K, D, D)
+    QAll      = jnp.asarray(np.stack(Q_list))       # (K, D, D)
+    CAll      = jnp.asarray(np.stack(C_list))       # (K, obs, D)
+    s_log_init_all = jnp.asarray(s_log_init_list, dtype=jnp.float32)  # (K,)
+
+    # Shared emission fn (same for all keypoints; closed over, not vmapped)
+    _h_fn = wrap_emission_fn(h_fn_combined) if h_fn_combined is not None else None
+
+    def _optimize_one(y_k, Rconst_k, m0_k, S0_k, A_k, Q_k, C_k, s_log_init):
+        """Optimize s for one keypoint. All arrays are arguments → no closure over
+        concrete arrays → one XLA compilation shared across all K keypoints via vmap."""
+
+        def loss(s_log):
+            s = jnp.exp(jnp.clip(s_log, s_lo, s_hi))
+            f_fn = lambda x: A_k @ x
+            h_fn_k = _h_fn if _h_fn is not None else (lambda x: C_k @ x)
+            params = params_nlgssm_for_keypoint(m0_k, S0_k, Q_k, s, Rconst_k, f_fn, h_fn_k)
+            post = extended_kalman_filter(params, y_k)
+            nll = -post.marginal_loglik
+            return jnp.where(jnp.isfinite(nll), nll, 1e12)
+
+        loss_and_grad_fn = value_and_grad(loss)
+
+        opt = optax.adam(1.0)
+        opt_state = opt.init(s_log_init)
+
+        def cond(carry):
+            _, _, prev_loss, iters, done = carry
+            return jnp.logical_and(~done, iters < safety_cap)
+
+        def body(carry):
+            s_log, opt_state, prev_loss, iters, _ = carry
+            loss_val, grad = loss_and_grad_fn(s_log)
+            grad = grad * lr
+            updates, new_opt_state = opt.update(grad, opt_state)
+            new_s_log = optax.apply_updates(s_log, updates)
+            rel_tol = tol * jnp.abs(jnp.log(jnp.maximum(prev_loss, 1e-12)))
+            stop = jnp.where(
+                jnp.isfinite(prev_loss),
+                jnp.linalg.norm(loss_val - prev_loss) < (rel_tol + 1e-6),
+                False,
+            )
+            return (new_s_log, new_opt_state, loss_val, iters + 1, stop)
+
+        s_log_f, _, last_loss, iters_f, _ = lax.while_loop(
+            cond, body,
+            (s_log_init, opt_state, jnp.inf, jnp.array(0), jnp.array(False)),
+        )
+        return s_log_f, last_loss, iters_f
+
+    # One compilation, all K keypoints in parallel
+    _optimize_all = jit(vmap(_optimize_one))
+    s_log_all, last_losses, iters_all = _optimize_all(
+        yAll, RconstAll, m0All, S0All, AAll, QAll, CAll, s_log_init_all
+    )
+
+    s_log_all_np  = np.array(s_log_all)
+    last_losses_np = np.array(last_losses)
+    iters_all_np  = np.array(iters_all)
+
+    for i, k in enumerate(block_order):
+        s_star = float(np.exp(np.clip(s_log_all_np[i], s_lo, s_hi)))
+        s_finals[k] = s_star
+        if verbose:
+            print(
+                f"[opt s | block [{k}]] s={s_star:.6g}, "
+                f"iters={int(iters_all_np[i])}, NLL={float(last_losses_np[i]):.6f}"
+            )
 
 
 def constant_R_from_timevarying(R_t_np: np.ndarray, min_var: float = 1e-4) -> np.ndarray:
