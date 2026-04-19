@@ -563,13 +563,13 @@ def _vmap_optimize_singletons(
         s0 = float(np.clip(s_guess_per_k[k], 1e-6, 1e3))
         s_log_init_list.append(np.log(s0))
 
-    yAll      = jnp.asarray(np.stack(y_list))       # (K, T', obs)
+    yAll = jnp.asarray(np.stack(y_list))       # (K, T', obs)
     RconstAll = jnp.asarray(np.stack(Rconst_list))  # (K, obs, obs)
-    m0All     = jnp.asarray(np.stack(m0_list))      # (K, D)
-    S0All     = jnp.asarray(np.stack(S0_list))      # (K, D, D)
-    AAll      = jnp.asarray(np.stack(A_list))       # (K, D, D)
-    QAll      = jnp.asarray(np.stack(Q_list))       # (K, D, D)
-    CAll      = jnp.asarray(np.stack(C_list))       # (K, obs, D)
+    m0All = jnp.asarray(np.stack(m0_list))      # (K, D)
+    S0All = jnp.asarray(np.stack(S0_list))      # (K, D, D)
+    AAll = jnp.asarray(np.stack(A_list))       # (K, D, D)
+    QAll = jnp.asarray(np.stack(Q_list))       # (K, D, D)
+    CAll = jnp.asarray(np.stack(C_list))       # (K, obs, D)
     s_log_init_all = jnp.asarray(s_log_init_list, dtype=jnp.float32)  # (K,)
 
     # Shared emission fn (same for all keypoints; closed over, not vmapped)
@@ -581,7 +581,7 @@ def _vmap_optimize_singletons(
 
         def loss(s_log):
             s = jnp.exp(jnp.clip(s_log, s_lo, s_hi))
-            f_fn = lambda x: A_k @ x
+            def f_fn(x): return A_k @ x
             h_fn_k = _h_fn if _h_fn is not None else (lambda x: C_k @ x)
             params = params_nlgssm_for_keypoint(m0_k, S0_k, Q_k, s, Rconst_k, f_fn, h_fn_k)
             post = extended_kalman_filter(params, y_k)
@@ -623,9 +623,9 @@ def _vmap_optimize_singletons(
         yAll, RconstAll, m0All, S0All, AAll, QAll, CAll, s_log_init_all
     )
 
-    s_log_all_np  = np.array(s_log_all)
+    s_log_all_np = np.array(s_log_all)
     last_losses_np = np.array(last_losses)
-    iters_all_np  = np.array(iters_all)
+    iters_all_np = np.array(iters_all)
 
     for i, k in enumerate(block_order):
         s_star = float(np.exp(np.clip(s_log_all_np[i], s_lo, s_hi)))
