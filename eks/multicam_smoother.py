@@ -835,16 +835,26 @@ def make_projection_from_camgroup(camgroup):
 
 
 def triangulate_3d_models(marker_array, camgroup) -> np.ndarray:
-    """Triangulate per-model, per-kpt, per-frame: (M,K,T,3)."""
+    """Triangulate per-model, per-kpt, per-frame: (M,K,T,3).
+
+    M*K calls are independent so we parallelise over all available CPU cores.
+    """
+    from joblib import Parallel, delayed
+
     M, C, T, K, _ = marker_array.shape
     raw = marker_array.get_array()  # (M,C,T,K,3)
+
+    def _tri(m, k):
+        xy_views = raw[m, :, :, k, :2]  # (C, T, 2)
+        return m, k, camgroup.triangulate(xy_views, fast=True)  # (T, 3)
+
+    results = Parallel(n_jobs=-1, prefer="threads")(
+        delayed(_tri)(m, k) for m in range(M) for k in range(K)
+    )
+
     tri = np.zeros((M, K, T, 3), dtype=float)
-    for m in range(M):
-        for k in range(K):
-            # Batch all T frames together: shape (C, T, 2)
-            xy_views = raw[m, :, :, k, :2]  # (C, T, 2)
-            # triangulate expects (C, N, 2) and returns (N, 3)
-            tri[m, k, :, :] = camgroup.triangulate(xy_views, fast=True)
+    for m, k, arr in results:
+        tri[m, k] = arr
     return tri
 
 
@@ -863,24 +873,13 @@ def project_3d_covariance_to_2d(ms_k, Vs_k, h_cam, inflated_vars_k):
         var_y: (T,) - y-direction posterior variances
     """
 
-    # Compute Jacobian of projection function at each 3D point
-    def project_single_point(x_3d):
-        return h_cam(x_3d)
+    # Jacobians via vmap over T — one vectorized call instead of T individual dispatches
+    jacobians = np.array(vmap(jax.jacfwd(h_cam))(jnp.asarray(ms_k)))  # (T, 2, 3)
 
-    # Compute Jacobian for each time point
-    jacobians = []
-    for t in range(ms_k.shape[0]):
-        jac = jax.jacfwd(project_single_point)(ms_k[t])
-        jacobians.append(jac)
-
-    jacobians = np.array(jacobians)  # (T, 2, 3)
-
-    # Project 3D covariance to 2D: Cov_2D = J * Cov_3D * J^T
-    cov2d_proj = np.zeros((ms_k.shape[0], 2, 2))
-    for t in range(ms_k.shape[0]):
-        J = jacobians[t]  # (2, 3)
-        V_3d = Vs_k[t]  # (3, 3)
-        cov2d_proj[t] = J @ V_3d @ J.T  # (2, 2)
+    # Project 3D covariance to 2D: Cov_2D = J @ Cov_3D @ J^T, vectorized over T
+    J = jacobians          # (T, 2, 3)
+    V = np.array(Vs_k)    # (T, 3, 3)
+    cov2d_proj = J @ V @ J.transpose(0, 2, 1)  # (T, 2, 2)
 
     # Extract x and y variances and add ensemble variance
     var_x = cov2d_proj[:, 0, 0] + inflated_vars_k[:, 0]
