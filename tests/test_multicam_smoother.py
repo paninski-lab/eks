@@ -611,8 +611,11 @@ def test_project_3d_covariance_to_2d_matches_fd_linearization():
 
     var_x, var_y = project_3d_covariance_to_2d(ms_k, Vs_k, h_cam, inflated)
 
-    # check a few timesteps
-    for t in [0, 3, 5, 7]:
+    assert var_x.shape == (T,)
+    assert var_y.shape == (T,)
+
+    # check all timesteps
+    for t in range(T):
         J_fd = _finite_diff_jacobian(lambda x: np.array(h_cam(jnp.asarray(x))), ms_k[t])
         cov2d_fd = J_fd @ Vs_k[t] @ J_fd.T
         np.testing.assert_allclose(var_x[t] - inflated[t, 0], cov2d_fd[0, 0], rtol=1e-4, atol=1e-6)
