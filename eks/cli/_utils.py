@@ -228,9 +228,11 @@ def add_inflate_vars(parser: argparse.ArgumentParser) -> argparse.ArgumentParser
         The modified parser.
     """
     parser.add_argument(
-        '--inflate-vars',
-        help='use Mahalanobis distances to inflate ensemble variance in multicam',
-        action='store_true',
+        '--no-inflate-vars',
+        dest='inflate_vars',
+        action='store_false',
+        default=True,
+        help='disable Mahalanobis distance-based variance inflation (enabled by default)',
     )
     return parser
 
