@@ -18,7 +18,7 @@ For more details see [Biderman, Whiteway et al. 2024, Nature Methods](https://rd
 ## Installation
 
 We offer two methods for installing the `eks` package:
-* Method 1, `github+conda`: this is the preferred installation method and will give you access to example scripts and data
+* Method 1, `github+conda`: this is the preferred installation method and will give you access to example data
 * Method 2, `pip`: this option is intended for non-interactive environments, such as remote servers.
 
 For both installation methods we recommend using
@@ -68,89 +68,75 @@ You can also install the `eks` package using the Python Package Index (PyPI):
 ```
 python3 -m pip install ensemble-kalman-smoother
 ```
-Note that you will not have access to the example data or example scripts with the pip install 
-option.
+Note that you will not have access to the example data with the pip install option.
 
-## Example scripts
+## Usage
 
-We provide several example datasets and fitting scripts to illustrate use of the package. See
-[Command-Line Arguments](docs/command-line_arguments.md) for more information on arguments, 
-including optional flags and defaults. We recommend starting with the first of four scripts outlined
-below, `singlecam_example.py`, following along with the [Singlecam Overview](docs/singlecam_overview.md)
-if a deeper understanding of EKS is desired.
+After installation, the `eks` command is available in your environment. Run `eks --help` to see
+available subcommands, or `eks <subcommand> --help` for full argument details for any subcommand.
 
 ### Single-camera datasets
-The `singlecam_example.py` script demonstrates how to run the EKS code for standard single-camera
-setups. 
-Any of the provided datasets are compatible with this script; below we'll use `data/ibl-pupil` as
-our example. 
-To run the EKS on the example data, execute the following command from inside this repo:
 
-```console 
-python scripts/singlecam_example.py --input-dir ./data/ibl-pupil
+The `singlecam` subcommand runs EKS for standard single-camera setups. Any of the provided
+datasets are compatible; below we use `data/ibl-pupil` as an example.
+
+```console
+eks singlecam --input-dir ./data/ibl-pupil --make-plot
 ```
 
-The singlecam script is currently the most up-to-date script with the greatest number of feature
-implementations, including fast smoothing parameter auto-tuning using GPU-driven parallelization.
-[Here](docs/singlecam_overview.md) is a detailed overview of the workflow.
-
 ### Multi-camera datasets
-The `multicam_example.py` script supports two modes for multi-camera setups, 
-depending on whether camera calibration information is available.
-In both cases, pose predictions should be stored a separate csv file per camera.
+
+The `multicam` subcommand supports two modes depending on whether camera calibration is available.
+Pose predictions should be stored in a separate CSV file per camera.
 
 #### Without calibration (linear EKS)
-We provide example data in `data/mirror-mouse-separate`, 
-containing two-view mouse video with cameras named `top` and `bot`. 
-To run linear EKS on this data , execute the following command from inside this repo:
 
-```console 
-python scripts/multicam_example.py --input-dir ./data/mirror-mouse-separate --bodypart-list paw1LH paw2LF paw3RF paw4RH --camera-names top bot
+Example data in `data/mirror-mouse-separate` contains two-view mouse video with cameras named
+`top` and `bot`:
+
+```console
+eks multicam --input-dir ./data/mirror-mouse-separate --bodypart-list paw1LH paw2LF paw3RF paw4RH --camera-names top bot --make-plot
 ```
 
 #### With calibration (nonlinear EKS)
 
-If camera calibration information is available, you can run a nonlinear version of EKS. 
-Calibration data must be stored in `.toml` files using the [Anipose](https://anipose.readthedocs.io/) format. 
-We provide example data in `data/fly`, containing multi-view fly video with cameras named 
-`Cam-A`, `Cam-B`, and `Cam-C`, along with a corresponding `calibration.toml` file. 
-To run nonlinear EKS on this data, execute the following command from inside this repo:
+Calibration data must be stored in `.toml` files using the
+[Anipose](https://anipose.readthedocs.io/) format.
+Example data in `data/fly` contains multi-view fly video with cameras `Cam-A`, `Cam-B`, and
+`Cam-C`, along with a `calibration.toml` file:
 
-```console 
-python scripts/multicam_example.py --input-dir ./data/fly --bodypart-list L1A L1B --camera-names Cam-A Cam-B Cam-C --calibration ./data/fly/calibration.toml
+```console
+eks multicam --input-dir ./data/fly --bodypart-list L1A L1B --camera-names Cam-A Cam-B Cam-C --calibration ./data/fly/calibration.toml --make-plot
 ```
- 
-### Mirrored multi-camera datasets
-The `mirrored_multicam_example.py` script demonstrates how to run the EKS code for multi-camera
-setups where the pose predictions for a given model are all stored in a single csv file. 
-For example, if there is a body part names `nose_tip` and three cameras named 
-`top`, `bottom`, and `side`, then the csv file should have columns named
-`nose_tip_top`, `nose_tip_bottom`, and `nose_tip_side`.
-We provide example data in the `data/mirror-mouse` directory inside this repo, 
-for a two-view video of a mouse with cameras named `top` and `bot`. 
-To run the EKS on the example data provided, execute the following command from inside this repo:
 
-```console 
-python scripts/mirrored_multicam_example.py --input-dir ./data/mirror-mouse --bodypart-list paw1LH paw2LF paw3RF paw4RH --camera-names top bot
+### Mirrored multi-camera datasets
+
+The `mirrored-multicam` subcommand handles setups where pose predictions for all cameras are
+stored in a single CSV file. For example, a body part `nose_tip` with cameras `top`, `bottom`,
+and `side` should have columns named `nose_tip_top`, `nose_tip_bottom`, and `nose_tip_side`.
+Example data in `data/mirror-mouse` contains a two-view mouse video with cameras `top` and `bot`:
+
+```console
+eks mirrored-multicam --input-dir ./data/mirror-mouse --bodypart-list paw1LH paw2LF paw3RF paw4RH --camera-names top bot --make-plot
 ```
 
 ### IBL pupil dataset
-The `ibl_pupil_example.py` script requires a `input-dir` which contains lightning-pose or DLC 
-model predictions. 
-To run this script on the example data provided, execute the following command from inside this repo:
 
-```console 
-python scripts/ibl_pupil_example.py --input-dir ./data/ibl-pupil
+The `ibl-pupil` subcommand expects an `--input-dir` containing Lightning Pose or DLC model
+predictions:
+
+```console
+eks ibl-pupil --input-dir ./data/ibl-pupil --make-plot
 ```
 
 ### IBL paw dataset (multiple asynchronous views)
-The `ibl_paw_multiview_example.py` script requires a `input-dir` which contains lightning-pose 
-or DLC model predictions for the left and right camera views, as well as timestamp files to align 
-the two cameras. 
-To run this script on the example data provided, execute the following command from inside this repo:
 
-```console 
-python scripts/ibl_paw_multiview_example.py --input-dir ./data/ibl-paw
+The `ibl-paw` subcommand expects an `--input-dir` containing Lightning Pose or DLC model
+predictions for the left and right camera views, as well as timestamp files to align the two
+cameras:
+
+```console
+eks ibl-paw --input-dir ./data/ibl-paw --make-plot
 ```
 
 ### Authors

@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [project]
 name = "ensemble-kalman-smoother"
-version = "4.5.1"
+version = "4.6.0"
 description = "Ensembling and kalman smoothing for pose estimation"
 license = "MIT"
 readme = "README.md"
@@ -54,6 +54,9 @@ dependencies = [
     "typing",
 ]
 
+[project.scripts]
+eks = "eks.cli.main:main"
+
 [project.urls]
 repository = "https://github.com/paninski-lab/eks"
 documentation = "https://github.com/paninski-lab/eks"
@@ -88,7 +91,6 @@ exclude = [
     "build",
     "dist",
     "docs/",
-    "scripts/",
 ]
 
 [tool.isort]
