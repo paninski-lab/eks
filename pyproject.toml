@@ -54,6 +54,9 @@ dependencies = [
     "typing",
 ]
 
+[project.scripts]
+eks = "eks.cli.main:main"
+
 [project.urls]
 repository = "https://github.com/paninski-lab/eks"
 documentation = "https://github.com/paninski-lab/eks"
@@ -88,7 +91,6 @@ exclude = [
     "build",
     "dist",
     "docs/",
-    "scripts/",
 ]
 
 [tool.isort]

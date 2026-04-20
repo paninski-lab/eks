@@ -1,15 +1,15 @@
 from tests.conftest import GOLDEN_URL
 
-# Integration Script Tests
+# Integration Tests
 
-These tests run the example scripts end-to-end and optionally compare their CSV outputs
+These tests run the CLI end-to-end and optionally compare their CSV outputs
 against a set of **golden files** — a reference snapshot of known-good outputs.
 
 ## How tests work
 
-- **Without golden files**: tests only verify that the scripts exit without error (original behavior).
-- **With golden files**: after each script runs, all CSV outputs are compared against the
-  corresponding golden CSVs using `pandas.testing.assert_frame_equal` with `atol=1e-4`.
+- **Without golden files**: tests only verify that the CLI exits without error (original behavior).
+- **With golden files**: after each command runs, all CSV outputs are compared against the
+  corresponding golden CSVs using `numpy.testing.assert_allclose` with `atol=1e-4`.
 
 ---
 
@@ -19,7 +19,7 @@ Run this whenever you want to establish a new baseline (e.g. after an intentiona
 to the algorithm, or when setting up golden files for the first time).
 
 ```bash
-pytest tests/scripts/ \
+pytest tests/integration/ \
     --generate-golden \
     --golden-dir /tmp/eks_golden
 ```
@@ -29,14 +29,14 @@ This runs every integration test and copies the CSV outputs into
 
 ```
 /tmp/eks_golden/
-  test_singlecam_example_defaults/
+  test_singlecam_defaults/
     eks_singlecam.csv
-  test_singlecam_example_fixed_smooth_param/
+  test_singlecam_fixed_smooth_param/
     eks_singlecam.csv
-  test_multicam_example_defaults/
+  test_multicam_defaults/
     multicam_top_results.csv
     multicam_bot_results.csv
-  test_multicam_example_defaults_nonlinear/
+  test_multicam_defaults_nonlinear/
     multicam_Cam-A_results.csv
     multicam_Cam-B_results.csv
     multicam_Cam-C_results.csv
@@ -71,7 +71,7 @@ Commit this change so CI and other contributors pick it up automatically.
 ## Running tests with golden comparison
 
 ```bash
-pytest tests/scripts/
+pytest tests/integration/
 ```
 
 The golden zip is downloaded once per test session and cached in a temporary directory.
@@ -79,5 +79,5 @@ Golden comparison is skipped automatically when `GOLDEN_URL = None` in `conftest
 
 ### Without golden comparison
 
-Set `GOLDEN_URL = None` in `tests/conftest.py`. Tests will only verify that the scripts
-exit without error (original behavior).
+Set `GOLDEN_URL = None` in `tests/conftest.py`. Tests will only verify that the CLI
+exits without error (original behavior).

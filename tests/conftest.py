@@ -52,16 +52,16 @@ def golden_dir(tmp_path_factory, pytestconfig):
 
 
 @pytest.fixture
-def run_script() -> Callable:
+def run_cli() -> Callable:
 
-    def _run_script(script_file, input_dir, output_dir, **kwargs) -> Path:
+    def _run_cli(subcommand, input_dir, output_dir, **kwargs) -> Path:
 
         command_str = [
-            'python',
-            script_file,
+            'eks',
+            subcommand,
             '--input-dir', input_dir,
             '--save-dir', str(output_dir),
-            '--verbose', 'True',
+            '--verbose',
         ]
         for key, arg in kwargs.items():
             command_str.append(f'--{key.replace("_", "-")}')
@@ -74,7 +74,7 @@ def run_script() -> Callable:
         assert process.returncode == 0
         return Path(str(output_dir))
 
-    return _run_script
+    return _run_cli
 
 
 @pytest.fixture
