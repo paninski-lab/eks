@@ -212,7 +212,11 @@ def plot_results(
             axes[-1].plot(range(*idxs), nll_values_subset, color='k', linewidth=2)
             axes[-1].set_ylabel('EKS NLL', fontsize=12)
 
-    plt.suptitle(f'EKS results for {key}, smoothing = {s_final}', fontsize=14)
+    if isinstance(s_final, tuple):
+        s_final_str = f'({s_final[0]:.2f}, {s_final[1]:.2f})'
+    else:
+        s_final_str = f'{s_final:.2f}'
+    plt.suptitle(f'EKS results for {key}, smoothing = {s_final_str}', fontsize=14)
     plt.tight_layout()
     save_file = os.path.join(save_dir, f'{smoother_type}_{key}.pdf')
     plt.savefig(save_file)

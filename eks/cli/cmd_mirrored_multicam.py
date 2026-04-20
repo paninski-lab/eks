@@ -71,7 +71,7 @@ def cmd_mirrored_multicam(args: argparse.Namespace) -> None:
             input_dfs_list=input_dfs,
             key=f'{bodypart_list[-1]}_{args.camera_names[0]}',
             idxs=(0, 500),
-            s_final=s_finals,
+            s_final=s_finals[-1],
             nll_values=None,
             save_dir=str(save_dir),
             smoother_type='multicam',
