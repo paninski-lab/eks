@@ -1,6 +1,5 @@
 import numpy as np
 from sklearn.decomposition import PCA, FactorAnalysis
-from typeguard import typechecked
 
 from eks.marker_array import MarkerArray, mA_to_stacked_array
 
@@ -63,7 +62,6 @@ def compute_pca(
     return ensemble_pca, good_pcs_list
 
 
-@typechecked
 def compute_mahalanobis(
     x: np.ndarray,
     v: np.ndarray,

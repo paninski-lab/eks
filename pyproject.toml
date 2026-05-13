@@ -50,8 +50,6 @@ dependencies = [
     "sleap_io",
     "toml",
     "tqdm",
-    "typeguard",
-    "typing",
 ]
 
 [project.scripts]
@@ -110,6 +108,10 @@ ignore = [
 
 [tool.ruff.lint.isort]
 known-first-party = ["eks"]
+
+[tool.pyright]
+reportMissingImports = "none"
+reportMissingModuleSource = "none"
 
 [tool.pytest.ini_options]
 testpaths = "tests"

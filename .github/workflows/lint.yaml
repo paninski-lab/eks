@@ -22,14 +22,15 @@ jobs:
           python-version: '3.10'
 
       - name: Install linters
-        run: pip install ruff
+        run: pip install ruff pyright
 
       - name: Lint with ruff
+        id: ruff
         run: ruff check eks tests
         # Reads config from [tool.ruff] in pyproject.toml
 
       - name: Show fix instructions if linting failed
-        if: failure()
+        if: always() && steps.ruff.outcome == 'failure'
         run: |
           echo ""
           echo "Linting failed!"
@@ -39,4 +40,18 @@ jobs:
           echo ""
           echo "To see all violations without fixing, run:"
           echo "  ruff check eks tests"
+          echo ""
+
+      - name: Type check with pyright
+        id: pyright
+        run: pyright eks
+
+      - name: Show fix instructions if type checking failed
+        if: always() && steps.pyright.outcome == 'failure'
+        run: |
+          echo ""
+          echo "Type checking failed!"
+          echo ""
+          echo "To reproduce locally, run:"
+          echo "  pyright eks"
           echo ""

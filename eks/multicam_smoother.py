@@ -10,7 +10,6 @@ import pandas as pd
 from aniposelib.cameras import CameraGroup
 from jax import jit, vmap
 from sklearn.decomposition import PCA
-from typeguard import typechecked
 
 from eks.core import ensemble, run_kalman_smoother
 from eks.marker_array import (
@@ -25,7 +24,6 @@ from eks.utils import center_predictions, format_data, make_dlc_pandas_index
 logger = logging.getLogger(__name__)
 
 
-@typechecked
 def fit_eks_mirrored_multicam(
     input_source: str | list,
     save_file: str,
@@ -127,7 +125,6 @@ def fit_eks_mirrored_multicam(
     return final_df, smooth_params_final, input_dfs_list, bodypart_list
 
 
-@typechecked
 def fit_eks_multicam(
     input_source: str | list,
     save_dir: str,
@@ -189,6 +186,8 @@ def fit_eks_multicam(
         camera_names = [cam.name for cam in camgroup.cameras]
     else:
         camgroup = None
+        if camera_names is None:
+            raise ValueError('camera_names must be provided when no calibration file is given')
 
     _t0 = time.perf_counter()
     input_dfs_list, keypoint_names = format_data(input_source, camera_names=camera_names)
@@ -224,13 +223,12 @@ def fit_eks_multicam(
     return camera_dfs, smooth_params_final, input_dfs_list, bodypart_list, df_3d
 
 
-@typechecked
 def ensemble_kalman_smoother_multicam(
     marker_array: MarkerArray,
     keypoint_names: list,
+    camera_names: list,
     smooth_param: float | list | None = None,
     quantile_keep_pca: float = 50.0,
-    camera_names: list | None = None,
     s_frames: list | None = None,
     avg_mode: str = 'median',
     var_mode: str = 'confidence_weighted_var',
@@ -254,9 +252,9 @@ def ensemble_kalman_smoother_multicam(
         marker_array: MarkerArray object containing marker data.
             Shape (n_models, n_cameras, n_frames, n_keypoints, 3 (for x, y, likelihood))
         keypoint_names: List of body parts to run smoothing on
+        camera_names: List of camera names corresponding to the input data.
         smooth_param: Value in (0, Inf); smaller values lead to more smoothing (default: None).
         quantile_keep_pca: Percentage of points kept for PCA (default: 50.0).
-        camera_names: List of camera names corresponding to the input data.
         s_frames: Frame ranges used to optimize the smoothing parameter, as a list of
             (start, end) tuples. Indices are 0-based with half-open intervals [start, end),
             so end is excluded. Use None for open ends: (None, 100) selects frames 0–99,
@@ -599,8 +597,15 @@ def initialize_kalman_filter_geometric(ys: np.ndarray) -> tuple[jnp.ndarray, ...
     )
 
 
-def mA_compute_maha(centered_emA_preds, emA_vars, emA_likes, n_latent,
-                    inflate_vars_kwargs={}, threshold=5, scalar=10):
+def mA_compute_maha(
+    centered_emA_preds: np.ndarray,
+    emA_vars: np.ndarray,
+    emA_likes: np.ndarray,
+    n_latent: int,
+    inflate_vars_kwargs: dict={},
+    threshold: float = 5.0,
+    scalar: float = 10.0
+) -> list:
     """
     Reshape marker arrays for Mahalanobis computation, compute Mahalanobis distances,
     and optionally inflate variances for all keypoints.
@@ -663,12 +668,11 @@ def mA_compute_maha(centered_emA_preds, emA_vars, emA_likes, n_latent,
     return emA_inflated_vars
 
 
-@typechecked
 def inflate_variance(
     v: np.ndarray,
     maha_dict: dict,
     threshold: float = 5.0,
-    scalar: float = 2.0
+    scalar: float = 10.0
 ) -> tuple:
     """Inflate ensemble variances for Mahalanobis distances exceeding a threshold.
 

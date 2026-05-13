@@ -12,7 +12,6 @@ from dynamax.nonlinear_gaussian_ssm import (
 )
 from jax import jit, lax, value_and_grad, vmap
 from jax import numpy as jnp
-from typeguard import typechecked
 
 from eks.marker_array import MarkerArray
 from eks.utils import build_R_from_vars, crop_frames, crop_R
@@ -20,7 +19,6 @@ from eks.utils import build_R_from_vars, crop_frames, crop_R
 logger = logging.getLogger(__name__)
 
 
-@typechecked
 def ensemble(
     marker_array: MarkerArray,
     avg_mode: Literal['mean', 'median'] = 'median',
@@ -95,7 +93,6 @@ def ensemble(
     return ensemble_marker_array
 
 
-@typechecked
 def compute_initial_guesses(
     ensemble_vars: np.ndarray | list
 ) -> float:
@@ -143,7 +140,6 @@ def params_nlgssm_for_keypoint(m0, S0, Q, s, R, f_fn, h_fn) -> ParamsNLGSSM:
 
 
 # ----------------- Public API -----------------
-@typechecked
 def run_kalman_smoother(
     ys: jnp.ndarray,                 # (K, T, obs)
     m0s: jnp.ndarray,                # (K, D)

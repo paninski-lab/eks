@@ -5,14 +5,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from sleap_io.io.slp import read_labels
-from typeguard import typechecked
 
 from eks.marker_array import MarkerArray
 
 logger = logging.getLogger(__name__)
 
 
-@typechecked
 def make_dlc_pandas_index(
     keypoint_names: list,
     labels: list = ["x", "y", "likelihood"],
@@ -24,7 +22,6 @@ def make_dlc_pandas_index(
     return pdindex
 
 
-@typechecked
 def convert_lp_dlc(
     df_lp: pd.DataFrame,
     keypoint_names: list,
@@ -52,7 +49,6 @@ def convert_lp_dlc(
     return df_dlc
 
 
-@typechecked
 def convert_slp_dlc(base_dir: str, slp_file: str) -> tuple:
     # Read data from .slp file
     filepath = os.path.join(base_dir, slp_file)
@@ -95,13 +91,11 @@ def convert_slp_dlc(base_dir: str, slp_file: str) -> tuple:
     return df, keypoint_names
 
 
-@typechecked
 def get_keypoint_names(df: pd.DataFrame) -> list:
     kps = df.columns[df.columns.get_level_values('coords') == 'x'].get_level_values('bodyparts')
     return kps.tolist()
 
 
-@typechecked
 def format_data(input_source: str | list, camera_names: list | None = None) -> tuple:
     """
     Load and format input files from a directory or a list of file paths.
@@ -298,7 +292,6 @@ def crop_frames(y: np.ndarray,
     return np.concatenate([y[s:e] for s, e in spans], axis=0)
 
 
-@typechecked()
 def center_predictions(
     ensemble_marker_array: MarkerArray,
     quantile_keep_pca: float
@@ -374,7 +367,6 @@ def center_predictions(
     return valid_frames_mask, emA_centered_preds, emA_good_centered_preds, emA_means
 
 
-@typechecked
 def build_R_from_vars(ev: np.ndarray) -> np.ndarray:
     """
     Build time-varying diagonal observation covariances from per-dimension variances.
@@ -387,7 +379,6 @@ def build_R_from_vars(ev: np.ndarray) -> np.ndarray:
     return ev_np[..., :, None] * np.eye(O_dim, dtype=ev_np.dtype)
 
 
-@typechecked
 def crop_R(R: np.ndarray, s_frames: list | None) -> np.ndarray:
     """
     Crop time-varying R along its time axis using the same spec as crop_frames.

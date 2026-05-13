@@ -4,7 +4,6 @@ import numpy as np
 import pandas as pd
 from scipy.interpolate import interp1d
 from sklearn.decomposition import PCA
-from typeguard import typechecked
 
 from eks.marker_array import MarkerArray, input_dfs_to_markerArray
 from eks.multicam_smoother import ensemble_kalman_smoother_multicam
@@ -34,7 +33,6 @@ def pca(S, n_comps):
     return pca_.fit(S), pca_.explained_variance_ratio_
 
 
-@typechecked
 def fit_eks_multicam_ibl_paw(
     input_source: str | list,
     save_dir: str,

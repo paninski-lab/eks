@@ -4,7 +4,6 @@ import os
 import jax.numpy as jnp
 import numpy as np
 import pandas as pd
-from typeguard import typechecked
 
 from eks.core import ensemble, run_kalman_smoother
 from eks.marker_array import MarkerArray, input_dfs_to_markerArray
@@ -13,7 +12,6 @@ from eks.utils import center_predictions, format_data, make_dlc_pandas_index
 logger = logging.getLogger(__name__)
 
 
-@typechecked
 def fit_eks_singlecam(
     input_source: str | list,
     save_file: str,
@@ -81,7 +79,6 @@ def fit_eks_singlecam(
     return df_smoothed, smooth_params_final, input_dfs_list, bodypart_list
 
 
-@typechecked
 def ensemble_kalman_smoother_singlecam(
     marker_array: MarkerArray,
     keypoint_names: list,

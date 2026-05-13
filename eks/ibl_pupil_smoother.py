@@ -14,7 +14,6 @@ from dynamax.nonlinear_gaussian_ssm.inference_ekf import (
 )
 from jax import jit, lax, value_and_grad
 from jax import numpy as jnp
-from typeguard import typechecked
 
 from eks.core import ensemble, params_nlgssm_for_keypoint
 from eks.marker_array import MarkerArray, input_dfs_to_markerArray
@@ -23,7 +22,6 @@ from eks.utils import build_R_from_vars, crop_frames, crop_R, format_data, make_
 logger = logging.getLogger(__name__)
 
 
-@typechecked
 def get_pupil_location(dlc: dict) -> np.ndarray:
     """get mean of both pupil diameters
     d1 = top - bottom, d2 = left - right
@@ -52,7 +50,6 @@ def get_pupil_location(dlc: dict) -> np.ndarray:
     return center
 
 
-@typechecked
 def get_pupil_diameter(dlc: dict) -> np.ndarray:
     """
     from: https://int-brain-lab.github.io/iblenv/_modules/brainbox/behavior/dlc.html
@@ -95,7 +92,6 @@ def add_mean_to_array(pred_arr, keys, mean_x, mean_y):
     return processed_arr_dict
 
 
-@typechecked
 def fit_eks_pupil(
     input_source: str | list,
     save_file: str,
@@ -159,7 +155,6 @@ def fit_eks_pupil(
     return df_smoothed, smooth_params_final, input_dfs_list, bodypart_list
 
 
-@typechecked
 def ensemble_kalman_smoother_ibl_pupil(
     marker_array: MarkerArray,
     keypoint_names: list,
@@ -326,7 +321,6 @@ def ensemble_kalman_smoother_ibl_pupil(
 
 
 # ----------------- Public API -----------------
-@typechecked
 def run_pupil_kalman_smoother(
     ys: jnp.ndarray,                 # (T, 8) centered obs
     m0: jnp.ndarray,                 # (3,)
@@ -414,7 +408,6 @@ def run_pupil_kalman_smoother(
 
 
 # ----------------- Optimizer (two-parameter AR(1)) -----------------
-@typechecked
 def pupil_optimize_smooth(
     ys: jnp.ndarray,                 # (T, 8) centered obs
     m0: jnp.ndarray,                 # (3,)
@@ -554,7 +547,6 @@ def pupil_optimize_smooth(
     return float(s_opt[0]), float(s_opt[1])
 
 
-@typechecked
 def pupil_smooth(
     smooth_params: Sequence[float],      # [s_diam, s_com] in (0,1)
     ys: np.ndarray | jnp.ndarray,        # (T, 8)
