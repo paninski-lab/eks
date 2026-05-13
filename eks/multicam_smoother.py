@@ -1,7 +1,6 @@
 import logging
 import os
 import time
-from typing import Tuple
 
 import cv2
 import jax
@@ -88,11 +87,11 @@ def fit_eks_mirrored_multicam(
     camera_model_dfs = [[None] * n_models for _ in range(n_cameras)]
 
     for model_idx, df in enumerate(input_dfs_list):
-        for cam_idx, cam_name in enumerate(camera_names):
+        for cam_idx, camera_name in enumerate(camera_names):
             # Extract columns belonging to this camera
             camera_columns = {
-                col: col.replace(f"_{cam_name}", "")
-                for col in df.columns if f"_{cam_name}_" in col
+                col: col.replace(f"_{camera_name}", "")
+                for col in df.columns if f"_{camera_name}_" in col
             }
             # Create DataFrame for this camera and rename columns
             camera_df = df[list(camera_columns.keys())].rename(columns=camera_columns)
@@ -217,8 +216,8 @@ def fit_eks_multicam(
     )
     # Save output DataFrames to CSVs (one per camera view)
     os.makedirs(save_dir, exist_ok=True)
-    for c, camera in enumerate(camera_names):
-        save_filename = f'multicam_{camera}_results.csv'
+    for c, camera_name in enumerate(camera_names):
+        save_filename = f'multicam_{camera_name}_results.csv'
         camera_dfs[c].to_csv(os.path.join(save_dir, save_filename))
     if save_3d_outputs and calibration is not None:
         df_3d.to_csv(os.path.join(save_dir, 'multicam_3d_results.csv'))
@@ -433,7 +432,7 @@ def ensemble_kalman_smoother_multicam(
             y_v_smooth = np.swapaxes(np.dot(C_k, np.dot(Vs_k, C_k.T)), 0, 1)
             # Final cleanup
             c_i = [[c * 2, c * 2 + 1] for c in range(V)]
-            for c, camera in enumerate(camera_names):
+            for c, _ in enumerate(camera_names):
                 data_arr = camera_arrs[c]
                 x_i, y_i = c_i[c]
                 data_arr.extend([
@@ -467,7 +466,7 @@ def ensemble_kalman_smoother_multicam(
     pdindex = make_dlc_pandas_index(keypoint_names, labels=labels)
 
     camera_dfs = []
-    for c, cam_name in enumerate(camera_names):
+    for c, _ in enumerate(camera_names):
         camera_arr = np.asarray(camera_arrs[c])
         camera_df = pd.DataFrame(camera_arr.T, columns=pdindex)
         camera_dfs.append(camera_df)
@@ -543,7 +542,7 @@ def initialize_kalman_filter_pca(
     )
 
 
-def initialize_kalman_filter_geometric(ys: np.ndarray) -> Tuple[jnp.ndarray, ...]:
+def initialize_kalman_filter_geometric(ys: np.ndarray) -> tuple[jnp.ndarray, ...]:
     """
     Initialize Kalman filter parameters for geometric (3D) keypoints.
 

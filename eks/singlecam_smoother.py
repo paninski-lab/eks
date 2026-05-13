@@ -251,7 +251,7 @@ def initialize_kalman_filter(emA_centered_preds: MarkerArray) -> tuple:
 
     # Compute covariance matrices
     cov_mats = []
-    for i in range(n_keypoints):
+    for _ in range(n_keypoints):
         cov_mats.append([[1, 0], [0, 1]])
     cov_mats = np.array(cov_mats)
 

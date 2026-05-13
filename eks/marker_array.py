@@ -1,4 +1,4 @@
-from typing import List, Optional, Tuple, Union
+from typing import Optional
 
 import jax.numpy as jnp
 import numpy as np
@@ -7,9 +7,9 @@ import numpy as np
 class MarkerArray:
     def __init__(
         self,
-        array: Optional[Union[np.ndarray, jnp.ndarray]] = None,
-        shape: Optional[Tuple[int, int, int, int, int]] = None,
-        data_fields: Optional[List[str]] = None,
+        array: np.ndarray | jnp.ndarray | None = None,
+        shape: tuple[int, int, int, int, int] | None = None,
+        data_fields: list[str] | None = None,
         marker_array: Optional["MarkerArray"] = None,
         dtype: type = np.float32
     ):
@@ -45,14 +45,14 @@ class MarkerArray:
                 "Input must be a NumPy or JAX array."
             assert array.ndim == 5, \
                 "Expected shape (n_models, n_cameras, n_frames, n_keypoints, n_fields)."
-            self.array: Union[np.ndarray, jnp.ndarray] = array
-            self.data_fields: List[str] = data_fields
+            self.array: np.ndarray | jnp.ndarray = array
+            self.data_fields: list[str] = data_fields
 
         elif shape is not None:
             assert len(shape) == 5, \
                 "Shape must be (n_models, n_cameras, n_frames, n_keypoints, n_fields)."
             self.array: np.ndarray = np.zeros(shape, dtype=dtype)
-            self.data_fields: List[str] = data_fields
+            self.data_fields: list[str] = data_fields
 
         else:
             raise AssertionError("Provide either `array`, `shape`, or `marker_array`.")
@@ -78,7 +78,7 @@ class MarkerArray:
         """Returns array with squeezed singleton axes if squeeze=True."""
         return np.squeeze(self.array) if squeeze else self.array
 
-    def slice(self, axis: str, indices: Union[int, List[int], np.ndarray]) -> "MarkerArray":
+    def slice(self, axis: str, indices: int | list[int] | np.ndarray) -> "MarkerArray":
         """
         Slice the MarkerArray dynamically along a single named axis.
 
@@ -125,7 +125,7 @@ class MarkerArray:
         return MarkerArray(sliced_array, data_fields=list(fields))
 
     @staticmethod
-    def stack(others: List["MarkerArray"], axis: str) -> "MarkerArray":
+    def stack(others: list["MarkerArray"], axis: str) -> "MarkerArray":
         """
         Stack multiple MarkerArrays along a specified axis.
 
@@ -195,7 +195,7 @@ class MarkerArray:
 
         return MarkerArray(stacked_array, data_fields=stacked_fields)
 
-    def reorder_data_fields(self, new_order: List[str]) -> "MarkerArray":
+    def reorder_data_fields(self, new_order: list[str]) -> "MarkerArray":
         """
         Reorder the fields dimension of the MarkerArray to match the specified order.
 
@@ -222,7 +222,9 @@ class MarkerArray:
 
     def __repr__(self) -> str:
         axis_names = ["models", "cameras", "frames", "keypoints", "fields"]
-        shape_str = ", ".join(f"{name}={size}" for name, size in zip(axis_names, self.array.shape))
+        shape_str = ", ".join(
+            f"{name}={size}" for name, size in zip(axis_names, self.array.shape, strict=True)
+        )
 
         return (
             f"MarkerArray({shape_str}, data_fields={self.data_fields}, "
@@ -231,10 +233,10 @@ class MarkerArray:
 
 
 def input_dfs_to_markerArray(
-        input_dfs_list,
-        bodypart_list,
-        camera_names,
-        data_fields=["x", "y", "likelihood"]
+    input_dfs_list: list[pd.DataFrame],
+    bodypart_list: list[str],
+    camera_names: list[str],
+    data_fields=["x", "y", "likelihood"]
 ):
     """
     Converts input_dfs_list (list of list of DataFrames) into a NumPy array
@@ -251,7 +253,7 @@ def input_dfs_to_markerArray(
     marker_array = np.zeros((n_models, n_cameras, n_frames, n_keypoints, n_fields))
 
     # Fill the array
-    for c, camera_name in enumerate(camera_names):
+    for c, _camera_name in enumerate(camera_names):
         for m in range(n_models):
             model_df = input_dfs_list[c][m]
             for k, keypoint in enumerate(bodypart_list):

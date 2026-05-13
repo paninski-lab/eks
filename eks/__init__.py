@@ -33,7 +33,8 @@ def __get_package_version() -> str:
 
         import toml
         warnings.warn(
-            "ensemble-kalman-smoother not pip-installed, getting version from pyproject.toml."
+            "ensemble-kalman-smoother not pip-installed, getting version from pyproject.toml.",
+            stacklevel=2,
         )
         pyproject_toml_file = Path(__file__).parent.parent / "pyproject.toml"
         __package_version = toml.load(pyproject_toml_file)["project"]["version"]

@@ -173,7 +173,7 @@ def format_data(input_source: str | list, camera_names: list | None = None) -> t
         seed_counts = [len(dfs) for dfs in input_dfs_list]
         if len(set(seed_counts)) > 1:
             counts_str = ', '.join(
-                f'{cam}: {n}' for cam, n in zip(camera_names, seed_counts)
+                f'{cam}: {n}' for cam, n in zip(camera_names, seed_counts, strict=True)
             )
             logger.warning(f'unequal number of seed files per camera ({counts_str})')
 
@@ -189,7 +189,7 @@ def plot_results(
 ):
     fig, axes = plt.subplots(len(coords), 1, figsize=(9, 10))
 
-    for ax, coord in zip(axes, coords):
+    for ax, coord in zip(axes, coords, strict=True):
         # Rename axes label for likelihood and zscore coordinates
         if coord == 'likelihood':
             ylabel = 'model likelihoods'
@@ -396,12 +396,12 @@ def crop_R(R: np.ndarray, s_frames: list | None) -> np.ndarray:
         return np.asarray(R)
     R_np = np.asarray(R)
     leading = R_np.shape[:-3]           # any leading batch dims
-    T, O, O2 = R_np.shape[-3:]
-    assert O == O2, "R_tv must be square in its last two dims"
+    T, obs_dim, obs_dim2 = R_np.shape[-3:]
+    assert obs_dim == obs_dim2, "R_tv must be square in its last two dims"
     # Flatten leading dims to crop time contiguous
-    R_flat = R_np.reshape((-1, T, O, O))
+    R_flat = R_np.reshape((-1, T, obs_dim, obs_dim))
     cropped_list = []
     for block in R_flat:
         cropped_list.append(crop_frames(block, s_frames))  # uses the same semantics
     R_cropped = np.stack(cropped_list, axis=0)
-    return R_cropped.reshape((*leading, -1, O, O))
+    return R_cropped.reshape((*leading, -1, obs_dim, obs_dim))
