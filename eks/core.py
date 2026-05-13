@@ -1,6 +1,6 @@
 import logging
 import time
-from typing import List, Literal, Tuple, Union
+from typing import Literal
 
 import jax
 import numpy as np
@@ -10,9 +10,8 @@ from dynamax.nonlinear_gaussian_ssm import (
     extended_kalman_filter,
     extended_kalman_smoother,
 )
-from jax import jit, lax
+from jax import jit, lax, value_and_grad, vmap
 from jax import numpy as jnp
-from jax import value_and_grad, vmap
 from typeguard import typechecked
 
 from eks.marker_array import MarkerArray
@@ -98,7 +97,7 @@ def ensemble(
 
 @typechecked
 def compute_initial_guesses(
-    ensemble_vars: Union[np.ndarray, list]
+    ensemble_vars: np.ndarray | list
 ) -> float:
     """
     Computes an initial guess for the smoothing parameter `s` by estimating
@@ -154,8 +153,8 @@ def run_kalman_smoother(
     Qs: jnp.ndarray,                 # (K, D, D)
     ensemble_vars: np.ndarray,       # (T, K, obs)
     s_frames: list | None = None,
-    smooth_param: Union[float, List[float]] | None = None,
-    blocks: List[List[int]] | None = None,
+    smooth_param: float | list[float] | None = None,
+    blocks: list[list[int]] | None = None,
     # JIT-closed constants:
     lr: float = 0.25,
     s_bounds_log: tuple = (-8.0, 8.0),
@@ -163,7 +162,7 @@ def run_kalman_smoother(
     safety_cap: int = 300,
     # Observation function
     h_fn=None,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Optimize the process-noise scale `s` (shared within each block of keypoints) by
     minimizing the summed EKF filter negative log-likelihood, then run the EKF smoother.
@@ -432,8 +431,11 @@ def optimize_smooth_param(
                     C_k = CB[i]
                     Rc_k = RconstB[i]
 
-                    f_fn = (lambda x, A=A_k: A @ x)
-                    h_fn = (lambda x, C=C_k: C @ x)
+                    def f_fn(x, A=A_k):
+                        return A @ x
+
+                    def h_fn(x, C=C_k):
+                        return C @ x
 
                     params = params_nlgssm_for_keypoint(m0_k, S0_k, Q_k, s, Rc_k, f_fn, h_fn)
                     post = extended_kalman_filter(params, y_k)
@@ -460,7 +462,8 @@ def optimize_smooth_param(
                     Rc_k = RconstB[i]
 
                     # dynamics and emission for this member
-                    f_fn = (lambda x, A=A_k: A @ x)
+                    def f_fn(x, A=A_k):
+                        return A @ x
 
                     params = params_nlgssm_for_keypoint(m0_k, S0_k, Q_k, s, Rc_k, f_fn, h_fn)
                     post = extended_kalman_filter(params, y_k)
@@ -534,7 +537,6 @@ def _vmap_optimize_singletons(
     parallel.
     """
     block_order = [b[0] for b in blocks]
-    K = len(block_order)
 
     # Pre-process: crop + constant-R for every keypoint, then stack
     y_list, Rconst_list, m0_list, S0_list, A_list, Q_list, C_list = [], [], [], [], [], [], []

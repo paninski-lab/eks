@@ -58,7 +58,7 @@ def parse_s_frames(input_string: str) -> list[tuple[int | None, int | None]]:
 
         return tuples
     except Exception as e:
-        raise argparse.ArgumentTypeError(f'invalid format for --s-frames: {e}')
+        raise argparse.ArgumentTypeError(f'invalid format for --s-frames: {e}') from e
 
 
 def parse_blocks(blocks_str: str) -> list[list[int]]:
@@ -78,7 +78,7 @@ def parse_blocks(blocks_str: str) -> list[list[int]]:
     except ValueError as e:
         raise argparse.ArgumentTypeError(
             f'invalid format for --blocks: {blocks_str}. Error: {e}'
-        )
+        ) from e
 
 
 def add_common_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:

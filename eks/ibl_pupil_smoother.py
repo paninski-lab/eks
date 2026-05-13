@@ -1,8 +1,8 @@
 import logging
 import os
 import warnings
+from collections.abc import Sequence
 from numbers import Real
-from typing import List, Optional, Sequence, Tuple
 
 import jax
 import numpy as np
@@ -12,9 +12,8 @@ from dynamax.nonlinear_gaussian_ssm.inference_ekf import (
     extended_kalman_filter,
     extended_kalman_smoother,
 )
-from jax import jit, lax
+from jax import jit, lax, value_and_grad
 from jax import numpy as jnp
-from jax import value_and_grad
 from typeguard import typechecked
 
 from eks.core import ensemble, params_nlgssm_for_keypoint
@@ -336,13 +335,13 @@ def run_pupil_kalman_smoother(
     diameters_var: Real,
     x_var: Real,
     y_var: Real,
-    s_frames: Optional[List[Tuple[Optional[int], Optional[int]]]] = None,
-    smooth_params: Optional[list] = None,   # [s_diam, s_com] in (0,1)
+    s_frames: list[tuple[int | None, int | None]] | None = None,
+    smooth_params: list | None = None,   # [s_diam, s_com] in (0,1)
     # optimizer/loop knobs
     lr: float = 5e-3,
     tol: float = 1e-6,
     safety_cap: int = 5000,
-) -> Tuple[List[float], np.ndarray, np.ndarray]:
+) -> tuple[list[float], np.ndarray, np.ndarray]:
     """
     Optimize pupil AR(1) smoothing params `[s_diam, s_com]` via EKF filter NLL with
     time-varying R_t built from ensemble variances, then run EKF smoother for final
@@ -398,8 +397,12 @@ def run_pupil_kalman_smoother(
         jnp.asarray(y_var) * (1.0 - s_c_j**2),
     ]))
 
-    f_fn = (lambda x: A @ x)
-    h_fn = (lambda x: C @ x)
+    def f_fn(x):
+        return A @ x
+
+    def h_fn(x):
+        return C @ x
+
     # Pass Q as exact and s=1.0 (we already encoded s into A, Q)
     params = params_nlgssm_for_keypoint(m0, S0, Q, 1.0, R, f_fn, h_fn)
 
@@ -420,12 +423,12 @@ def pupil_optimize_smooth(
     diameters_var: Real,
     x_var: Real,
     y_var: Real,
-    s_frames: Optional[List[Tuple[Optional[int], Optional[int]]]] = None,
-    smooth_params: Optional[list] = None,   # [s_diam, s_com] in (0,1)
+    s_frames: list[tuple[int | None, int | None]] | None = None,
+    smooth_params: list | None = None,   # [s_diam, s_com] in (0,1)
     lr: float = 5e-3,
     tol: float = 1e-6,
     safety_cap: int = 5000,
-) -> Tuple[float, float]:
+) -> tuple[float, float]:
     """
     Optimize `[s_diam, s_com]` for the pupil AR(1) model by minimizing EKF filter
     negative log-likelihood on (optionally) cropped data. Uses a logistic reparam
@@ -480,8 +483,12 @@ def pupil_optimize_smooth(
 
     # Params builder with Q exact and s=1.0 (A, Q depend on s directly)
     def _params_linear(m0, S0, A, Q_exact, R_any, C):
-        f_fn = (lambda x, A=A: A @ x)
-        h_fn = (lambda x, C=C: C @ x)
+        def f_fn(x, A=A):
+            return A @ x
+
+        def h_fn(x, C=C):
+            return C @ x
+
         return params_nlgssm_for_keypoint(m0, S0, Q_exact, 1.0, R_any, f_fn, h_fn)
 
     # NLL(u) with u = [u_diam, u_com]
@@ -579,9 +586,11 @@ def pupil_smooth(
         y_var * (1.0 - s_c**2),
     ]))
 
-    # linear f/h closures
-    f_fn = (lambda x, A=A: A @ x)
-    h_fn = (lambda x, C=C: C @ x)
+    def f_fn(x, A=A):
+        return A @ x
+
+    def h_fn(x, C=C):
+        return C @ x
 
     # build NLGSSM params; pass Q as exact and s=1.0 to avoid extra scaling
     params = params_nlgssm_for_keypoint(m0, S0, Q, 1.0, R, f_fn, h_fn)

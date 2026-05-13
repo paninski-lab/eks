@@ -73,30 +73,43 @@ python = ">=3.10,<3.13"
 
 [project.optional-dependencies]
 dev = [
-    "autopep8",
-    "flake8",
     "ipython",  # dumb dependency issue in fastprogress, installing here so CI doesn't fail
-    "isort",
+    "pre-commit",
     "pytest",
+    "ruff",
 ]
 
-[tool.flake8]
-max-line-length = 99
-ignore = ["F821", "W503"]
-extend-ignore = ["E203"]
+[tool.ruff]
+line-length = 99
 exclude = [
     ".git",
     "__pycache__",
-    "__init__.py",
     "build",
     "dist",
     "docs/",
 ]
 
-[tool.isort]
-line_length = 99
-profile = "black"
-src_paths = ["eks", "tests"]
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes (undefined names, unused imports/variables)
+    "I",   # isort
+    "UP",  # pyupgrade (modernize syntax: Tuple->tuple, Union->|, etc.)
+    "B",   # flake8-bugbear (real bugs: mutable defaults, broad excepts, etc.)
+    "N",   # pep8-naming
+]
+ignore = [
+    "E501",   # line too long (handled by editor)
+    "B006",   # mutable default args: address separately
+    "B023",   # loop-variable closure: JAX fori_loop callbacks have a fixed (i, carry) signature
+    "N802",   # function name not lowercase: public API uses camelCase (input_dfs_to_markerArray etc.)
+    "N803",   # argument name should be lowercase (conflicts with math conventions: K, T, etc.)
+    "N806",   # variable in function should be lowercase (same reason)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["eks"]
 
 [tool.pytest.ini_options]
 testpaths = "tests"

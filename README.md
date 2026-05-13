@@ -250,6 +250,13 @@ Files are assigned to cameras by substring: any filename containing `left` (but 
 must contain `timestamps` and either `left` or `right` in the filename. The number of seed
 files must match across cameras.
 
+---
+
+### Contributing
+
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup,
+linting, and pull request guidelines.
+
 ### Authors
 
 * [Cole Hurwitz](https://github.com/colehurwitz)
