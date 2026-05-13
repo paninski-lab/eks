@@ -3,8 +3,6 @@ import os
 import time
 from typing import Tuple
 
-logger = logging.getLogger(__name__)
-
 import cv2
 import jax
 import jax.numpy as jnp
@@ -24,6 +22,8 @@ from eks.marker_array import (
 )
 from eks.stats import compute_mahalanobis, compute_pca
 from eks.utils import center_predictions, format_data, make_dlc_pandas_index
+
+logger = logging.getLogger(__name__)
 
 
 @typechecked

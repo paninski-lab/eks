@@ -2,14 +2,14 @@ import logging
 import os
 
 import matplotlib.pyplot as plt
-
-logger = logging.getLogger(__name__)
 import numpy as np
 import pandas as pd
 from sleap_io.io.slp import read_labels
 from typeguard import typechecked
 
 from eks.marker_array import MarkerArray
+
+logger = logging.getLogger(__name__)
 
 
 @typechecked

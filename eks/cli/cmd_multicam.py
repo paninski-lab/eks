@@ -4,8 +4,6 @@ import argparse
 import logging
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
-
 from eks.cli._utils import (
     add_bodyparts,
     add_calibration,
@@ -19,6 +17,8 @@ from eks.cli._utils import (
 )
 from eks.multicam_smoother import fit_eks_multicam
 from eks.utils import plot_results
+
+logger = logging.getLogger(__name__)
 
 
 def register(subparsers: argparse._SubParsersAction) -> None:
