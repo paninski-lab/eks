@@ -166,8 +166,8 @@ def fit_eks_multicam_ibl_paw(
 
     # Combine synced dfs into MarkerArray
     marker_array = input_dfs_to_markerArray(
-        input_dfs_list, bodypart_list, camera_names, data_fields=["x", "y"],
-    )  # type: ignore[arg-type]
+        input_dfs_list, bodypart_list, camera_names, data_fields=["x", "y"],  # type: ignore[arg-type]
+    )
 
     # Add likelihood data field to MarkerArray
     dummy_likelihood_shape = np.array(marker_array.shape)
