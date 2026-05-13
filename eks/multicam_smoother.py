@@ -1,6 +1,7 @@
 import logging
 import os
 import time
+from typing import Literal
 
 import cv2
 import jax
@@ -32,8 +33,8 @@ def fit_eks_mirrored_multicam(
     s_frames: list | None = None,
     camera_names: list = [],
     quantile_keep_pca: float = 50.0,
-    avg_mode: str = 'median',
-    var_mode: str = 'confidence_weighted_var',
+    avg_mode: Literal['mean', 'median'] = 'median',
+    var_mode: Literal['var', 'confidence_weighted_var'] = 'confidence_weighted_var',
     inflate_vars: bool = False,
     n_latent: int = 3
 ) -> tuple:
@@ -95,7 +96,7 @@ def fit_eks_mirrored_multicam(
             camera_df = df[list(camera_columns.keys())].rename(columns=camera_columns)
             # Store in the structured list
             camera_model_dfs[cam_idx][model_idx] = camera_df
-    marker_array = input_dfs_to_markerArray(camera_model_dfs, bodypart_list, camera_names)
+    marker_array = input_dfs_to_markerArray(camera_model_dfs, bodypart_list, camera_names)  # type: ignore[arg-type]
 
     # Run the ensemble Kalman smoother for multi-camera data
     camera_dfs, smooth_params_final, df_3d = ensemble_kalman_smoother_multicam(
@@ -120,6 +121,7 @@ def fit_eks_mirrored_multicam(
         else:
             final_df = pd.concat([final_df, camera_df], axis=1)
     # Save the output DataFrames to CSV file
+    assert final_df is not None
     os.makedirs(os.path.dirname(save_file), exist_ok=True)
     final_df.to_csv(f"{save_file}")
     return final_df, smooth_params_final, input_dfs_list, bodypart_list
@@ -133,8 +135,8 @@ def fit_eks_multicam(
     s_frames: list | None = None,
     camera_names: list | None = None,
     quantile_keep_pca: float = 50.0,
-    avg_mode: str = 'median',
-    var_mode: str = 'confidence_weighted_var',
+    avg_mode: Literal['mean', 'median'] = 'median',
+    var_mode: Literal['var', 'confidence_weighted_var'] = 'confidence_weighted_var',
     inflate_vars: bool = False,
     n_latent: int = 3,
     calibration: str | None = None,
@@ -177,7 +179,7 @@ def fit_eks_multicam(
     # Load and format input files
     # NOTE: input_dfs_list is a list of camera-specific lists of Dataframes
     if calibration is not None:
-        camgroup = CameraGroup.load(calibration)
+        camgroup = CameraGroup.load(calibration)  # type: ignore[arg-type]
         if camera_names is not None:
             logger.warning(
                 'camera_names argument is ignored when calibration is provided; '
@@ -230,8 +232,8 @@ def ensemble_kalman_smoother_multicam(
     smooth_param: float | list | None = None,
     quantile_keep_pca: float = 50.0,
     s_frames: list | None = None,
-    avg_mode: str = 'median',
-    var_mode: str = 'confidence_weighted_var',
+    avg_mode: Literal['mean', 'median'] = 'median',
+    var_mode: Literal['var', 'confidence_weighted_var'] = 'confidence_weighted_var',
     inflate_vars: bool = False,
     inflate_vars_kwargs: dict = {},
     pca_object: PCA | None = None,
@@ -523,7 +525,7 @@ def initialize_kalman_filter_pca(
         for k in range(n_keypoints)
     ])
     As = np.tile(np.eye(n_latent), (n_keypoints, 1, 1))
-    Cs = np.stack([pca.components_.T for pca in ensemble_pca])
+    Cs = np.stack([pca.components_.T for pca in ensemble_pca])  # type: ignore[union-attr]
 
     cov_mats = []
     for k in range(n_keypoints):
@@ -598,14 +600,14 @@ def initialize_kalman_filter_geometric(ys: np.ndarray) -> tuple[jnp.ndarray, ...
 
 
 def mA_compute_maha(
-    centered_emA_preds: np.ndarray,
-    emA_vars: np.ndarray,
-    emA_likes: np.ndarray,
+    centered_emA_preds: MarkerArray,
+    emA_vars: MarkerArray,
+    emA_likes: MarkerArray,
     n_latent: int,
     inflate_vars_kwargs: dict={},
     threshold: float = 5.0,
     scalar: float = 10.0
-) -> list:
+) -> MarkerArray:
     """
     Reshape marker arrays for Mahalanobis computation, compute Mahalanobis distances,
     and optionally inflate variances for all keypoints.
@@ -842,7 +844,7 @@ def triangulate_3d_models(marker_array, camgroup) -> np.ndarray:
     )
 
     tri = np.zeros((M, K, T, 3), dtype=float)
-    for m, k, arr in results:
+    for m, k, arr in results:  # type: ignore[union-attr]
         tri[m, k] = arr
     return tri
 

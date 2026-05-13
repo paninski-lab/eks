@@ -1,8 +1,9 @@
 # EKS
 
+[![Discord](https://img.shields.io/discord/1103381776895856720)](https://discord.gg/tDUPdRj4BM)
 ![GitHub](https://img.shields.io/github/license/paninski-lab/eks)
 ![PyPI](https://img.shields.io/pypi/v/ensemble-kalman-smoother)
-![PyPI Downloads](https://static.pepy.tech/badge/ensemble-kalman-smoother/week)
+![PyPI Downloads](https://static.pepy.tech/badge/ensemble-kalman-smoother)
 
 This repo contains code to run an Ensemble Kalman Smoother (EKS) for improving pose estimation outputs.
 
@@ -38,17 +39,17 @@ Make sure you are in the activated environment during the Lightning Pose install
 
 ### Method 1: github+conda
 
-First you'll have to install the `git` package in order to access the code on github. 
-Follow the directions [here](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git) 
+First you'll have to install the `git` package in order to access the code on github.
+Follow the directions [here](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git)
 for your specific OS.
-Then, in the command line, navigate to where you'd like to install the `eks` package and move 
+Then, in the command line, navigate to where you'd like to install the `eks` package and move
 into that directory:
 ```
 git clone https://github.com/paninski-lab/eks
 cd eks
 ```
 
-To make the package modules visible to the python interpreter, locally run pip 
+To make the package modules visible to the python interpreter, locally run pip
 install from inside the main `eks` directory:
 
 ```

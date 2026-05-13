@@ -3,6 +3,7 @@ import os
 import warnings
 from collections.abc import Sequence
 from numbers import Real
+from typing import Literal
 
 import jax
 import numpy as np
@@ -97,8 +98,8 @@ def fit_eks_pupil(
     save_file: str,
     smooth_params: list | None = None,
     s_frames: list | None = None,
-    avg_mode: str = 'median',
-    var_mode: str = 'confidence_weighted_var',
+    avg_mode: Literal['mean', 'median'] = 'median',
+    var_mode: Literal['var', 'confidence_weighted_var'] = 'confidence_weighted_var',
 ) -> tuple:
     """Fit the Ensemble Kalman Smoother for the ibl-pupil dataset.
 
@@ -135,7 +136,7 @@ def fit_eks_pupil(
     # Load and format input files
     input_dfs_list, _ = format_data(input_source)
     logger.info(f'input data loaded for keypoints: {bodypart_list}')
-    marker_array = input_dfs_to_markerArray([input_dfs_list], bodypart_list, [""])
+    marker_array = input_dfs_to_markerArray([input_dfs_list], bodypart_list, [""])  # type: ignore[arg-type]
 
     # Run the ensemble Kalman smoother
     df_smoothed, smooth_params_final = ensemble_kalman_smoother_ibl_pupil(
@@ -160,8 +161,8 @@ def ensemble_kalman_smoother_ibl_pupil(
     keypoint_names: list,
     smooth_params: list | None = None,
     s_frames: list | None = None,
-    avg_mode: str = 'median',
-    var_mode: str = 'confidence_weighted_var',
+    avg_mode: Literal['mean', 'median'] = 'median',
+    var_mode: Literal['var', 'confidence_weighted_var'] = 'confidence_weighted_var',
 ) -> tuple:
     """Perform Ensemble Kalman Smoothing on pupil data.
 
@@ -254,9 +255,9 @@ def ensemble_kalman_smoother_ibl_pupil(
         S0=jnp.asarray(S0),
         C=jnp.asarray(C),
         ensemble_vars=ensemble_vars,
-        diameters_var=np.var(pupil_diameters),
-        x_var=np.var(x_t_obs),
-        y_var=np.var(y_t_obs),
+        diameters_var=np.var(pupil_diameters),  # type: ignore[arg-type]
+        x_var=np.var(x_t_obs),  # type: ignore[arg-type]
+        y_var=np.var(y_t_obs),  # type: ignore[arg-type]
         s_frames=s_frames,
         smooth_params=smooth_params,
     )
@@ -496,7 +497,7 @@ def pupil_optimize_smooth(
         ]))
         params = _params_linear(m0, S0, A, Q, R_loss, C)
         post = extended_kalman_filter(params, y_loss)
-        return -post.marginal_loglik
+        return -post.marginal_loglik  # type: ignore[return-value]
 
     # If user provided both params, just use them
     if smooth_params is not None and all(v is not None for v in smooth_params):

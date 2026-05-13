@@ -32,7 +32,7 @@ def convert_lp_dlc(
         for feat2 in ['x', 'y', 'likelihood']:
             try:
                 if model_name is None:
-                    model_name = df_lp.columns[0][0]
+                    model_name = str(df_lp.columns[0][0])
                 col_tuple = (model_name, feat, feat2)
 
                 # Skip columns with any unnamed level
@@ -85,7 +85,7 @@ def convert_slp_dlc(base_dir: str, slp_file: str) -> tuple:
             columns.append(f"{j + 1}_{keypoint_name}_likelihood")
 
     # Create DataFrame from the reshaped data
-    df = pd.DataFrame(reshaped_data, columns=columns)
+    df = pd.DataFrame(reshaped_data, columns=columns)  # type: ignore[arg-type]
     df.to_csv(f'{slp_file}.csv', index=False)
     logger.info(f'file read. see read-in data at {slp_file}.csv')
     return df, keypoint_names
@@ -96,7 +96,7 @@ def get_keypoint_names(df: pd.DataFrame) -> list:
     return kps.tolist()
 
 
-def format_data(input_source: str | list, camera_names: list | None = None) -> tuple:
+def format_data(input_source: str | list, camera_names: list | None = None) -> tuple[list, list]:
     """
     Load and format input files from a directory or a list of file paths.
 
@@ -176,6 +176,7 @@ def format_data(input_source: str | list, camera_names: list | None = None) -> t
     # Check if we found any valid input files
     if len(input_dfs_list) == 0:
         raise FileNotFoundError(f'no valid marker input files found in {input_source}')
+    assert keypoint_names is not None
     return input_dfs_list, keypoint_names
 
 

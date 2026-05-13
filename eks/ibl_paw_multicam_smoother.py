@@ -1,4 +1,5 @@
 import os
+from typing import Literal
 
 import numpy as np
 import pandas as pd
@@ -34,13 +35,13 @@ def pca(S, n_comps):
 
 
 def fit_eks_multicam_ibl_paw(
-    input_source: str | list,
+    input_source: str,
     save_dir: str,
     smooth_param: float | list | None = None,
     s_frames: list | None = None,
     quantile_keep_pca: float = 50.0,
-    avg_mode: str = 'median',
-    var_mode: str = 'confidence_weighted_var',
+    avg_mode: Literal['mean', 'median'] = 'median',
+    var_mode: Literal['var', 'confidence_weighted_var'] = 'confidence_weighted_var',
     img_width: int = 128,
     inflate_vars: bool = False,
     n_latent: int = 3
@@ -160,19 +161,20 @@ def fit_eks_multicam_ibl_paw(
     input_dfs_list = [[] for _ in camera_names]
     for c, _ in enumerate(camera_names):
         for k in range(len(markers_list_interp[c])):
-            input_df = pd.DataFrame(markers_list_interp[c][k], columns=keys)
+            input_df = pd.DataFrame(markers_list_interp[c][k], columns=keys)  # type: ignore[arg-type]
             input_dfs_list[c].append(input_df)
 
     # Combine synced dfs into MarkerArray
     marker_array = input_dfs_to_markerArray(
-        input_dfs_list, bodypart_list, camera_names, data_fields=["x", "y"])
+        input_dfs_list, bodypart_list, camera_names, data_fields=["x", "y"],
+    )  # type: ignore[arg-type]
 
     # Add likelihood data field to MarkerArray
     dummy_likelihood_shape = np.array(marker_array.shape)
     dummy_likelihood_shape[-1] = 1
     marker_array = MarkerArray.stack_fields(
         marker_array,
-        MarkerArray(shape=dummy_likelihood_shape, data_fields=["likelihood"])
+        MarkerArray(shape=dummy_likelihood_shape, data_fields=["likelihood"]),  # type: ignore[arg-type]
     )
 
     # run eks
@@ -187,7 +189,7 @@ def fit_eks_multicam_ibl_paw(
         var_mode=var_mode,
         inflate_vars=inflate_vars,
         n_latent=n_latent,
-        inflate_vars_kwargs={'likelihoods': None}
+        inflate_vars_kwargs={'likelihoods': None},
     )
     # Save output DataFrames to CSVs (one per camera view)
     os.makedirs(save_dir, exist_ok=True)

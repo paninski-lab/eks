@@ -50,6 +50,7 @@ dependencies = [
     "sleap_io",
     "toml",
     "tqdm",
+    "typing",
 ]
 
 [project.scripts]
@@ -112,6 +113,8 @@ known-first-party = ["eks"]
 [tool.pyright]
 reportMissingImports = "none"
 reportMissingModuleSource = "none"
+reportRedeclaration = "none"
+reportAttributeAccessIssue = "none"
 
 [tool.pytest.ini_options]
 testpaths = "tests"
