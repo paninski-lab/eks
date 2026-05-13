@@ -1,3 +1,4 @@
+import logging
 import os
 
 import matplotlib.pyplot as plt
@@ -7,6 +8,8 @@ from sleap_io.io.slp import read_labels
 from typeguard import typechecked
 
 from eks.marker_array import MarkerArray
+
+logger = logging.getLogger(__name__)
 
 
 @typechecked
@@ -119,13 +122,14 @@ def format_data(input_source: str | list, camera_names: list | None = None) -> t
     # Determine if input_source is a directory or a list of file paths
     if isinstance(input_source, str) and os.path.isdir(input_source):
         # If it's a directory, list all files in the directory
-        input_files = os.listdir(input_source)
-        file_paths = [os.path.join(input_source, file) for file in input_files]
+        file_paths = sorted(
+            os.path.join(input_source, f) for f in os.listdir(input_source)
+        )
     elif isinstance(input_source, list):
         # If it's a list of file paths, use it directly
-        file_paths = input_source
+        file_paths = sorted(input_source)
     else:
-        raise ValueError("input_source must be a directory path or a list of file paths")
+        raise ValueError('input_source must be a directory path or a list of file paths')
 
     # Process each file based on the data type
     if camera_names is None:
@@ -144,28 +148,38 @@ def format_data(input_source: str | list, camera_names: list | None = None) -> t
             input_dfs_list.append(markers_curr_fmt)
     else:
         for camera in camera_names:
-            markers_for_this_camera = []  # inner list of markers for specific camera view
-            for file_path in file_paths:
-                if camera not in file_path:
-                    continue
-                else:  # file_path matches the camera name, proceed with processing
-                    if file_path.endswith('.slp'):
-                        markers_curr, keypoint_names = convert_slp_dlc(
-                            os.path.dirname(file_path), os.path.basename(file_path),
-                        )
-                        markers_curr_fmt = markers_curr
-                    elif file_path.endswith('.csv'):
-                        markers_curr = pd.read_csv(file_path, header=[0, 1, 2], index_col=0)
-                        keypoint_names = get_keypoint_names(markers_curr)
-                        markers_curr_fmt = convert_lp_dlc(markers_curr, keypoint_names)
-                    else:
-                        continue
+            matched = [fp for fp in file_paths if camera in os.path.basename(fp)]
+            valid = [fp for fp in matched if fp.endswith('.csv') or fp.endswith('.slp')]
+            if len(valid) == 0:
+                raise FileNotFoundError(
+                    f"no files matching camera '{camera}' found in {input_source}. "
+                    f'ensure the camera name appears as a substring of each filename.'
+                )
+            markers_for_this_camera = []
+            for file_path in valid:
+                if file_path.endswith('.slp'):
+                    markers_curr, keypoint_names = convert_slp_dlc(
+                        os.path.dirname(file_path), os.path.basename(file_path),
+                    )
+                    markers_curr_fmt = markers_curr
+                elif file_path.endswith('.csv'):
+                    markers_curr = pd.read_csv(file_path, header=[0, 1, 2], index_col=0)
+                    keypoint_names = get_keypoint_names(markers_curr)
+                    markers_curr_fmt = convert_lp_dlc(markers_curr, keypoint_names)
                 markers_for_this_camera.append(markers_curr_fmt)
-            input_dfs_list.append(markers_for_this_camera)  # list of lists of markers
+            input_dfs_list.append(markers_for_this_camera)
+
+        # warn if cameras have different seed counts
+        seed_counts = [len(dfs) for dfs in input_dfs_list]
+        if len(set(seed_counts)) > 1:
+            counts_str = ', '.join(
+                f'{cam}: {n}' for cam, n in zip(camera_names, seed_counts)
+            )
+            logger.warning(f'unequal number of seed files per camera ({counts_str})')
 
     # Check if we found any valid input files
     if len(input_dfs_list) == 0:
-        raise FileNotFoundError(f'No valid marker input files found in {input_source}')
+        raise FileNotFoundError(f'no valid marker input files found in {input_source}')
     return input_dfs_list, keypoint_names
 
 

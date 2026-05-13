@@ -505,7 +505,7 @@ class _MockCamGroup:
     def __init__(self, cameras):
         self.cameras = cameras
 
-    def triangulate(self, xy_views, fast=True):
+    def triangulate(self, xy_views, fast=True, disable_64bit=False):
         xy = np.asarray(xy_views)  # (C, 2) or (C, N, 2)
         if xy.ndim == 2:
             # single point: (C, 2) -> (3,)

@@ -1,3 +1,4 @@
+import logging
 import os
 import time
 from typing import Tuple
@@ -21,6 +22,8 @@ from eks.marker_array import (
 )
 from eks.stats import compute_mahalanobis, compute_pca
 from eks.utils import center_predictions, format_data, make_dlc_pandas_index
+
+logger = logging.getLogger(__name__)
 
 
 @typechecked
@@ -182,16 +185,23 @@ def fit_eks_multicam(
     """
     # Load and format input files
     # NOTE: input_dfs_list is a list of camera-specific lists of Dataframes
+    if calibration is not None:
+        camgroup = CameraGroup.load(calibration)
+        if camera_names is not None:
+            logger.warning(
+                'camera_names argument is ignored when calibration is provided; '
+                'camera names will be read from the calibration file'
+            )
+        camera_names = [cam.name for cam in camgroup.cameras]
+    else:
+        camgroup = None
+
     _t0 = time.perf_counter()
     input_dfs_list, keypoint_names = format_data(input_source, camera_names=camera_names)
     if verbose:
         print(f"[profile] format_data: {time.perf_counter() - _t0:.3f}s")
     if bodypart_list is None:
         bodypart_list = keypoint_names
-    if calibration is not None:
-        camgroup = CameraGroup.load(calibration)
-    else:
-        camgroup = None
 
     _t0 = time.perf_counter()
     marker_array = input_dfs_to_markerArray(input_dfs_list, bodypart_list, camera_names)
@@ -317,11 +327,6 @@ def ensemble_kalman_smoother_multicam(
     if using_nonlinear:
         if verbose:
             print("[EKS] Nonlinear path: triangulate + geometric init + calibrated projection")
-
-        # camera order default from camgroup if needed
-        if camera_names is None:
-            camera_names = [getattr(cam, "name", f"cam{i}") for i, cam in
-                            enumerate(camgroup.cameras)]
 
         # 1) triangulate (M,K,T,3) → average over models → ys_3d (K,T,3)
         _t0 = time.perf_counter()
@@ -748,7 +753,7 @@ def parse_dist(dist_coeffs):
     OpenCV pinhole distortion ordering:
       [k1, k2, p1, p2, k3, k4, k5, k6, s1, s2, s3, s4, tx, ty]
     """
-    dc = jnp.pad(jnp.asarray(dist_coeffs, dtype=jnp.float64), (0, max(0, 14 - len(dist_coeffs))))
+    dc = jnp.pad(jnp.asarray(dist_coeffs), (0, max(0, 14 - len(dist_coeffs))))
     k1, k2, p1, p2, k3, k4, k5, k6, s1, s2, s3, s4, tx, ty = [dc[i] for i in range(14)]
     return dict(k1=k1, k2=k2, p1=p1, p2=p2, k3=k3, k4=k4, k5=k5, k6=k6, s1=s1, s2=s2, s3=s3, s4=s4)
 
@@ -759,16 +764,16 @@ def make_jax_projection_fn(rvec, tvec, K, dist_coeffs):
     rvec: (3,), tvec: (3,), K: (3,3) with optional skew K[0,1], dist_coeffs: OpenCV order.
     Returns: project(object_points: (...,3)) -> (...,2)
     """
-    rvec = jnp.asarray(rvec, dtype=jnp.float64)
-    tvec = jnp.asarray(tvec, dtype=jnp.float64)
-    K = jnp.asarray(K, dtype=jnp.float64)
+    rvec = jnp.asarray(rvec)
+    tvec = jnp.asarray(tvec)
+    K = jnp.asarray(K)
     fx, fy, cx, cy, skew = K[0, 0], K[1, 1], K[0, 2], K[1, 2], K[0, 1]
     d = parse_dist(dist_coeffs)
     R = rodrigues(rvec)
 
     @jit
     def project(object_points):
-        Xw = jnp.asarray(object_points, dtype=jnp.float64)
+        Xw = jnp.asarray(object_points)
         # world -> camera
         Xc = Xw @ R.T + tvec  # (..., 3)
         X, Y, Z = Xc[..., 0], Xc[..., 1], Xc[..., 2]
@@ -816,14 +821,7 @@ def make_projection_from_camgroup(camgroup):
         K = np.array(cam.get_camera_matrix())
         dist = np.array(cam.get_distortions()).ravel()  # distortion coeffs: k1,k2,p1,p2,k3,...
 
-        h_cams.append(
-            make_jax_projection_fn(
-                jnp.array(rvec),
-                jnp.array(tvec),
-                jnp.array(K),
-                jnp.array(dist)
-            )
-        )
+        h_cams.append(make_jax_projection_fn(rvec, tvec, K, dist))
 
     def make_combined_h_fn(h_list):
         def h_fn(x):
@@ -846,7 +844,8 @@ def triangulate_3d_models(marker_array, camgroup) -> np.ndarray:
 
     def _tri(m, k):
         xy_views = raw[m, :, :, k, :2]  # (C, T, 2)
-        return m, k, camgroup.triangulate(xy_views, fast=True)  # (T, 3)
+        # disable_64bit avoids aniposelib enabling JAX x64 as a side effect
+        return m, k, camgroup.triangulate(xy_views, fast=True, disable_64bit=True)  # (T, 3)
 
     results = Parallel(n_jobs=-1, prefer="threads")(
         delayed(_tri)(m, k) for m in range(M) for k in range(K)
