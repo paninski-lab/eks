@@ -32,7 +32,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "aniposelib",
+    "aniposelib (>=0.8.0)",
     # Transient dep of dynamax, pinned to prevent starlette upgrade which breaks LPA.
     # https://github.com/paninski-lab/eks/issues/70#issuecomment-4217129266
     "python-fasthtml (<=0.12.50)",

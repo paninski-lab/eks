@@ -821,14 +821,7 @@ def make_projection_from_camgroup(camgroup):
         K = np.array(cam.get_camera_matrix())
         dist = np.array(cam.get_distortions()).ravel()  # distortion coeffs: k1,k2,p1,p2,k3,...
 
-        h_cams.append(
-            make_jax_projection_fn(
-                jnp.array(rvec),
-                jnp.array(tvec),
-                jnp.array(K),
-                jnp.array(dist)
-            )
-        )
+        h_cams.append(make_jax_projection_fn(rvec, tvec, K, dist))
 
     def make_combined_h_fn(h_list):
         def h_fn(x):
@@ -851,7 +844,8 @@ def triangulate_3d_models(marker_array, camgroup) -> np.ndarray:
 
     def _tri(m, k):
         xy_views = raw[m, :, :, k, :2]  # (C, T, 2)
-        return m, k, camgroup.triangulate(xy_views, fast=True)  # (T, 3)
+        # disable_64bit avoids aniposelib enabling JAX x64 as a side effect
+        return m, k, camgroup.triangulate(xy_views, fast=True, disable_64bit=True)  # (T, 3)
 
     results = Parallel(n_jobs=-1, prefer="threads")(
         delayed(_tri)(m, k) for m in range(M) for k in range(K)
