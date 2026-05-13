@@ -54,7 +54,6 @@ def cmd_ibl_paw(args: argparse.Namespace) -> None:
         s_frames=args.s_frames,
         quantile_keep_pca=args.quantile_keep_pca,
         var_mode='var',
-        verbose=args.verbose,
         inflate_vars=args.inflate_vars,
         n_latent=args.n_latent,
     )

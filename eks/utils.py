@@ -91,7 +91,7 @@ def convert_slp_dlc(base_dir: str, slp_file: str) -> tuple:
     # Create DataFrame from the reshaped data
     df = pd.DataFrame(reshaped_data, columns=columns)
     df.to_csv(f'{slp_file}.csv', index=False)
-    print(f"File read. See read-in data at {slp_file}.csv")
+    logger.info(f'file read. see read-in data at {slp_file}.csv')
     return df, keypoint_names
 
 
@@ -235,7 +235,7 @@ def plot_results(
     save_file = os.path.join(save_dir, f'{smoother_type}_{key}.pdf')
     plt.savefig(save_file)
     plt.close()
-    print(f'see example EKS output at {save_file}')
+    logger.info(f'see example EKS output at {save_file}')
 
 
 def crop_frames(y: np.ndarray,

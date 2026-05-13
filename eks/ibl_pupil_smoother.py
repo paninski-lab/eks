@@ -1,3 +1,4 @@
+import logging
 import os
 import warnings
 from numbers import Real
@@ -19,6 +20,8 @@ from typeguard import typechecked
 from eks.core import ensemble, params_nlgssm_for_keypoint
 from eks.marker_array import MarkerArray, input_dfs_to_markerArray
 from eks.utils import build_R_from_vars, crop_frames, crop_R, format_data, make_dlc_pandas_index
+
+logger = logging.getLogger(__name__)
 
 
 @typechecked
@@ -101,7 +104,6 @@ def fit_eks_pupil(
     s_frames: list | None = None,
     avg_mode: str = 'median',
     var_mode: str = 'confidence_weighted_var',
-    verbose: bool = False,
 ) -> tuple:
     """Fit the Ensemble Kalman Smoother for the ibl-pupil dataset.
 
@@ -122,7 +124,6 @@ def fit_eks_pupil(
             'median' | 'mean'
         var_mode: mode for computing ensemble variance
             'var' | 'confidence_weighted_var'
-        verbose: Extra print statements if True
 
     Returns:
         tuple:
@@ -138,7 +139,7 @@ def fit_eks_pupil(
 
     # Load and format input files
     input_dfs_list, _ = format_data(input_source)
-    print(f"Input data loaded for keypoints: {bodypart_list}")
+    logger.info(f'input data loaded for keypoints: {bodypart_list}')
     marker_array = input_dfs_to_markerArray([input_dfs_list], bodypart_list, [""])
 
     # Run the ensemble Kalman smoother
@@ -149,13 +150,12 @@ def fit_eks_pupil(
         s_frames=s_frames,
         avg_mode=avg_mode,
         var_mode=var_mode,
-        verbose=verbose
     )
 
     # Save the output DataFrame to CSV
     os.makedirs(os.path.dirname(save_file), exist_ok=True)
     df_smoothed.to_csv(save_file)
-    print("DataFrames successfully converted to CSV")
+    logger.info('dataframes successfully converted to CSV')
 
     return df_smoothed, smooth_params_final, input_dfs_list, bodypart_list
 
@@ -168,7 +168,6 @@ def ensemble_kalman_smoother_ibl_pupil(
     s_frames: list | None = None,
     avg_mode: str = 'median',
     var_mode: str = 'confidence_weighted_var',
-    verbose: bool = False
 ) -> tuple:
     """Perform Ensemble Kalman Smoothing on pupil data.
 
@@ -190,7 +189,6 @@ def ensemble_kalman_smoother_ibl_pupil(
             'median' | 'mean'
         var_mode: mode for computing ensemble variance
             'var' | 'confidence_weighted_var'
-        verbose: True to print out details
 
     Returns:
         tuple:
@@ -267,10 +265,8 @@ def ensemble_kalman_smoother_ibl_pupil(
         y_var=np.var(y_t_obs),
         s_frames=s_frames,
         smooth_params=smooth_params,
-        verbose=verbose
     )
-    if verbose:
-        print(f"diameter_s={s_finals[0]}, com_s={s_finals[1]}")
+    logger.debug(f'diameter_s={s_finals[0]}, com_s={s_finals[1]}')
     # Smoothed posterior over ys
     y_m_smooth = np.dot(C, ms.T).T
     y_v_smooth = np.swapaxes(np.dot(C, np.dot(Vs, C.T)), 0, 1)
@@ -342,7 +338,6 @@ def run_pupil_kalman_smoother(
     y_var: Real,
     s_frames: Optional[List[Tuple[Optional[int], Optional[int]]]] = None,
     smooth_params: Optional[list] = None,   # [s_diam, s_com] in (0,1)
-    verbose: bool = False,
     # optimizer/loop knobs
     lr: float = 5e-3,
     tol: float = 1e-6,
@@ -364,7 +359,6 @@ def run_pupil_kalman_smoother(
         s_frames: optional list of (start, end) 1-based, inclusive frame ranges for
             NLL optimization only (final smoothing runs over the full T).
         smooth_params: if provided, use `[s_diam, s_com]` directly (values in (0,1)).
-        verbose: print optimization summary.
         lr: Adam learning rate on the unconstrained parameters.
         tol: relative tolerance for early stopping.
         safety_cap: hard limit on optimizer steps inside the jitted loop.
@@ -393,7 +387,6 @@ def run_pupil_kalman_smoother(
         lr=lr,
         tol=tol,
         safety_cap=safety_cap,
-        verbose=verbose,
     )
 
     # --- final smoother on full sequence with A(s), Q(s) and supplied R_t ---
@@ -432,7 +425,6 @@ def pupil_optimize_smooth(
     lr: float = 5e-3,
     tol: float = 1e-6,
     safety_cap: int = 5000,
-    verbose: bool = False,
 ) -> Tuple[float, float]:
     """
     Optimize `[s_diam, s_com]` for the pupil AR(1) model by minimizing EKF filter
@@ -466,8 +458,6 @@ def pupil_optimize_smooth(
         Relative tolerance for early stopping.
     safety_cap : int
         Hard iteration cap in the jitted loop.
-    verbose : bool
-        Print optimization summary if True.
 
     Returns
     -------
@@ -548,10 +538,11 @@ def pupil_optimize_smooth(
 
     u_f, _opt_state_f, last_loss, iters_f, _ = _run_tol_loop(u0, opt_state0)
     s_opt = _to_stable_s(u_f)
-    if verbose:
-        print(f"[pupil/dynamax] iters={int(iters_f)}  "
-              f"s_diam={float(s_opt[0]):.6f}  s_com={float(s_opt[1]):.6f}  "
-              f"NLL={float(last_loss):.6f}")
+    logger.debug(
+        f'[pupil/dynamax] iters={int(iters_f)}  '
+        f's_diam={float(s_opt[0]):.6f}  s_com={float(s_opt[1]):.6f}  '
+        f'NLL={float(last_loss):.6f}'
+    )
     return float(s_opt[0]), float(s_opt[1])
 
 

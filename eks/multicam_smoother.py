@@ -37,7 +37,6 @@ def fit_eks_mirrored_multicam(
     quantile_keep_pca: float = 50.0,
     avg_mode: str = 'median',
     var_mode: str = 'confidence_weighted_var',
-    verbose: bool = False,
     inflate_vars: bool = False,
     n_latent: int = 3
 ) -> tuple:
@@ -61,7 +60,6 @@ def fit_eks_mirrored_multicam(
         avg_mode: Mode for averaging across ensemble ('median', 'mean').
         var_mode: mode for computing ensemble variance
             'var' | 'confidence_weighted_var'
-        verbose: True to print out details
         inflate_vars: True to use Mahalanobis distance thresholding to inflate ensemble variance
         n_latent: number of dimensions to keep from PCA
 
@@ -112,7 +110,6 @@ def fit_eks_mirrored_multicam(
         s_frames=s_frames,
         avg_mode=avg_mode,
         var_mode=var_mode,
-        verbose=verbose,
         inflate_vars=inflate_vars,
         n_latent=n_latent
     )
@@ -143,7 +140,6 @@ def fit_eks_multicam(
     avg_mode: str = 'median',
     var_mode: str = 'confidence_weighted_var',
     inflate_vars: bool = False,
-    verbose: bool = False,
     n_latent: int = 3,
     calibration: str | None = None,
     save_3d_outputs: bool = True,
@@ -169,7 +165,6 @@ def fit_eks_multicam(
         var_mode: mode for computing ensemble variance
             'var' | 'confidence_weighted_var'
         inflate_vars: True to use Mahalanobis distance thresholding to inflate ensemble variance
-        verbose: True to print out details
         n_latent: number of dimensions to keep from PCA
         calibration: path to the .toml calibration file for nonlinear projection
         save_3d_outputs: if True and calibration is not None, save 3D latents to CSV
@@ -198,15 +193,13 @@ def fit_eks_multicam(
 
     _t0 = time.perf_counter()
     input_dfs_list, keypoint_names = format_data(input_source, camera_names=camera_names)
-    if verbose:
-        print(f"[profile] format_data: {time.perf_counter() - _t0:.3f}s")
+    logger.debug(f'[profile] format_data: {time.perf_counter() - _t0:.3f}s')
     if bodypart_list is None:
         bodypart_list = keypoint_names
 
     _t0 = time.perf_counter()
     marker_array = input_dfs_to_markerArray(input_dfs_list, bodypart_list, camera_names)
-    if verbose:
-        print(f"[profile] input_dfs_to_markerArray: {time.perf_counter() - _t0:.3f}s")
+    logger.debug(f'[profile] input_dfs_to_markerArray: {time.perf_counter() - _t0:.3f}s')
 
     # Run the ensemble Kalman smoother for multi-camera data
     camera_dfs, smooth_params_final, df_3d = ensemble_kalman_smoother_multicam(
@@ -218,7 +211,6 @@ def fit_eks_multicam(
         s_frames=s_frames,
         avg_mode=avg_mode,
         var_mode=var_mode,
-        verbose=verbose,
         inflate_vars=inflate_vars,
         n_latent=n_latent,
         camgroup=camgroup,
@@ -245,7 +237,6 @@ def ensemble_kalman_smoother_multicam(
     var_mode: str = 'confidence_weighted_var',
     inflate_vars: bool = False,
     inflate_vars_kwargs: dict = {},
-    verbose: bool = False,
     pca_object: PCA | None = None,
     n_latent: int = 3,
     camgroup: CameraGroup | None = None,
@@ -280,7 +271,6 @@ def ensemble_kalman_smoother_multicam(
             'var' | 'confidence_weighted_var'
         inflate_vars: True to use Mahalanobis distance thresholding to inflate ensemble variance
         inflate_vars_kwargs: kwargs for compute_mahalanobis function for variance inflation
-        verbose: True to print out details
         pca_object: pre-computed PCA matrix for PCA computation
         n_latent: number of dimensions to keep from PCA
         camgroup: loaded calibration file for nonlinear projection
@@ -303,13 +293,12 @@ def ensemble_kalman_smoother_multicam(
 
     valid_mask, emA_centered, emA_good_centered, emA_means = center_predictions(
         ensemble_marker_array, quantile_keep_pca)
-    if verbose:
-        print(f"[profile] ensemble + centering: {time.perf_counter() - _t0:.3f}s")
+    logger.debug(f'[profile] ensemble + centering: {time.perf_counter() - _t0:.3f}s')
 
     # Optional variance inflation -----------------------------------------------------------------
     _t0 = time.perf_counter()
     if inflate_vars:
-        print('inflating')
+        logger.debug('inflating')
         if inflate_vars_kwargs.get("mean", None) is not None:
             # set mean to zero since we are passing in centered predictions
             inflate_vars_kwargs["mean"] = np.zeros_like(inflate_vars_kwargs["mean"])
@@ -319,27 +308,23 @@ def ensemble_kalman_smoother_multicam(
         )
     else:
         emA_inflated_vars = emA_vars
-    if verbose:
-        label = "variance inflation (maha)" if inflate_vars else "variance inflation (skipped)"
-        print(f"[profile] {label}: {time.perf_counter() - _t0:.3f}s")
+    label = 'variance inflation (maha)' if inflate_vars else 'variance inflation (skipped)'
+    logger.debug(f'[profile] {label}: {time.perf_counter() - _t0:.3f}s')
 
     using_nonlinear = camgroup is not None
     if using_nonlinear:
-        if verbose:
-            print("[EKS] Nonlinear path: triangulate + geometric init + calibrated projection")
+        logger.debug('[EKS] Nonlinear path: triangulate + geometric init + calibrated projection')
 
         # 1) triangulate (M,K,T,3) → average over models → ys_3d (K,T,3)
         _t0 = time.perf_counter()
         tri_models = triangulate_3d_models(marker_array, camgroup)
         ys_3d = tri_models.mean(axis=0)  # (K,T,3)
-        if verbose:
-            print(f"[profile] triangulation: {time.perf_counter() - _t0:.3f}s")
+        logger.debug(f'[profile] triangulation: {time.perf_counter() - _t0:.3f}s')
 
         # 2) init KF params for 3D latent from geometric helper
         _t0 = time.perf_counter()
         m0s, S0s, As, Qs, Cs = initialize_kalman_filter_geometric(ys_3d)
-        if verbose:
-            print(f"[profile] KF init (geometric): {time.perf_counter() - _t0:.3f}s")
+        logger.debug(f'[profile] KF init (geometric): {time.perf_counter() - _t0:.3f}s')
 
         # 3) make multi-view h_fn (ℝ³ → ℝ^{2V})
         h_fn_combined, h_cams = make_projection_from_camgroup(camgroup)
@@ -365,12 +350,10 @@ def ensemble_kalman_smoother_multicam(
 
         ys = np.stack(ys_list, axis=0)  # (K, T, 2C)
         ensemble_vars = np.stack(Rs_list, 0)  # (K, T, 2C)
-        if verbose:
-            print(f"[profile] build observations (nonlinear): {time.perf_counter() - _t0:.3f}s")
+        logger.debug(f'[profile] build observations (nonlinear): {time.perf_counter() - _t0:.3f}s')
 
     else:
-        if verbose:
-            print("[EKS] Linear path: PCA subspace + linear emissions")
+        logger.debug('[EKS] Linear path: PCA subspace + linear emissions')
 
         # 1) PCA + C
         _t0 = time.perf_counter()
@@ -378,23 +361,20 @@ def ensemble_kalman_smoother_multicam(
             valid_mask, emA_centered, emA_good_centered,
             n_components=n_latent, pca_object=pca_object
         )
-        if verbose:
-            print(f"[profile] PCA: {time.perf_counter() - _t0:.3f}s")
+        logger.debug(f'[profile] PCA: {time.perf_counter() - _t0:.3f}s')
 
         # 2) init linear KF params
         _t0 = time.perf_counter()
         m0s, S0s, As, Qs, Cs = initialize_kalman_filter_pca(
             good_pcs_list=good_pcs_list, ensemble_pca=ensemble_pca, n_latent=n_latent
         )
-        if verbose:
-            print(f"[profile] KF init (PCA): {time.perf_counter() - _t0:.3f}s")
+        logger.debug(f'[profile] KF init (PCA): {time.perf_counter() - _t0:.3f}s')
 
         # 3) observations & R
         _t0 = time.perf_counter()
         ys = np.stack([mA_to_stacked_array(emA_centered, k) for k in range(K)])
         ensemble_vars = np.stack([mA_to_stacked_array(emA_inflated_vars, k) for k in range(K)])
-        if verbose:
-            print(f"[profile] build observations (linear): {time.perf_counter() - _t0:.3f}s")
+        logger.debug(f'[profile] build observations (linear): {time.perf_counter() - _t0:.3f}s')
 
         h_fn_combined = None
 
@@ -405,11 +385,9 @@ def ensemble_kalman_smoother_multicam(
         m0s=m0s, S0s=S0s, As=As, Qs=Qs, Cs=Cs,
         ensemble_vars=np.swapaxes(ensemble_vars, 0, 1),  # (T,K,2C)
         s_frames=s_frames, smooth_param=smooth_param,
-        verbose=verbose,
         h_fn=h_fn_combined,
     )
-    if verbose:
-        print(f"[profile] run_kalman_smoother (total): {time.perf_counter() - _t0:.3f}s")
+    logger.debug(f'[profile] run_kalman_smoother (total): {time.perf_counter() - _t0:.3f}s')
 
     # Reprojection & packaging --------------------------------------------------------------------
     _t0 = time.perf_counter()
@@ -478,11 +456,14 @@ def ensemble_kalman_smoother_multicam(
                     y_v_smooth[:, y_i, y_i] + ensemble_vars[k, :, y_i]
                 ])
 
-    if verbose:
-        print(f"[profile] reprojection + packaging: {time.perf_counter() - _t0:.3f}s")
+    logger.debug(f'[profile] reprojection + packaging: {time.perf_counter() - _t0:.3f}s')
 
-    labels = ['x', 'y', 'likelihood', 'x_ens_median', 'y_ens_median',
-              'x_ens_var', 'y_ens_var', 'x_posterior_var', 'y_posterior_var']
+    labels = [
+        'x', 'y', 'likelihood',
+        'x_ens_median', 'y_ens_median',
+        'x_ens_var', 'y_ens_var',
+        'x_posterior_var', 'y_posterior_var',
+    ]
     pdindex = make_dlc_pandas_index(keypoint_names, labels=labels)
 
     camera_dfs = []
@@ -508,9 +489,10 @@ def ensemble_kalman_smoother_multicam(
         ])
     df_3d = pd.DataFrame(np.asarray(arr_3d).T, columns=pdindex_3d)
 
-    if verbose:
-        print(f"[profile] ensemble_kalman_smoother_multicam total: "
-              f"{time.perf_counter() - _t0_total:.3f}s")
+    logger.debug(
+        f'[profile] ensemble_kalman_smoother_multicam total: '
+        f'{time.perf_counter() - _t0_total:.3f}s'
+    )
 
     return camera_dfs, s_finals, df_3d
 
@@ -647,7 +629,7 @@ def mA_compute_maha(centered_emA_preds, emA_vars, emA_likes, n_latent,
             inflate_vars_kwargs['v_quantile_threshold'] = 50.0
         inflated = True
         tmp_vars = vars
-        print(f'inflating keypoint: {k}')
+        logger.info(f'inflating keypoint: {k}')
         while inflated:
             # Compute Mahalanobis distances
             if inflate_vars_kwargs.get("likelihoods", None) is None:

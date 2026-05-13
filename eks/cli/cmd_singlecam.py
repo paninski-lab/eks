@@ -51,7 +51,6 @@ def cmd_singlecam(args: argparse.Namespace) -> None:
         smooth_param=args.s,
         s_frames=args.s_frames,
         blocks=args.blocks,
-        verbose=args.verbose,
     )
 
     if args.make_plot:

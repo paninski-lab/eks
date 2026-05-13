@@ -43,7 +43,6 @@ def fit_eks_multicam_ibl_paw(
     quantile_keep_pca: float = 50.0,
     avg_mode: str = 'median',
     var_mode: str = 'confidence_weighted_var',
-    verbose: bool = False,
     img_width: int = 128,
     inflate_vars: bool = False,
     n_latent: int = 3
@@ -66,7 +65,6 @@ def fit_eks_multicam_ibl_paw(
             avg_mode: Mode for averaging across ensemble ('median', 'mean').
             var_mode: mode for computing ensemble variance
                 'var' | 'confidence_weighted_var'
-            verbose: True to print out details
             img_width: The width of the image being smoothed (128 default, IBL-specific).
             inflate_vars: True to use Mahalanobis distance threshold to inflate ensemble variance
             n_latent: number of dimensions to keep from PCA
@@ -189,7 +187,6 @@ def fit_eks_multicam_ibl_paw(
         s_frames=s_frames,
         avg_mode=avg_mode,
         var_mode=var_mode,
-        verbose=verbose,
         inflate_vars=inflate_vars,
         n_latent=n_latent,
         inflate_vars_kwargs={'likelihoods': None}

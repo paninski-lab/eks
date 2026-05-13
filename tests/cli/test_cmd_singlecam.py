@@ -51,7 +51,6 @@ class TestCmdSinglecam:
             kwargs = mock_fit.call_args.kwargs
             assert kwargs['bodypart_list'] == ['nose']
             assert kwargs['smooth_param'] == [5.0]
-            assert kwargs['verbose'] is True
             assert kwargs['blocks'] == [[0, 1]]
 
     def test_uses_input_files_when_no_input_dir(self, tmp_path):
