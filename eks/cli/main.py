@@ -2,6 +2,7 @@
 
 import argparse
 import importlib
+import logging
 from pathlib import Path
 
 
@@ -24,6 +25,12 @@ def main() -> None:
         module.register(subparsers)
 
     args = parser.parse_args()
+    if getattr(args, 'verbose', False):
+        logging.basicConfig(format='%(levelname)s:%(name)s: %(message)s')
+        logging.getLogger('eks').setLevel(logging.DEBUG)
+    else:
+        logging.basicConfig(format='%(message)s')
+        logging.getLogger('eks').setLevel(logging.INFO)
     args.handler(args)
 
 

@@ -1,3 +1,4 @@
+import logging
 import os
 
 import jax.numpy as jnp
@@ -8,6 +9,8 @@ from typeguard import typechecked
 from eks.core import ensemble, run_kalman_smoother
 from eks.marker_array import MarkerArray, input_dfs_to_markerArray
 from eks.utils import center_predictions, format_data, make_dlc_pandas_index
+
+logger = logging.getLogger(__name__)
 
 
 @typechecked
@@ -20,7 +23,6 @@ def fit_eks_singlecam(
     blocks: list = [],
     avg_mode: str = 'median',
     var_mode: str = 'confidence_weighted_var',
-    verbose: bool = False,
 ) -> tuple:
     """Fit the Ensemble Kalman Smoother for single-camera data.
 
@@ -44,7 +46,6 @@ def fit_eks_singlecam(
             'median' | 'mean'
         var_mode: mode for computing ensemble variance
             'var' | 'confidence_weighted_var'
-        verbose: Extra print statements if True
 
     Returns:
         tuple:
@@ -59,7 +60,7 @@ def fit_eks_singlecam(
 
     if bodypart_list is None:
         bodypart_list = keypoint_names
-        print(f'Input data loaded for keypoints:\n{bodypart_list}')
+        logger.info(f'input data loaded for keypoints:\n{bodypart_list}')
     marker_array = input_dfs_to_markerArray([input_dfs_list], bodypart_list, [""])
     # Run the ensemble Kalman smoother
     df_smoothed, smooth_params_final = ensemble_kalman_smoother_singlecam(
@@ -70,13 +71,12 @@ def fit_eks_singlecam(
         blocks=blocks,
         avg_mode=avg_mode,
         var_mode=var_mode,
-        verbose=verbose,
     )
 
     # Save the output DataFrame to CSV
     os.makedirs(os.path.dirname(save_file), exist_ok=True)
     df_smoothed.to_csv(save_file)
-    print("DataFrames successfully converted to CSV")
+    logger.info('dataframes successfully converted to CSV')
 
     return df_smoothed, smooth_params_final, input_dfs_list, bodypart_list
 
@@ -90,7 +90,6 @@ def ensemble_kalman_smoother_singlecam(
     blocks: list = [],
     avg_mode: str = 'median',
     var_mode: str = 'confidence_weighted_var',
-    verbose: bool = False,
 ) -> tuple:
     """Perform Ensemble Kalman Smoothing for single-camera data.
 
@@ -113,7 +112,6 @@ def ensemble_kalman_smoother_singlecam(
             'median' | 'mean'
         var_mode: mode for computing ensemble variance
             'var' | 'confidence_weighted_var'
-        verbose: True to print out details
 
     Returns:
         tuple: Dataframes with smoothed predictions, final smoothing parameters.
@@ -160,7 +158,6 @@ def ensemble_kalman_smoother_singlecam(
         s_frames=s_frames,
         smooth_param=smooth_param,
         blocks=blocks,
-        verbose=verbose
     )
 
     y_m_smooths = np.zeros((n_keypoints, n_frames, 2))

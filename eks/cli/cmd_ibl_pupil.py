@@ -49,7 +49,6 @@ def cmd_ibl_pupil(args: argparse.Namespace) -> None:
         save_file=str(save_file),
         smooth_params=[args.diameter_s, args.com_s],
         s_frames=args.s_frames,
-        verbose=args.verbose,
     )
 
     if args.make_plot:

@@ -1,3 +1,4 @@
+import logging
 import time
 from typing import List, Literal, Tuple, Union
 
@@ -16,6 +17,8 @@ from typeguard import typechecked
 
 from eks.marker_array import MarkerArray
 from eks.utils import build_R_from_vars, crop_frames, crop_R
+
+logger = logging.getLogger(__name__)
 
 
 @typechecked
@@ -153,7 +156,6 @@ def run_kalman_smoother(
     s_frames: list | None = None,
     smooth_param: Union[float, List[float]] | None = None,
     blocks: List[List[int]] | None = None,
-    verbose: bool = False,
     # JIT-closed constants:
     lr: float = 0.25,
     s_bounds_log: tuple = (-8.0, 8.0),
@@ -194,7 +196,6 @@ def run_kalman_smoother(
             across all keypoints) or a list/array of length K (per-keypoint).
         blocks: Optional list of lists of keypoint indices; each block shares one
             `s`. Default: each keypoint is its own block.
-        verbose: If True, print per-block optimization summaries.
         lr: Adam learning rate on log(s).
         s_bounds_log: Clamp bounds for log(s) during optimization.
         tol: Relative tolerance on loss change for early stopping.
@@ -210,14 +211,12 @@ def run_kalman_smoother(
     K, T, obs_dim = ys.shape
     if not blocks:
         blocks = [[k] for k in range(K)]
-    if verbose:
-        print(f"Correlated keypoint blocks: {blocks}")
+    logger.debug(f'correlated keypoint blocks: {blocks}')
 
     # Build time-varying R (K, T, obs, obs)
     _t0_ks = time.perf_counter()
     Rs = jnp.asarray(build_R_from_vars(np.swapaxes(ensemble_vars, 0, 1)))
-    if verbose:
-        print(f"[profile]   build_R: {time.perf_counter() - _t0_ks:.3f}s")
+    logger.debug(f'[profile]   build_R: {time.perf_counter() - _t0_ks:.3f}s')
 
     # Initial s guesses
     s_guess_per_k = np.empty(K, dtype=float)
@@ -249,12 +248,12 @@ def run_kalman_smoother(
             s_frames=s_frames,
             s_guess_per_k=s_guess_per_k,
             tol=tol,
-            verbose=verbose,
             safety_cap=safety_cap,
             h_fn_combined=h_fn,
         )
-        if verbose:
-            print(f"[profile]   optimize_smooth_param: {time.perf_counter() - _t0_opt:.3f}s")
+        logger.debug(
+            f'[profile]   optimize_smooth_param: {time.perf_counter() - _t0_opt:.3f}s'
+        )
 
     # ---- Final smoother pass (full sequence) — vmapped over keypoints ----
     _t0_sm = time.perf_counter()
@@ -274,9 +273,9 @@ def run_kalman_smoother(
     ms = np.array(ms_arr)   # (K, T, D)
     Vs = np.array(Vs_arr)   # (K, T, D, D)
 
-    if verbose:
-        print(
-            f"[profile]   final smoother pass ({K} keypoints): {time.perf_counter() - _t0_sm:.3f}s")
+    logger.debug(
+        f'[profile]   final smoother pass ({K} keypoints): {time.perf_counter() - _t0_sm:.3f}s'
+    )
     return s_finals, ms, Vs
 
 
@@ -299,7 +298,6 @@ def optimize_smooth_param(
     safety_cap: int = 300,
     min_R_var: float = 1e-4,
     h_fn_combined=None,
-    verbose: bool = False
 ) -> None:
     """
     Optimize a single scalar process-noise scale `s` per block of keypoints by minimizing
@@ -351,8 +349,6 @@ def optimize_smooth_param(
         Optional nonlinear observation function used by the EKF when modeling
         y_t = h_fn_combined(x_t, k, ...) instead of y_t = C_k x_t. If None, the
         linear observation model with C_k is used.
-    verbose : bool
-        If True, prints per-block optimization progress.
 
     Returns
     -------
@@ -377,7 +373,7 @@ def optimize_smooth_param(
             blocks=blocks, s_finals=s_finals, s_frames=s_frames,
             s_guess_per_k=s_guess_per_k, s_lo=s_lo, s_hi=s_hi, lr=lr,
             tol=tol, safety_cap=safety_cap, min_R_var=min_R_var,
-            h_fn_combined=h_fn_combined, verbose=verbose,
+            h_fn_combined=h_fn_combined,
         )
         return
 
@@ -517,17 +513,17 @@ def optimize_smooth_param(
         for k in B_idx:
             s_finals[k] = s_star
 
-        if verbose:
-            print(
-                f"[opt s | block {list(B_idx)}] s={s_star:.6g}, "
-                f"iters={int(iters_f)}, NLL={float(last_loss):.6f}")
+        logger.debug(
+            f'[opt s | block {list(B_idx)}] s={s_star:.6g}, '
+            f'iters={int(iters_f)}, NLL={float(last_loss):.6f}'
+        )
 
 
 def _vmap_optimize_singletons(
     ys_np, Rs_np, m0s, S0s, As, Qs, Cs,
     blocks, s_finals, s_frames,
     s_guess_per_k, s_lo, s_hi, lr, tol, safety_cap, min_R_var,
-    h_fn_combined, verbose,
+    h_fn_combined,
 ):
     """
     Fast path for optimize_smooth_param when every block is a single keypoint.
@@ -630,11 +626,10 @@ def _vmap_optimize_singletons(
     for i, k in enumerate(block_order):
         s_star = float(np.exp(np.clip(s_log_all_np[i], s_lo, s_hi)))
         s_finals[k] = s_star
-        if verbose:
-            print(
-                f"[opt s | block [{k}]] s={s_star:.6g}, "
-                f"iters={int(iters_all_np[i])}, NLL={float(last_losses_np[i]):.6f}"
-            )
+        logger.debug(
+            f'[opt s | block [{k}]] s={s_star:.6g}, '
+            f'iters={int(iters_all_np[i])}, NLL={float(last_losses_np[i]):.6f}'
+        )
 
 
 def constant_R_from_timevarying(R_t_np: np.ndarray, min_var: float = 1e-4) -> np.ndarray:
