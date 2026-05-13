@@ -1,7 +1,10 @@
 """Subcommand for multi-camera ensemble Kalman smoothing."""
 
 import argparse
+import logging
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 from eks.cli._utils import (
     add_bodyparts,
@@ -45,6 +48,14 @@ def cmd_multicam(args: argparse.Namespace) -> None:
     Args:
         args: Parsed command-line arguments.
     """
+    if args.calibration is None and args.camera_names is None:
+        raise ValueError('--camera-names is required when --calibration is not provided')
+    if args.calibration is not None and args.camera_names is not None:
+        logger.warning(
+            '--camera-names is ignored when --calibration is provided; '
+            'camera names will be read from the calibration file'
+        )
+
     input_source = args.input_dir if args.input_dir is not None else args.input_files
     if isinstance(input_source, str):
         input_dir = Path(input_source).resolve()

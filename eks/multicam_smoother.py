@@ -1,6 +1,9 @@
+import logging
 import os
 import time
 from typing import Tuple
+
+logger = logging.getLogger(__name__)
 
 import cv2
 import jax
@@ -182,16 +185,23 @@ def fit_eks_multicam(
     """
     # Load and format input files
     # NOTE: input_dfs_list is a list of camera-specific lists of Dataframes
+    if calibration is not None:
+        camgroup = CameraGroup.load(calibration)
+        if camera_names is not None:
+            logger.warning(
+                'camera_names argument is ignored when calibration is provided; '
+                'camera names will be read from the calibration file'
+            )
+        camera_names = [cam.name for cam in camgroup.cameras]
+    else:
+        camgroup = None
+
     _t0 = time.perf_counter()
     input_dfs_list, keypoint_names = format_data(input_source, camera_names=camera_names)
     if verbose:
         print(f"[profile] format_data: {time.perf_counter() - _t0:.3f}s")
     if bodypart_list is None:
         bodypart_list = keypoint_names
-    if calibration is not None:
-        camgroup = CameraGroup.load(calibration)
-    else:
-        camgroup = None
 
     _t0 = time.perf_counter()
     marker_array = input_dfs_to_markerArray(input_dfs_list, bodypart_list, camera_names)
@@ -317,11 +327,6 @@ def ensemble_kalman_smoother_multicam(
     if using_nonlinear:
         if verbose:
             print("[EKS] Nonlinear path: triangulate + geometric init + calibrated projection")
-
-        # camera order default from camgroup if needed
-        if camera_names is None:
-            camera_names = [getattr(cam, "name", f"cam{i}") for i, cam in
-                            enumerate(camgroup.cameras)]
 
         # 1) triangulate (M,K,T,3) → average over models → ys_3d (K,T,3)
         _t0 = time.perf_counter()

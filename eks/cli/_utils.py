@@ -193,9 +193,13 @@ def add_camera_names(parser: argparse.ArgumentParser) -> argparse.ArgumentParser
     """
     parser.add_argument(
         '--camera-names',
-        required=True,
+        required=False,
         nargs='+',
-        help='camera names corresponding to input files',
+        help=(
+            'camera names corresponding to input files; each name must appear as a substring '
+            'of the matching filenames. required for multicam without --calibration and for '
+            'mirrored-multicam; ignored when --calibration is provided'
+        ),
     )
     return parser
 
