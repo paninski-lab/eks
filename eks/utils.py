@@ -166,6 +166,8 @@ def format_data(input_source: str | list, camera_names: list | None = None) -> t
                     markers_curr = pd.read_csv(file_path, header=[0, 1, 2], index_col=0)
                     keypoint_names = get_keypoint_names(markers_curr)
                     markers_curr_fmt = convert_lp_dlc(markers_curr, keypoint_names)
+                else:
+                    raise ValueError(f'unsupported file format: {file_path}')
                 markers_for_this_camera.append(markers_curr_fmt)
             input_dfs_list.append(markers_for_this_camera)
 

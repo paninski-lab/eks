@@ -284,6 +284,7 @@ def ensemble_kalman_smoother_ibl_pupil(
     ]
     ensemble_indices = [(0, 1), (4, 5), (2, 3), (6, 7)]
     data_arr = []
+    labels: list[str] = []
     for i, key_pair in enumerate(key_pair_list):
         # keep track of labels for each data entry
         labels = []

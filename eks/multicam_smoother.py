@@ -32,7 +32,7 @@ def fit_eks_mirrored_multicam(
     bodypart_list: list | None = None,
     smooth_param: float | list | None = None,
     s_frames: list | None = None,
-    camera_names: list | None = None,
+    camera_names: list = [],
     quantile_keep_pca: float = 50.0,
     avg_mode: str = 'median',
     var_mode: str = 'confidence_weighted_var',
@@ -256,7 +256,7 @@ def ensemble_kalman_smoother_multicam(
         keypoint_names: List of body parts to run smoothing on
         smooth_param: Value in (0, Inf); smaller values lead to more smoothing (default: None).
         quantile_keep_pca: Percentage of points kept for PCA (default: 50.0).
-        camera_names: List of camera names corresponding to the input data (default: None).
+        camera_names: List of camera names corresponding to the input data.
         s_frames: Frame ranges used to optimize the smoothing parameter, as a list of
             (start, end) tuples. Indices are 0-based with half-open intervals [start, end),
             so end is excluded. Use None for open ends: (None, 100) selects frames 0–99,
@@ -277,6 +277,9 @@ def ensemble_kalman_smoother_multicam(
     Returns:
         tuple: Dataframes with smoothed predictions, final smoothing parameters, 3D latent df.
     """
+
+    if camera_names is None or len(camera_names) == 0:
+        raise ValueError('camera_names must be provided')
 
     M, V, T, K, _ = marker_array.shape  # n_models, n_cameras, n_timesteps, n_keypoints, (n_coords)
 
@@ -311,6 +314,7 @@ def ensemble_kalman_smoother_multicam(
     logger.debug(f'[profile] {label}: {time.perf_counter() - _t0:.3f}s')
 
     using_nonlinear = camgroup is not None
+    h_cams: list = []
     if using_nonlinear:
         logger.debug('[EKS] Nonlinear path: triangulate + geometric init + calibrated projection')
 
@@ -628,18 +632,18 @@ def mA_compute_maha(centered_emA_preds, emA_vars, emA_likes, n_latent,
             inflate_vars_kwargs['v_quantile_threshold'] = 50.0
         inflated = True
         tmp_vars = vars
+        inflated_ens_vars_k = tmp_vars
         logger.info(f'inflating keypoint: {k}')
         while inflated:
             # Compute Mahalanobis distances
             if inflate_vars_kwargs.get("likelihoods", None) is None:
-                maha_results = compute_mahalanobis(preds, tmp_vars,
-                                                   n_latent=n_latent,
-                                                   **inflate_vars_kwargs)
+                maha_results = compute_mahalanobis(
+                    preds, tmp_vars, n_latent=n_latent, **inflate_vars_kwargs,
+                )
             else:
-                maha_results = compute_mahalanobis(preds, tmp_vars,
-                                                   n_latent=n_latent,
-                                                   likelihoods=likes,
-                                                   **inflate_vars_kwargs)
+                maha_results = compute_mahalanobis(
+                    preds, tmp_vars, n_latent=n_latent, likelihoods=likes, **inflate_vars_kwargs,
+                )
             # Inflate variances based on Mahalanobis distances
             inflated_ens_vars_k, inflated = inflate_variance(
                 tmp_vars, maha_results['mahalanobis'], threshold, scalar)
@@ -647,7 +651,8 @@ def mA_compute_maha(centered_emA_preds, emA_vars, emA_likes, n_latent,
 
         # Reshape array back into mA
         emA_inflated_vars_k = stacked_array_to_mA(
-            inflated_ens_vars_k, n_cameras, data_fields=["var_x", "var_y"])
+            inflated_ens_vars_k, n_cameras, data_fields=["var_x", "var_y"],
+        )
 
         # Store in list
         emA_inflated_vars_list.append(emA_inflated_vars_k)
