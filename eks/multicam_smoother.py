@@ -753,7 +753,7 @@ def parse_dist(dist_coeffs):
     OpenCV pinhole distortion ordering:
       [k1, k2, p1, p2, k3, k4, k5, k6, s1, s2, s3, s4, tx, ty]
     """
-    dc = jnp.pad(jnp.asarray(dist_coeffs, dtype=jnp.float64), (0, max(0, 14 - len(dist_coeffs))))
+    dc = jnp.pad(jnp.asarray(dist_coeffs), (0, max(0, 14 - len(dist_coeffs))))
     k1, k2, p1, p2, k3, k4, k5, k6, s1, s2, s3, s4, tx, ty = [dc[i] for i in range(14)]
     return dict(k1=k1, k2=k2, p1=p1, p2=p2, k3=k3, k4=k4, k5=k5, k6=k6, s1=s1, s2=s2, s3=s3, s4=s4)
 
@@ -764,16 +764,16 @@ def make_jax_projection_fn(rvec, tvec, K, dist_coeffs):
     rvec: (3,), tvec: (3,), K: (3,3) with optional skew K[0,1], dist_coeffs: OpenCV order.
     Returns: project(object_points: (...,3)) -> (...,2)
     """
-    rvec = jnp.asarray(rvec, dtype=jnp.float64)
-    tvec = jnp.asarray(tvec, dtype=jnp.float64)
-    K = jnp.asarray(K, dtype=jnp.float64)
+    rvec = jnp.asarray(rvec)
+    tvec = jnp.asarray(tvec)
+    K = jnp.asarray(K)
     fx, fy, cx, cy, skew = K[0, 0], K[1, 1], K[0, 2], K[1, 2], K[0, 1]
     d = parse_dist(dist_coeffs)
     R = rodrigues(rvec)
 
     @jit
     def project(object_points):
-        Xw = jnp.asarray(object_points, dtype=jnp.float64)
+        Xw = jnp.asarray(object_points)
         # world -> camera
         Xc = Xw @ R.T + tvec  # (..., 3)
         X, Y, Z = Xc[..., 0], Xc[..., 1], Xc[..., 2]
