@@ -2,6 +2,7 @@ from typing import Optional
 
 import jax.numpy as jnp
 import numpy as np
+import pandas as pd
 
 
 class MarkerArray:
