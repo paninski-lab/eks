@@ -5,14 +5,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from sleap_io.io.slp import read_labels
-from typeguard import typechecked
 
 from eks.marker_array import MarkerArray
 
 logger = logging.getLogger(__name__)
 
 
-@typechecked
 def make_dlc_pandas_index(
     keypoint_names: list,
     labels: list = ["x", "y", "likelihood"],
@@ -24,7 +22,6 @@ def make_dlc_pandas_index(
     return pdindex
 
 
-@typechecked
 def convert_lp_dlc(
     df_lp: pd.DataFrame,
     keypoint_names: list,
@@ -35,7 +32,7 @@ def convert_lp_dlc(
         for feat2 in ['x', 'y', 'likelihood']:
             try:
                 if model_name is None:
-                    model_name = df_lp.columns[0][0]
+                    model_name = str(df_lp.columns[0][0])
                 col_tuple = (model_name, feat, feat2)
 
                 # Skip columns with any unnamed level
@@ -52,7 +49,6 @@ def convert_lp_dlc(
     return df_dlc
 
 
-@typechecked
 def convert_slp_dlc(base_dir: str, slp_file: str) -> tuple:
     # Read data from .slp file
     filepath = os.path.join(base_dir, slp_file)
@@ -89,20 +85,18 @@ def convert_slp_dlc(base_dir: str, slp_file: str) -> tuple:
             columns.append(f"{j + 1}_{keypoint_name}_likelihood")
 
     # Create DataFrame from the reshaped data
-    df = pd.DataFrame(reshaped_data, columns=columns)
+    df = pd.DataFrame(reshaped_data, columns=columns)  # type: ignore[arg-type]
     df.to_csv(f'{slp_file}.csv', index=False)
     logger.info(f'file read. see read-in data at {slp_file}.csv')
     return df, keypoint_names
 
 
-@typechecked
 def get_keypoint_names(df: pd.DataFrame) -> list:
     kps = df.columns[df.columns.get_level_values('coords') == 'x'].get_level_values('bodyparts')
     return kps.tolist()
 
 
-@typechecked
-def format_data(input_source: str | list, camera_names: list | None = None) -> tuple:
+def format_data(input_source: str | list, camera_names: list | None = None) -> tuple[list, list]:
     """
     Load and format input files from a directory or a list of file paths.
 
@@ -166,6 +160,8 @@ def format_data(input_source: str | list, camera_names: list | None = None) -> t
                     markers_curr = pd.read_csv(file_path, header=[0, 1, 2], index_col=0)
                     keypoint_names = get_keypoint_names(markers_curr)
                     markers_curr_fmt = convert_lp_dlc(markers_curr, keypoint_names)
+                else:
+                    raise ValueError(f'unsupported file format: {file_path}')
                 markers_for_this_camera.append(markers_curr_fmt)
             input_dfs_list.append(markers_for_this_camera)
 
@@ -180,6 +176,7 @@ def format_data(input_source: str | list, camera_names: list | None = None) -> t
     # Check if we found any valid input files
     if len(input_dfs_list) == 0:
         raise FileNotFoundError(f'no valid marker input files found in {input_source}')
+    assert keypoint_names is not None
     return input_dfs_list, keypoint_names
 
 
@@ -296,7 +293,6 @@ def crop_frames(y: np.ndarray,
     return np.concatenate([y[s:e] for s, e in spans], axis=0)
 
 
-@typechecked()
 def center_predictions(
     ensemble_marker_array: MarkerArray,
     quantile_keep_pca: float
@@ -372,7 +368,6 @@ def center_predictions(
     return valid_frames_mask, emA_centered_preds, emA_good_centered_preds, emA_means
 
 
-@typechecked
 def build_R_from_vars(ev: np.ndarray) -> np.ndarray:
     """
     Build time-varying diagonal observation covariances from per-dimension variances.
@@ -385,7 +380,6 @@ def build_R_from_vars(ev: np.ndarray) -> np.ndarray:
     return ev_np[..., :, None] * np.eye(O_dim, dtype=ev_np.dtype)
 
 
-@typechecked
 def crop_R(R: np.ndarray, s_frames: list | None) -> np.ndarray:
     """
     Crop time-varying R along its time axis using the same spec as crop_frames.

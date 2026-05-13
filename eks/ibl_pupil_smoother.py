@@ -3,6 +3,7 @@ import os
 import warnings
 from collections.abc import Sequence
 from numbers import Real
+from typing import Literal
 
 import jax
 import numpy as np
@@ -14,7 +15,6 @@ from dynamax.nonlinear_gaussian_ssm.inference_ekf import (
 )
 from jax import jit, lax, value_and_grad
 from jax import numpy as jnp
-from typeguard import typechecked
 
 from eks.core import ensemble, params_nlgssm_for_keypoint
 from eks.marker_array import MarkerArray, input_dfs_to_markerArray
@@ -23,7 +23,6 @@ from eks.utils import build_R_from_vars, crop_frames, crop_R, format_data, make_
 logger = logging.getLogger(__name__)
 
 
-@typechecked
 def get_pupil_location(dlc: dict) -> np.ndarray:
     """get mean of both pupil diameters
     d1 = top - bottom, d2 = left - right
@@ -52,7 +51,6 @@ def get_pupil_location(dlc: dict) -> np.ndarray:
     return center
 
 
-@typechecked
 def get_pupil_diameter(dlc: dict) -> np.ndarray:
     """
     from: https://int-brain-lab.github.io/iblenv/_modules/brainbox/behavior/dlc.html
@@ -95,14 +93,13 @@ def add_mean_to_array(pred_arr, keys, mean_x, mean_y):
     return processed_arr_dict
 
 
-@typechecked
 def fit_eks_pupil(
     input_source: str | list,
     save_file: str,
     smooth_params: list | None = None,
     s_frames: list | None = None,
-    avg_mode: str = 'median',
-    var_mode: str = 'confidence_weighted_var',
+    avg_mode: Literal['mean', 'median'] = 'median',
+    var_mode: Literal['var', 'confidence_weighted_var'] = 'confidence_weighted_var',
 ) -> tuple:
     """Fit the Ensemble Kalman Smoother for the ibl-pupil dataset.
 
@@ -139,7 +136,7 @@ def fit_eks_pupil(
     # Load and format input files
     input_dfs_list, _ = format_data(input_source)
     logger.info(f'input data loaded for keypoints: {bodypart_list}')
-    marker_array = input_dfs_to_markerArray([input_dfs_list], bodypart_list, [""])
+    marker_array = input_dfs_to_markerArray([input_dfs_list], bodypart_list, [""])  # type: ignore[arg-type]
 
     # Run the ensemble Kalman smoother
     df_smoothed, smooth_params_final = ensemble_kalman_smoother_ibl_pupil(
@@ -159,14 +156,13 @@ def fit_eks_pupil(
     return df_smoothed, smooth_params_final, input_dfs_list, bodypart_list
 
 
-@typechecked
 def ensemble_kalman_smoother_ibl_pupil(
     marker_array: MarkerArray,
     keypoint_names: list,
     smooth_params: list | None = None,
     s_frames: list | None = None,
-    avg_mode: str = 'median',
-    var_mode: str = 'confidence_weighted_var',
+    avg_mode: Literal['mean', 'median'] = 'median',
+    var_mode: Literal['var', 'confidence_weighted_var'] = 'confidence_weighted_var',
 ) -> tuple:
     """Perform Ensemble Kalman Smoothing on pupil data.
 
@@ -259,9 +255,9 @@ def ensemble_kalman_smoother_ibl_pupil(
         S0=jnp.asarray(S0),
         C=jnp.asarray(C),
         ensemble_vars=ensemble_vars,
-        diameters_var=np.var(pupil_diameters),
-        x_var=np.var(x_t_obs),
-        y_var=np.var(y_t_obs),
+        diameters_var=np.var(pupil_diameters),  # type: ignore[arg-type]
+        x_var=np.var(x_t_obs),  # type: ignore[arg-type]
+        y_var=np.var(y_t_obs),  # type: ignore[arg-type]
         s_frames=s_frames,
         smooth_params=smooth_params,
     )
@@ -284,6 +280,7 @@ def ensemble_kalman_smoother_ibl_pupil(
     ]
     ensemble_indices = [(0, 1), (4, 5), (2, 3), (6, 7)]
     data_arr = []
+    labels: list[str] = []
     for i, key_pair in enumerate(key_pair_list):
         # keep track of labels for each data entry
         labels = []
@@ -325,7 +322,6 @@ def ensemble_kalman_smoother_ibl_pupil(
 
 
 # ----------------- Public API -----------------
-@typechecked
 def run_pupil_kalman_smoother(
     ys: jnp.ndarray,                 # (T, 8) centered obs
     m0: jnp.ndarray,                 # (3,)
@@ -413,7 +409,6 @@ def run_pupil_kalman_smoother(
 
 
 # ----------------- Optimizer (two-parameter AR(1)) -----------------
-@typechecked
 def pupil_optimize_smooth(
     ys: jnp.ndarray,                 # (T, 8) centered obs
     m0: jnp.ndarray,                 # (3,)
@@ -502,7 +497,7 @@ def pupil_optimize_smooth(
         ]))
         params = _params_linear(m0, S0, A, Q, R_loss, C)
         post = extended_kalman_filter(params, y_loss)
-        return -post.marginal_loglik
+        return -post.marginal_loglik  # type: ignore[return-value]
 
     # If user provided both params, just use them
     if smooth_params is not None and all(v is not None for v in smooth_params):
@@ -553,7 +548,6 @@ def pupil_optimize_smooth(
     return float(s_opt[0]), float(s_opt[1])
 
 
-@typechecked
 def pupil_smooth(
     smooth_params: Sequence[float],      # [s_diam, s_com] in (0,1)
     ys: np.ndarray | jnp.ndarray,        # (T, 8)

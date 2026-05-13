@@ -50,6 +50,18 @@ ruff check --fix eks tests    # auto-fix where possible
 
 Configuration lives in `[tool.ruff]` in `pyproject.toml`.
 
+## Type checking
+
+We use [pyright](https://github.com/microsoft/pyright) for static type checking:
+
+```bash
+pyright eks
+```
+
+Configuration lives in `[tool.pyright]` in `pyproject.toml`.
+Pyright runs in CI on every pull request but is not in the pre-commit hook (it
+checks the whole project on every run, adding ~15s per commit).
+
 ## Pull requests
 
 - Keep PRs focused — one feature or fix per PR

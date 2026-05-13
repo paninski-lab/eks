@@ -1,10 +1,10 @@
 import logging
 import os
+from typing import Literal
 
 import jax.numpy as jnp
 import numpy as np
 import pandas as pd
-from typeguard import typechecked
 
 from eks.core import ensemble, run_kalman_smoother
 from eks.marker_array import MarkerArray, input_dfs_to_markerArray
@@ -13,7 +13,6 @@ from eks.utils import center_predictions, format_data, make_dlc_pandas_index
 logger = logging.getLogger(__name__)
 
 
-@typechecked
 def fit_eks_singlecam(
     input_source: str | list,
     save_file: str,
@@ -21,8 +20,8 @@ def fit_eks_singlecam(
     smooth_param: float | list | None = None,
     s_frames: list | None = None,
     blocks: list = [],
-    avg_mode: str = 'median',
-    var_mode: str = 'confidence_weighted_var',
+    avg_mode: Literal['mean', 'median'] = 'median',
+    var_mode: Literal['var', 'confidence_weighted_var'] = 'confidence_weighted_var',
 ) -> tuple:
     """Fit the Ensemble Kalman Smoother for single-camera data.
 
@@ -61,7 +60,7 @@ def fit_eks_singlecam(
     if bodypart_list is None:
         bodypart_list = keypoint_names
         logger.info(f'input data loaded for keypoints:\n{bodypart_list}')
-    marker_array = input_dfs_to_markerArray([input_dfs_list], bodypart_list, [""])
+    marker_array = input_dfs_to_markerArray([input_dfs_list], bodypart_list, [""])  # type: ignore[arg-type]
     # Run the ensemble Kalman smoother
     df_smoothed, smooth_params_final = ensemble_kalman_smoother_singlecam(
         marker_array=marker_array,
@@ -81,15 +80,14 @@ def fit_eks_singlecam(
     return df_smoothed, smooth_params_final, input_dfs_list, bodypart_list
 
 
-@typechecked
 def ensemble_kalman_smoother_singlecam(
     marker_array: MarkerArray,
     keypoint_names: list,
     smooth_param: float | list | None = None,
     s_frames: list | None = None,
     blocks: list = [],
-    avg_mode: str = 'median',
-    var_mode: str = 'confidence_weighted_var',
+    avg_mode: Literal['mean', 'median'] = 'median',
+    var_mode: Literal['var', 'confidence_weighted_var'] = 'confidence_weighted_var',
 ) -> tuple:
     """Perform Ensemble Kalman Smoothing for single-camera data.
 
