@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from eks.utils import crop_frames, format_data
+from eks.utils import crop_frames, format_data, plot_results
 
 
 def _make_dlc_csv(directory: Path, filename: str, keypoints: list, n_frames: int = 5) -> Path:
@@ -211,3 +211,69 @@ class TestFormatData:
 
         # Assert
         assert 'unequal number of seed files per camera' in caplog.text
+
+
+class TestPlotResults:
+    """Test the plot_results function."""
+
+    def _make_output_df(self, key: str, n_frames: int = 20) -> pd.DataFrame:
+        scorer = 'ensemble-kalman_tracker'
+        columns = pd.MultiIndex.from_arrays([
+            [scorer] * 3,
+            [key] * 3,
+            ['x', 'y', 'likelihood'],
+        ])
+        rng = np.random.default_rng(0)
+        return pd.DataFrame(rng.random((n_frames, 3)), columns=columns)
+
+    def _make_input_df(self, key: str, n_frames: int = 20) -> pd.DataFrame:
+        rng = np.random.default_rng(1)
+        return pd.DataFrame({
+            f'{key}_x': rng.random(n_frames),
+            f'{key}_y': rng.random(n_frames),
+            f'{key}_likelihood': rng.random(n_frames),
+        })
+
+    def test_plot_results_creates_pdf(self, tmp_path):
+        # Arrange
+        key = 'nose'
+        output_df = self._make_output_df(key)
+        input_dfs_list = [self._make_input_df(key)]
+
+        # Act
+        plot_results(
+            output_df=output_df,
+            input_dfs_list=input_dfs_list,
+            key=key,
+            s_final=1.5,
+            nll_values=None,
+            idxs=(0, 10),
+            save_dir=str(tmp_path),
+            smoother_type='singlecam',
+        )
+
+        # Assert
+        assert (tmp_path / f'singlecam_{key}.pdf').exists()
+
+    def test_plot_results_tuple_s_final_and_nll_values(self, tmp_path):
+        # Arrange — covers the s_final tuple branch and the nll_values plotting branch
+        key = 'nose'
+        n_frames = 20
+        output_df = self._make_output_df(key, n_frames)
+        input_dfs_list = [self._make_input_df(key, n_frames)]
+        nll_values = np.random.default_rng(2).random(n_frames)
+
+        # Act
+        plot_results(
+            output_df=output_df,
+            input_dfs_list=input_dfs_list,
+            key=key,
+            s_final=(0.5, 1.0),
+            nll_values=nll_values,
+            idxs=(0, 10),
+            save_dir=str(tmp_path),
+            smoother_type='ibl_pupil',
+        )
+
+        # Assert
+        assert (tmp_path / f'ibl_pupil_{key}.pdf').exists()

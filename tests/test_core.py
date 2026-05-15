@@ -161,7 +161,7 @@ class TestOptimizeSmoothParamSlowPath:
     def _make_params(self, K: int = 3, T: int = 20, obs: int = 2, D: int = 2):
         """Build minimal valid Kalman filter arrays for K keypoints."""
         rng = np.random.default_rng(0)
-        ys = jnp.asarray(rng.standard_normal((K, T, obs)).astype(np.float32))
+        ys = jnp.asarray(rng.standard_normal((K, T, obs)))
         m0s = jnp.zeros((K, D))
         S0s = jnp.tile(jnp.eye(D), (K, 1, 1))
         As = jnp.tile(jnp.eye(D), (K, 1, 1))
