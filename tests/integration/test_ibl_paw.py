@@ -1,23 +1,26 @@
+from eks.ibl_paw_multicam_smoother import fit_eks_multicam_ibl_paw
 
 
-def test_ibl_paw_defaults(run_cli, compare_to_golden, tmpdir, pytestconfig, request):
-
-    output_dir = run_cli(
-        subcommand='ibl-paw',
-        input_dir=str(pytestconfig.rootpath / 'data' / 'ibl-paw'),
-        output_dir=tmpdir,
+def test_ibl_paw_defaults(compare_to_golden, tmp_path, pytestconfig, request):
+    input_dir = str(pytestconfig.rootpath / 'data' / 'ibl-paw')
+    fit_eks_multicam_ibl_paw(
+        input_source=input_dir,
+        save_dir=str(tmp_path),
+        var_mode='var',
+        quantile_keep_pca=95,
+        inflate_vars=True,
     )
-    compare_to_golden(request.node.name, output_dir)
+    compare_to_golden(request.node.name, tmp_path)
 
 
-def test_ibl_paw_fixed_smooth_param(
-    run_cli, compare_to_golden, tmpdir, pytestconfig, request,
-):
-
-    output_dir = run_cli(
-        subcommand='ibl-paw',
-        input_dir=str(pytestconfig.rootpath / 'data' / 'ibl-paw'),
-        output_dir=tmpdir,
-        s=10,
+def test_ibl_paw_fixed_smooth_param(compare_to_golden, tmp_path, pytestconfig, request):
+    input_dir = str(pytestconfig.rootpath / 'data' / 'ibl-paw')
+    fit_eks_multicam_ibl_paw(
+        input_source=input_dir,
+        save_dir=str(tmp_path),
+        smooth_param=[10.0],
+        var_mode='var',
+        quantile_keep_pca=95,
+        inflate_vars=True,
     )
-    compare_to_golden(request.node.name, output_dir)
+    compare_to_golden(request.node.name, tmp_path)
