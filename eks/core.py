@@ -60,7 +60,7 @@ def ensemble(
         mean_conf_per_keypoint = conf_per_keypoint / n_models
 
         if n_models == 1:
-            single_var = 1.0 / jnp.maximum(mean_conf_per_keypoint, 0.05)
+            single_var = 1.0 / jnp.maximum(mean_conf_per_keypoint, 1e-5)
             var_x = single_var
             var_y = single_var
         elif var_mode in ['conf_weighted_var', 'confidence_weighted_var']:
