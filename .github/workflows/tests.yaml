@@ -3,6 +3,8 @@ name: Run Tests
 on:
   # Allow manually running from Github UI or API.
   workflow_dispatch:
+  push:
+    branches: [main]
   # to re-run status checks, mark as draft then ready_for_review
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
@@ -27,4 +29,10 @@ jobs:
 
       - name: Run tests
         run: |
-          pytest
+          pytest --cov --cov-branch --cov-report=xml
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          slug: paninski-lab/eks
