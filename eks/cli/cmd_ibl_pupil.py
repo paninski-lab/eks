@@ -8,9 +8,9 @@ from eks.cli._utils import (
     add_common_args,
     add_diameter_s,
     handle_io,
+    plot_results,
 )
 from eks.ibl_pupil_smoother import fit_eks_pupil
-from eks.utils import plot_results
 
 
 def register(subparsers: argparse._SubParsersAction) -> None:

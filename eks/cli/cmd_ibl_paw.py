@@ -10,9 +10,9 @@ from eks.cli._utils import (
     add_quantile_keep_pca,
     add_s,
     handle_io,
+    plot_results,
 )
 from eks.ibl_paw_multicam_smoother import fit_eks_multicam_ibl_paw
-from eks.utils import plot_results
 
 
 def register(subparsers: argparse._SubParsersAction) -> None:
