@@ -1,9 +1,7 @@
 import io
 import shutil
-import subprocess
 import urllib.request
 import zipfile
-from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -49,32 +47,6 @@ def golden_dir(tmp_path_factory, pytestconfig):
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         zf.extractall(cache_dir)
     return cache_dir
-
-
-@pytest.fixture
-def run_cli() -> Callable:
-
-    def _run_cli(subcommand, input_dir, output_dir, **kwargs) -> Path:
-
-        command_str = [
-            'eks',
-            subcommand,
-            '--input-dir', input_dir,
-            '--save-dir', str(output_dir),
-            '--verbose',
-        ]
-        for key, arg in kwargs.items():
-            command_str.append(f'--{key.replace("_", "-")}')
-            if isinstance(arg, list):  # split list arguments into separate elements
-                command_str.extend(map(str, arg))
-            else:
-                command_str.append(str(arg))
-
-        process = subprocess.run(command_str)
-        assert process.returncode == 0
-        return Path(str(output_dir))
-
-    return _run_cli
 
 
 @pytest.fixture

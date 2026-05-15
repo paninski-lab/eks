@@ -8,9 +8,9 @@ from eks.cli._utils import (
     add_common_args,
     add_s,
     handle_io,
+    plot_results,
 )
 from eks.singlecam_smoother import fit_eks_singlecam
-from eks.utils import plot_results
 
 
 def register(subparsers: argparse._SubParsersAction) -> None:

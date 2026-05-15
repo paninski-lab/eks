@@ -1,8 +1,14 @@
 """Shared utilities for eks CLI subcommands."""
 
 import argparse
+import logging
+import os
 import re
 from pathlib import Path
+
+import matplotlib.pyplot as plt
+
+logger = logging.getLogger(__name__)
 
 
 def handle_io(input_dir: str | Path, save_dir: str | Path | None) -> Path:
@@ -309,3 +315,67 @@ def add_com_s(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         type=float,
     )
     return parser
+
+
+def plot_results(
+    output_df, input_dfs_list, key, s_final, nll_values, idxs, save_dir, smoother_type,
+    coords=['x', 'y', 'likelihood'],
+):
+    """Plot EKS smoothing results and save to a PDF.
+
+    Args:
+        output_df: DataFrame with MultiIndex columns (scorer, bodypart, coord).
+        input_dfs_list: List of input DataFrames with flat columns like '{key}_{coord}'.
+        key: Keypoint name to plot.
+        s_final: Final smoothing parameter, either a float or a (float, float) tuple.
+        nll_values: Optional array of NLL values to plot on the last axis.
+        idxs: (start, end) frame indices for the plot window.
+        save_dir: Directory to save the output PDF.
+        smoother_type: Label used in the output filename.
+        coords: List of coordinate names to plot.
+    """
+    fig, axes = plt.subplots(len(coords), 1, figsize=(9, 10))
+
+    for ax, coord in zip(axes, coords, strict=True):
+        if coord == 'likelihood':
+            ylabel = 'model likelihoods'
+        elif coord == 'zscore':
+            ylabel = 'EKS disagreement'
+        else:
+            ylabel = coord
+
+        ax.set_ylabel(ylabel, fontsize=12)
+        if coord == 'zscore':
+            ax.plot(output_df.loc[slice(*idxs), ('ensemble-kalman_tracker', key, coord)],
+                    color='k', linewidth=2)
+            ax.set_xlabel('Time (frames)', fontsize=12)
+            continue
+        for m, markers_curr in enumerate(input_dfs_list):
+            ax.plot(
+                markers_curr.loc[slice(*idxs), key + f'_{coord}'], color=[0.5, 0.5, 0.5],
+                label='Individual models' if m == 0 else None,
+            )
+        if coord == 'likelihood':
+            continue
+        ax.plot(
+            output_df.loc[slice(*idxs), ('ensemble-kalman_tracker', key, coord)],
+            color='k', linewidth=2, label='EKS',
+        )
+        if coord == 'x':
+            ax.legend()
+
+        if nll_values is not None:
+            nll_values_subset = nll_values[idxs[0]:idxs[1]]
+            axes[-1].plot(range(*idxs), nll_values_subset, color='k', linewidth=2)
+            axes[-1].set_ylabel('EKS NLL', fontsize=12)
+
+    if isinstance(s_final, tuple):
+        s_final_str = f'({s_final[0]:.2f}, {s_final[1]:.2f})'
+    else:
+        s_final_str = f'{s_final:.2f}'
+    plt.suptitle(f'EKS results for {key}, smoothing = {s_final_str}', fontsize=14)
+    plt.tight_layout()
+    save_file = os.path.join(save_dir, f'{smoother_type}_{key}.pdf')
+    plt.savefig(save_file)
+    plt.close()
+    logger.info(f'see example EKS output at {save_file}')

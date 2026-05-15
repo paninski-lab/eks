@@ -1,7 +1,6 @@
 import logging
 import os
 import warnings
-from collections.abc import Sequence
 from numbers import Real
 from typing import Literal
 
@@ -546,59 +545,3 @@ def pupil_optimize_smooth(
         f'NLL={float(last_loss):.6f}'
     )
     return float(s_opt[0]), float(s_opt[1])
-
-
-def pupil_smooth(
-    smooth_params: Sequence[float],      # [s_diam, s_com] in (0,1)
-    ys: np.ndarray | jnp.ndarray,        # (T, 8)
-    m0: np.ndarray | jnp.ndarray,        # (3,)
-    S0: np.ndarray | jnp.ndarray,        # (3,3)
-    C: np.ndarray | jnp.ndarray,         # (8,3)
-    R: np.ndarray | jnp.ndarray,         # (T, 8, 8) time-varying obs covariance
-    diameters_var: Real,
-    x_var: float,
-    y_var: float,
-    return_full: bool = False,
-):
-    """
-    One EKF forward (and optional smoother) using Dynamax NLGSSM with:
-      A = diag([s_d, s_c, s_c]) and Q = diag([σ_d^2(1-s_d^2), σ_x^2(1-s_c^2), σ_y^2(1-s_c^2)]).
-      R_t = diag(ensemble_vars[t]) (or provided via _R_override).
-    """
-    ys = jnp.asarray(ys)
-    m0 = jnp.asarray(m0)
-    S0 = jnp.asarray(S0)
-    C = jnp.asarray(C)
-
-    s_d = jnp.clip(jnp.asarray(smooth_params[0]), 1e-3, 1 - 1e-3)
-    s_c = jnp.clip(jnp.asarray(smooth_params[1]), 1e-3, 1 - 1e-3)
-
-    A = jnp.diag(jnp.array([s_d, s_c, s_c]))
-    Q = jnp.diag(jnp.array([
-        diameters_var * (1.0 - s_d**2),
-        x_var * (1.0 - s_c**2),
-        y_var * (1.0 - s_c**2),
-    ]))
-
-    def f_fn(x, A=A):
-        return A @ x
-
-    def h_fn(x, C=C):
-        return C @ x
-
-    # build NLGSSM params; pass Q as exact and s=1.0 to avoid extra scaling
-    params = params_nlgssm_for_keypoint(m0, S0, Q, 1.0, R, f_fn, h_fn)
-
-    filt = extended_kalman_filter(params, ys)
-    nll = -filt.marginal_loglik
-    if not return_full:
-        return nll
-
-    sm = extended_kalman_smoother(params, ys)
-    if hasattr(sm, "smoothed_means"):
-        ms = sm.smoothed_means
-        Vs = sm.smoothed_covariances
-    else:
-        ms = sm.filtered_means
-        Vs = sm.filtered_covariances
-    return ms, Vs, -filt.marginal_loglik

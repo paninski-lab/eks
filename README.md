@@ -2,6 +2,7 @@
 
 [![Discord](https://img.shields.io/discord/1103381776895856720)](https://discord.gg/tDUPdRj4BM)
 ![GitHub](https://img.shields.io/github/license/paninski-lab/eks)
+[![codecov](https://codecov.io/gh/paninski-lab/eks/branch/main/graph/badge.svg)](https://codecov.io/gh/paninski-lab/eks)
 ![PyPI](https://img.shields.io/pypi/v/ensemble-kalman-smoother)
 ![PyPI Downloads](https://static.pepy.tech/badge/ensemble-kalman-smoother)
 

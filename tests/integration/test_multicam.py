@@ -1,54 +1,57 @@
+from eks.multicam_smoother import fit_eks_multicam
 
 
-def test_multicam_defaults(run_cli, compare_to_golden, tmpdir, pytestconfig, request):
-
-    output_dir = run_cli(
-        subcommand='multicam',
-        input_dir=str(pytestconfig.rootpath / 'data' / 'mirror-mouse-separate'),
-        output_dir=tmpdir,
-        bodypart_list=['paw1LH', 'paw2LF'],  # just run on a couple body parts
+def test_multicam_defaults(compare_to_golden, tmp_path, pytestconfig, request):
+    input_dir = str(pytestconfig.rootpath / 'data' / 'mirror-mouse-separate')
+    fit_eks_multicam(
+        input_source=input_dir,
+        save_dir=str(tmp_path),
+        bodypart_list=['paw1LH', 'paw2LF'],
         camera_names=['top', 'bot'],
+        quantile_keep_pca=95,
+        inflate_vars=True,
     )
-    compare_to_golden(request.node.name, output_dir)
+    compare_to_golden(request.node.name, tmp_path)
 
 
-def test_multicam_fixed_smooth_param(run_cli, compare_to_golden, tmpdir, pytestconfig, request):
-
-    output_dir = run_cli(
-        subcommand='multicam',
-        input_dir=str(pytestconfig.rootpath / 'data' / 'mirror-mouse-separate'),
-        output_dir=tmpdir,
-        bodypart_list=['paw1LH', 'paw2LF'],  # just run on a couple body parts
+def test_multicam_fixed_smooth_param(compare_to_golden, tmp_path, pytestconfig, request):
+    input_dir = str(pytestconfig.rootpath / 'data' / 'mirror-mouse-separate')
+    fit_eks_multicam(
+        input_source=input_dir,
+        save_dir=str(tmp_path),
+        bodypart_list=['paw1LH', 'paw2LF'],
         camera_names=['top', 'bot'],
-        s=10,
+        smooth_param=[10.0],
+        quantile_keep_pca=95,
+        inflate_vars=True,
     )
-    compare_to_golden(request.node.name, output_dir)
+    compare_to_golden(request.node.name, tmp_path)
 
 
-def test_multicam_defaults_nonlinear(run_cli, compare_to_golden, tmpdir, pytestconfig, request):
-
-    output_dir = run_cli(
-        subcommand='multicam',
-        input_dir=str(pytestconfig.rootpath / 'data' / 'fly'),
-        output_dir=tmpdir,
+def test_multicam_defaults_nonlinear(compare_to_golden, tmp_path, pytestconfig, request):
+    input_dir = str(pytestconfig.rootpath / 'data' / 'fly')
+    fit_eks_multicam(
+        input_source=input_dir,
+        save_dir=str(tmp_path),
         bodypart_list=['L1A', 'L1B'],
-        # camera_names=['Cam-A', 'Cam-B', 'Cam-C'],  # camera names not needed; use toml
         calibration=str(pytestconfig.rootpath / 'data' / 'fly' / 'calibration.toml'),
+        quantile_keep_pca=95,
+        inflate_vars=True,
     )
-    compare_to_golden(request.node.name, output_dir)
+    compare_to_golden(request.node.name, tmp_path)
 
 
 def test_multicam_fixed_smooth_param_nonlinear(
-    run_cli, compare_to_golden, tmpdir, pytestconfig, request,
+    compare_to_golden, tmp_path, pytestconfig, request,
 ):
-
-    output_dir = run_cli(
-        subcommand='multicam',
-        input_dir=str(pytestconfig.rootpath / 'data' / 'fly'),
-        output_dir=tmpdir,
+    input_dir = str(pytestconfig.rootpath / 'data' / 'fly')
+    fit_eks_multicam(
+        input_source=input_dir,
+        save_dir=str(tmp_path),
         bodypart_list=['L1A', 'L1B'],
-        # camera_names=['Cam-A', 'Cam-B', 'Cam-C'],  # camera names not needed; use toml
         calibration=str(pytestconfig.rootpath / 'data' / 'fly' / 'calibration.toml'),
-        s=10,
+        smooth_param=[10.0],
+        quantile_keep_pca=95,
+        inflate_vars=True,
     )
-    compare_to_golden(request.node.name, output_dir)
+    compare_to_golden(request.node.name, tmp_path)

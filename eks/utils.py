@@ -1,7 +1,6 @@
 import logging
 import os
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from sleap_io.io.slp import read_labels
@@ -178,61 +177,6 @@ def format_data(input_source: str | list, camera_names: list | None = None) -> t
         raise FileNotFoundError(f'no valid marker input files found in {input_source}')
     assert keypoint_names is not None
     return input_dfs_list, keypoint_names
-
-
-def plot_results(
-    output_df, input_dfs_list, key, s_final, nll_values, idxs, save_dir, smoother_type,
-    coords=['x', 'y', 'likelihood']
-):
-    fig, axes = plt.subplots(len(coords), 1, figsize=(9, 10))
-
-    for ax, coord in zip(axes, coords, strict=True):
-        # Rename axes label for likelihood and zscore coordinates
-        if coord == 'likelihood':
-            ylabel = 'model likelihoods'
-        elif coord == 'zscore':
-            ylabel = 'EKS disagreement'
-        else:
-            ylabel = coord
-
-        # plot individual models
-        ax.set_ylabel(ylabel, fontsize=12)
-        if coord == 'zscore':
-            ax.plot(output_df.loc[slice(*idxs), ('ensemble-kalman_tracker', key, coord)],
-                    color='k', linewidth=2)
-            ax.set_xlabel('Time (frames)', fontsize=12)
-            continue
-        for m, markers_curr in enumerate(input_dfs_list):
-            ax.plot(
-                markers_curr.loc[slice(*idxs), key + f'_{coord}'], color=[0.5, 0.5, 0.5],
-                label='Individual models' if m == 0 else None,
-            )
-        # plot eks
-        if coord == 'likelihood':
-            continue
-        ax.plot(
-            output_df.loc[slice(*idxs), ('ensemble-kalman_tracker', key, coord)],
-            color='k', linewidth=2, label='EKS',
-        )
-        if coord == 'x':
-            ax.legend()
-
-        # Plot nll_values against the time axis
-        if nll_values is not None:
-            nll_values_subset = nll_values[idxs[0]:idxs[1]]
-            axes[-1].plot(range(*idxs), nll_values_subset, color='k', linewidth=2)
-            axes[-1].set_ylabel('EKS NLL', fontsize=12)
-
-    if isinstance(s_final, tuple):
-        s_final_str = f'({s_final[0]:.2f}, {s_final[1]:.2f})'
-    else:
-        s_final_str = f'{s_final:.2f}'
-    plt.suptitle(f'EKS results for {key}, smoothing = {s_final_str}', fontsize=14)
-    plt.tight_layout()
-    save_file = os.path.join(save_dir, f'{smoother_type}_{key}.pdf')
-    plt.savefig(save_file)
-    plt.close()
-    logger.info(f'see example EKS output at {save_file}')
 
 
 def crop_frames(y: np.ndarray,

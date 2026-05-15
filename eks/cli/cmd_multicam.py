@@ -14,9 +14,9 @@ from eks.cli._utils import (
     add_quantile_keep_pca,
     add_s,
     handle_io,
+    plot_results,
 )
 from eks.multicam_smoother import fit_eks_multicam
-from eks.utils import plot_results
 
 logger = logging.getLogger(__name__)
 
