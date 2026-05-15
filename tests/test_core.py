@@ -1,7 +1,7 @@
 import jax.numpy as jnp
 import numpy as np
 
-from eks.core import ensemble
+from eks.core import ensemble, optimize_smooth_param
 from eks.marker_array import MarkerArray
 
 
@@ -150,3 +150,83 @@ def test_jax_ensemble_zero_likelihood():
     # Check that variance fields contain no NaNs
     assert np.all(np.isfinite(var_x)), "var_x contains NaNs due to zero likelihood"
     assert np.all(np.isfinite(var_y)), "var_y contains NaNs due to zero likelihood"
+
+
+class TestOptimizeSmoothParamSlowPath:
+    """Test the slow (correlated-block) branch of optimize_smooth_param.
+
+    The slow path is entered when at least one block contains more than one keypoint.
+    """
+
+    def _make_params(self, K: int = 3, T: int = 20, obs: int = 2, D: int = 2):
+        """Build minimal valid Kalman filter arrays for K keypoints."""
+        rng = np.random.default_rng(0)
+        ys = jnp.asarray(rng.standard_normal((K, T, obs)).astype(np.float32))
+        m0s = jnp.zeros((K, D))
+        S0s = jnp.tile(jnp.eye(D), (K, 1, 1))
+        As = jnp.tile(jnp.eye(D), (K, 1, 1))
+        Qs = jnp.tile(jnp.eye(D), (K, 1, 1))
+        Cs = jnp.tile(jnp.eye(obs), (K, 1, 1))
+        Rs = jnp.tile(jnp.eye(obs), (K, T, 1, 1))
+        s_guess_per_k = np.ones(K)
+        return ys, m0s, S0s, As, Qs, Cs, Rs, s_guess_per_k
+
+    def test_slow_path_fills_s_finals(self):
+        # Arrange — block [0, 1] has two members, forcing the slow path
+        K = 3
+        ys, m0s, S0s, As, Qs, Cs, Rs, s_guess_per_k = self._make_params(K=K)
+        s_finals = np.empty(K, dtype=float)
+
+        # Act
+        optimize_smooth_param(
+            ys=ys, m0s=m0s, S0s=S0s, As=As, Cs=Cs, Qs=Qs, Rs=Rs,
+            blocks=[[0, 1], [2]],
+            s_finals=s_finals,
+            s_frames=None,
+            s_guess_per_k=s_guess_per_k,
+            safety_cap=5,
+        )
+
+        # Assert
+        assert np.all(np.isfinite(s_finals))
+        assert np.all(s_finals > 0)
+
+    def test_slow_path_block_members_share_s(self):
+        # Arrange
+        K = 3
+        ys, m0s, S0s, As, Qs, Cs, Rs, s_guess_per_k = self._make_params(K=K)
+        s_finals = np.empty(K, dtype=float)
+
+        # Act
+        optimize_smooth_param(
+            ys=ys, m0s=m0s, S0s=S0s, As=As, Cs=Cs, Qs=Qs, Rs=Rs,
+            blocks=[[0, 1], [2]],
+            s_finals=s_finals,
+            s_frames=None,
+            s_guess_per_k=s_guess_per_k,
+            safety_cap=5,
+        )
+
+        # Assert — keypoints 0 and 1 are in the same block, so they share one s
+        assert s_finals[0] == s_finals[1]
+
+    def test_slow_path_with_s_frames(self):
+        # Arrange — s_frames crops the time axis inside the slow path loss
+        K = 3
+        T = 30
+        ys, m0s, S0s, As, Qs, Cs, Rs, s_guess_per_k = self._make_params(K=K, T=T)
+        s_finals = np.empty(K, dtype=float)
+
+        # Act
+        optimize_smooth_param(
+            ys=ys, m0s=m0s, S0s=S0s, As=As, Cs=Cs, Qs=Qs, Rs=Rs,
+            blocks=[[0, 1], [2]],
+            s_finals=s_finals,
+            s_frames=[(0, 15)],
+            s_guess_per_k=s_guess_per_k,
+            safety_cap=5,
+        )
+
+        # Assert
+        assert np.all(np.isfinite(s_finals))
+        assert np.all(s_finals > 0)
