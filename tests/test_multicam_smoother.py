@@ -147,8 +147,8 @@ def test_ensemble_kalman_smoother_multicam():
         s_frames=s_frames,
         inflate_vars=True,
         inflate_vars_kwargs={
-            'loading_matrix': pca.components_.T,
-            'mean': pca.mean_,
+            'loading_matrix': pca.components_.T,  # type: ignore[union-attr]
+            'mean': pca.mean_,  # type: ignore[union-attr]
         }
     )
     # ensemble variance should be very small since the data is a slightly noisy copy of a template
@@ -342,15 +342,13 @@ def test_center_predictions_min_frames():
 
 
 # ----------- Calibration Tests ------------
-"""
-Tests for calibration helpers:
-- Rodrigues vs OpenCV
-- Distortion parsing semantics
-- JAX projection vs cv2.projectPoints (with/without distortion)
-- Combined multi-view projector concatenation
-- Triangulation wrapper call/shape behavior
-- Covariance projection via Jacobian vs finite differences
-"""
+# Tests for calibration helpers:
+# - Rodrigues vs OpenCV
+# - Distortion parsing semantics
+# - JAX projection vs cv2.projectPoints (with/without distortion)
+# - Combined multi-view projector concatenation
+# - Triangulation wrapper call/shape behavior
+# - Covariance projection via Jacobian vs finite differences
 
 jax.config.update("jax_enable_x64", True)
 
@@ -565,7 +563,7 @@ def test_triangulate_3d_models_calls_camgroup_and_shapes():
     cams = [_MockCam(np.eye(3), np.zeros(3), np.eye(3), np.zeros(14)) for _ in range(C)]
     cg = _MockCamGroup(cams)
 
-    tri = triangulate_3d_models(markers, cg)
+    tri = triangulate_3d_models(markers, cg)  # type: ignore[arg-type]
     assert tri.shape == (M, K, T, 3)
 
     for m in range(M):

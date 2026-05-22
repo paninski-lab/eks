@@ -1,5 +1,10 @@
 """MarkerArray: a structured 5D array container for multi-model, multi-camera pose data."""
 
+__all__ = [
+    'MarkerArray',
+    'input_dfs_to_markerArray',
+]
+
 from typing import Optional
 
 import jax.numpy as jnp
@@ -43,6 +48,24 @@ class MarkerArray:
 
         Raises:
             AssertionError: If neither `array`, `shape`, nor `marker_array` is provided.
+
+        Examples:
+            >>> import numpy as np
+            >>> from eks import MarkerArray
+            >>> # 2 ensemble models, 3 cameras, 100 frames, 5 keypoints, 3 fields (x, y, likelihood)
+            >>> arr = np.zeros((2, 3, 100, 5, 3), dtype=np.float32)
+            >>> ma = MarkerArray(arr, data_fields=['x', 'y', 'likelihood'])
+            >>> ma.shape
+            (2, 3, 100, 5, 3)
+            >>> ma.n_models, ma.n_cameras, ma.n_frames, ma.n_keypoints, ma.n_fields
+            (2, 3, 100, 5, 3)
+
+            >>> # create an empty zero-filled array from shape:
+            >>> # 1 model (post-ensemble), 2 cameras, 50 frames, 4 keypoints, 2 fields (x, y)
+            >>> ma_empty = MarkerArray(shape=(1, 2, 50, 4, 2), data_fields=['x', 'y'])
+
+            >>> # clone an existing MarkerArray (copies the underlying array)
+            >>> ma_clone = MarkerArray(marker_array=ma)
         """
         if marker_array is not None:
             # Clone an existing MarkerArray
@@ -244,7 +267,7 @@ class MarkerArray:
 
 
 def input_dfs_to_markerArray(
-    input_dfs_list: list[pd.DataFrame],
+    input_dfs_list: list[list[pd.DataFrame]],
     bodypart_list: list[str],
     camera_names: list[str],
     data_fields: list[str] = ["x", "y", "likelihood"],

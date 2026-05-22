@@ -76,7 +76,7 @@ class TestCropFrames:
 
         # Act / Assert
         with pytest.raises(ValueError):
-            crop_frames(y, [(1, 3, 5)])
+            crop_frames(y, [(1, 3, 5)])  # type: ignore[arg-type]
 
     def test_crop_frames_out_of_bounds(self):
         # Arrange

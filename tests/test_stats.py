@@ -57,7 +57,10 @@ def test_compute_pca_with_precomputed_pca():
     assert len(ensemble_pca) == n_keypoints
     assert len(good_pcs_list) == n_keypoints
     assert all(isinstance(pca, PCA) for pca in ensemble_pca)
-    assert all(np.array_equal(pca.components_, precompute_pca.components_) for pca in ensemble_pca)
+    assert all(
+        np.array_equal(pca.components_, precompute_pca.components_)  # type: ignore[arg-type]
+        for pca in ensemble_pca
+    )
 
 
 def test_compute_mahalanobis():

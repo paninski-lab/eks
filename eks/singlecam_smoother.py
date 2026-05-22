@@ -1,5 +1,10 @@
 """Single-camera EKS: per-keypoint smoothing with ensemble variance as observation noise."""
 
+__all__ = [
+    'fit_eks_singlecam',
+    'ensemble_kalman_smoother_singlecam',
+]
+
 import logging
 import os
 from typing import Literal
@@ -54,6 +59,21 @@ def fit_eks_singlecam(
             s_finals (list): List of optimized smoothing factors for each keypoint.
             input_dfs (list): List of input DataFrames for plotting.
             bodypart_list (list): List of body parts used.
+
+    Examples:
+        >>> from eks import fit_eks_singlecam
+        >>> df, smooth_params, input_dfs, bodyparts = fit_eks_singlecam(
+        ...     input_source='/path/to/csv/dir',
+        ...     save_file='/path/to/output/smoothed.csv',
+        ... )
+
+        >>> # restrict keypoints and fix the smoothing parameter
+        >>> df, smooth_params, input_dfs, bodyparts = fit_eks_singlecam(
+        ...     input_source='/path/to/csv/dir',
+        ...     save_file='/path/to/output/smoothed.csv',
+        ...     bodypart_list=['nose', 'left_ear', 'right_ear'],
+        ...     smooth_param=2.0,
+        ... )
 
     """
     # Load and format input files using the unified format_data function

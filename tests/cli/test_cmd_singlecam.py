@@ -58,7 +58,7 @@ class TestCmdSinglecam:
         input_files = [str(tmp_path / 'a.csv'), str(tmp_path / 'b.csv')]
         with patch('eks.cli.cmd_singlecam.handle_io', return_value=tmp_path), \
                 patch('eks.cli.cmd_singlecam.fit_eks_singlecam', return_value=_SMOOTHER_RETURN) as mock_fit:
-            cmd_singlecam(_args(input_dir=None, input_files=input_files))
+            cmd_singlecam(_args(input_dir=None, input_files=input_files))  # type: ignore[arg-type]
             assert mock_fit.call_args.kwargs['input_source'] == input_files
 
     def test_no_plot_by_default(self, tmp_path):

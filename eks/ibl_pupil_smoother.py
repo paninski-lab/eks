@@ -1,5 +1,12 @@
 """IBL pupil smoother: AR(1) EKS for pupil diameter and center-of-mass tracking."""
 
+__all__ = [
+    'fit_eks_pupil',
+    'ensemble_kalman_smoother_ibl_pupil',
+    'get_pupil_location',
+    'get_pupil_diameter',
+]
+
 import logging
 import os
 import warnings
@@ -144,6 +151,20 @@ def fit_eks_pupil(
             smooth_params (list): Final smoothing parameters used.
             input_dfs_list (list): List of input DataFrames.
             keypoint_names (list): List of keypoint names.
+
+    Examples:
+        >>> from eks import fit_eks_pupil
+        >>> df, smooth_params, input_dfs, keypoints = fit_eks_pupil(
+        ...     input_source='/path/to/csv/dir',
+        ...     save_file='/path/to/output/smoothed.csv',
+        ... )
+
+        >>> # fix both smoothing parameters: [diameter, center-of-mass]
+        >>> df, smooth_params, input_dfs, keypoints = fit_eks_pupil(
+        ...     input_source='/path/to/csv/dir',
+        ...     save_file='/path/to/output/smoothed.csv',
+        ...     smooth_params=[0.99, 0.999],
+        ... )
 
     """
     # pupil smoother only works for a pre-specified set of points
