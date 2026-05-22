@@ -279,8 +279,8 @@ def crop_frames(y: np.ndarray,
 
 def center_predictions(
     ensemble_marker_array: MarkerArray,
-    quantile_keep_pca: float
-):
+    quantile_keep_pca: float,
+) -> tuple[np.ndarray, MarkerArray, MarkerArray, MarkerArray]:
     """
     Filter frames based on variance, compute mean coordinates, and scale predictions.
 

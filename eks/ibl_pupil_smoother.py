@@ -4,7 +4,7 @@ import logging
 import os
 import warnings
 from numbers import Real
-from typing import Literal
+from typing import Any, Literal
 
 import jax
 import numpy as np
@@ -83,7 +83,12 @@ def get_pupil_diameter(dlc: dict) -> np.ndarray:
         return np.nanmedian(diameters, axis=0)
 
 
-def add_mean_to_array(pred_arr, keys, mean_x, mean_y):
+def add_mean_to_array(
+    pred_arr: np.ndarray,
+    keys: list[str],
+    mean_x: float | np.floating,
+    mean_y: float | np.floating,
+) -> dict[str, np.ndarray]:
     """Add x/y center-of-mass means back to a centered prediction array.
 
     Args:
@@ -405,11 +410,11 @@ def run_pupil_kalman_smoother(
         jnp.asarray(y_var) * (1.0 - s_c_j**2),
     ]))
 
-    def f_fn(x):
+    def f_fn(x: jnp.ndarray) -> jnp.ndarray:
         """AR(1) state transition: x -> A @ x."""
         return A @ x
 
-    def h_fn(x):
+    def h_fn(x: jnp.ndarray) -> jnp.ndarray:
         """Linear observation: x -> C @ x."""
         return C @ x
 
@@ -477,7 +482,7 @@ def pupil_optimize_smooth(
         Optimized AR(1) parameters in (0, 1).
     """
     # Map unconstrained u -> s in (eps, 1-eps)
-    def _to_stable_s(u, eps=1e-3):
+    def _to_stable_s(u: jnp.ndarray, eps: float = 1e-3) -> jnp.ndarray:
         """Map unconstrained real u to stable AR(1) parameter s in (eps, 1-eps) via sigmoid."""
         return jax.nn.sigmoid(u) * (1.0 - 2 * eps) + eps
 
@@ -492,13 +497,20 @@ def pupil_optimize_smooth(
         R_loss = R
 
     # Params builder with Q exact and s=1.0 (A, Q depend on s directly)
-    def _params_linear(m0, S0, A, Q_exact, R_any, C):
+    def _params_linear(
+        m0: jnp.ndarray,
+        S0: jnp.ndarray,
+        A: jnp.ndarray,
+        Q_exact: jnp.ndarray,
+        R_any: jnp.ndarray,
+        C: jnp.ndarray,
+    ) -> Any:
         """Build ParamsNLGSSM for the pupil AR(1) model with pre-computed A and Q."""
-        def f_fn(x, A=A):
+        def f_fn(x: jnp.ndarray, A: jnp.ndarray = A) -> jnp.ndarray:
             """AR(1) state transition: x -> A @ x."""
             return A @ x
 
-        def h_fn(x, C=C):
+        def h_fn(x: jnp.ndarray, C: jnp.ndarray = C) -> jnp.ndarray:
             """Linear observation: x -> C @ x."""
             return C @ x
 
@@ -530,22 +542,25 @@ def pupil_optimize_smooth(
     opt_state0 = optimizer.init(u0)
 
     @jit
-    def _opt_step(u, opt_state):
+    def _opt_step(
+        u: jnp.ndarray,
+        opt_state: Any,
+    ) -> tuple[jnp.ndarray, Any, jnp.ndarray]:
         """Perform one Adam gradient step on _nll_from_u and return updated (u, opt_state, loss)."""
         loss, grad = value_and_grad(_nll_from_u)(u)
         updates, opt_state = optimizer.update(grad, opt_state)
-        u = optax.apply_updates(u, updates)
+        u = optax.apply_updates(u, updates)  # type: ignore[assignment]
         return u, opt_state, loss
 
     @jit
-    def _run_tol_loop(u0, opt_state0):
+    def _run_tol_loop(u0: jnp.ndarray, opt_state0: Any) -> Any:
         """Run Adam with early stopping on _nll_from_u; returns full while_loop carry."""
-        def cond(carry):
+        def cond(carry: Any) -> jnp.ndarray:
             """Continue while loss has not converged and iteration cap is not reached."""
             _, _, prev_loss, iters, done = carry
             return jnp.logical_and(~done, iters < safety_cap)
 
-        def body(carry):
+        def body(carry: Any) -> Any:
             """Perform one Adam step and check relative-tolerance stopping criterion."""
             u, opt_state, prev_loss, iters, _ = carry
             u, opt_state, loss = _opt_step(u, opt_state)

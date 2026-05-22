@@ -13,7 +13,10 @@ from eks.multicam_smoother import ensemble_kalman_smoother_multicam
 from eks.utils import convert_lp_dlc
 
 
-def remove_camera_means(ensemble_stacks, camera_means):
+def remove_camera_means(
+    ensemble_stacks: list[np.ndarray],
+    camera_means: list[np.ndarray],
+) -> list[np.ndarray]:
     """Subtract per-camera mean coordinates from each ensemble member's predictions.
 
     Args:
@@ -31,7 +34,10 @@ def remove_camera_means(ensemble_stacks, camera_means):
     return centered_ensemble_stacks
 
 
-def add_camera_means(ensemble_stacks, camera_means):
+def add_camera_means(
+    ensemble_stacks: list[np.ndarray],
+    camera_means: list[np.ndarray],
+) -> list[np.ndarray]:
     """Add per-camera mean coordinates back to each ensemble member's predictions.
 
     Args:
@@ -49,7 +55,7 @@ def add_camera_means(ensemble_stacks, camera_means):
     return centered_ensemble_stacks
 
 
-def pca(S, n_comps):
+def pca(S: np.ndarray, n_comps: int) -> tuple[PCA, np.ndarray]:
     """Fit a PCA model on data matrix S and return the fitted model with explained variance ratios.
 
     Args:
