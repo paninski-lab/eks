@@ -5,6 +5,8 @@ import importlib
 import logging
 from pathlib import Path
 
+import eks
+
 
 def main() -> None:
     """Run the eks command-line interface."""
@@ -12,6 +14,7 @@ def main() -> None:
         prog='eks',
         description='Ensemble Kalman Smoother for pose estimation.',
     )
+    parser.add_argument('--version', action='version', version=f'%(prog)s {eks.__version__}')
     subparsers = parser.add_subparsers(
         title='subcommands',
         dest='subcommand',
