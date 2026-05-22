@@ -71,11 +71,28 @@ def fit_eks_mirrored_multicam(
         n_latent: number of dimensions to keep from PCA
 
     Returns:
-            tuple:
-                    camera_dfs (list): List of Output Dataframes
-                    s_finals (list): List of optimized smoothing factors for each keypoint.
-                    input_dfs (list): List of input DataFrames for plotting.
-                    bodypart_list (list): List of body parts used.
+        tuple:
+            camera_dfs (list): List of Output Dataframes
+            s_finals (list): List of optimized smoothing factors for each keypoint.
+            input_dfs (list): List of input DataFrames for plotting.
+            bodypart_list (list): List of body parts used.
+
+    Examples:
+        >>> from eks import fit_eks_mirrored_multicam
+        >>> final_df, smooth_params, input_dfs, bodyparts = fit_eks_mirrored_multicam(
+        ...     input_source='/path/to/csv/dir',
+        ...     save_file='/path/to/output/smoothed.csv',
+        ...     camera_names=['top', 'side'],
+        ... )
+
+        >>> # optimize over a subset of frames then smooth all frames
+        >>> final_df, smooth_params, input_dfs, bodyparts = fit_eks_mirrored_multicam(
+        ...     input_source='/path/to/csv/dir',
+        ...     save_file='/path/to/output/smoothed.csv',
+        ...     camera_names=['top', 'side'],
+        ...     s_frames=[(0, 200)],
+        ... )
+
     """
     # Load and format input files
     input_dfs_list, keypoint_names = format_data(input_source)
@@ -183,6 +200,21 @@ def fit_eks_multicam(
             input_dfs (list): List of input DataFrames for plotting.
             bodypart_list (list): List of body parts used.
             df_3d (pd.DataFrame): DataFrame with 3D latent states and posterior variances.
+
+    Examples:
+        >>> from eks import fit_eks_multicam
+        >>> camera_dfs, smooth_params, input_dfs, bodyparts, df_3d = fit_eks_multicam(
+        ...     input_source='/path/to/csv/dir',
+        ...     save_dir='/path/to/output/',
+        ...     camera_names=['cam0', 'cam1', 'cam2'],
+        ... )
+
+        >>> # with a calibration file for nonlinear 3D projection
+        >>> camera_dfs, smooth_params, input_dfs, bodyparts, df_3d = fit_eks_multicam(
+        ...     input_source='/path/to/csv/dir',
+        ...     save_dir='/path/to/output/',
+        ...     calibration='/path/to/calibration.toml',
+        ... )
 
     """
     # Load and format input files

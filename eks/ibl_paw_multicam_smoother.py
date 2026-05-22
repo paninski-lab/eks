@@ -87,35 +87,50 @@ def fit_eks_multicam_ibl_paw(
     inflate_vars: bool = False,
     n_latent: int = 3
 ) -> tuple:
+    """Fit the Ensemble Kalman Smoother for IBL multi-camera paw data.
+
+    Args:
+        input_source: Directory path or list of CSV file paths with columns for all cameras.
+        save_dir: Directory to save output DataFrame.
+        smooth_param: Value in (0, Inf); smaller values lead to more smoothing.
+        s_frames: Frame ranges used to optimize the smoothing parameter, as a list of
+            (start, end) tuples. Indices are 0-based with half-open intervals [start, end),
+            so end is excluded. Use None for open ends: (None, 100) selects frames 0–99,
+            (50, None) selects frame 50 through the last frame. Multiple non-overlapping
+            ranges are allowed, e.g. [(0, 100), (200, 300)]. If None (default), all frames
+            are used. Ignored when smooth_param is provided. Note: only affects parameter
+            optimization; final smoothing always runs over all frames.
+        quantile_keep_pca: Percentage of points kept for PCA (default: 50.0).
+        avg_mode: Mode for averaging across ensemble ('median', 'mean').
+        var_mode: mode for computing ensemble variance
+            'var' | 'confidence_weighted_var'
+        img_width: The width of the image being smoothed (128 default, IBL-specific).
+        inflate_vars: True to use Mahalanobis distance threshold to inflate ensemble variance
+        n_latent: number of dimensions to keep from PCA
+
+    Returns:
+        tuple:
+            camera_dfs (list): List of Output Dataframes
+            s_finals (list): List of optimized smoothing factors for each keypoint.
+            input_dfs (list): List of input DataFrames for plotting.
+            bodypart_list (list): List of body parts used.
+
+    Examples:
+        >>> from eks import fit_eks_multicam_ibl_paw
+        >>> camera_dfs, smooth_params, input_dfs, bodyparts = fit_eks_multicam_ibl_paw(
+        ...     input_source='/path/to/ibl/data/',
+        ...     save_dir='/path/to/output/',
+        ... )
+
+        >>> # fix the smoothing parameter and restrict optimization to a frame subset
+        >>> camera_dfs, smooth_params, input_dfs, bodyparts = fit_eks_multicam_ibl_paw(
+        ...     input_source='/path/to/ibl/data/',
+        ...     save_dir='/path/to/output/',
+        ...     smooth_param=2.0,
+        ...     s_frames=[(0, 500)],
+        ... )
+
     """
-        Fit the Ensemble Kalman Smoother for IBL multi-camera paw data.
-
-        Args:
-            input_source: Directory path or list of CSV file paths with columns for all cameras.
-            save_dir: Directory to save output DataFrame.
-            smooth_param: Value in (0, Inf); smaller values lead to more smoothing.
-            s_frames: Frame ranges used to optimize the smoothing parameter, as a list of
-                (start, end) tuples. Indices are 0-based with half-open intervals [start, end),
-                so end is excluded. Use None for open ends: (None, 100) selects frames 0–99,
-                (50, None) selects frame 50 through the last frame. Multiple non-overlapping
-                ranges are allowed, e.g. [(0, 100), (200, 300)]. If None (default), all frames
-                are used. Ignored when smooth_param is provided. Note: only affects parameter
-                optimization; final smoothing always runs over all frames.
-            quantile_keep_pca: Percentage of points kept for PCA (default: 50.0).
-            avg_mode: Mode for averaging across ensemble ('median', 'mean').
-            var_mode: mode for computing ensemble variance
-                'var' | 'confidence_weighted_var'
-            img_width: The width of the image being smoothed (128 default, IBL-specific).
-            inflate_vars: True to use Mahalanobis distance threshold to inflate ensemble variance
-            n_latent: number of dimensions to keep from PCA
-
-        Returns:
-                tuple:
-                        camera_dfs (list): List of Output Dataframes
-                        s_finals (list): List of optimized smoothing factors for each keypoint.
-                        input_dfs (list): List of input DataFrames for plotting.
-                        bodypart_list (list): List of body parts used.
-        """
     # IBL paw smoother only works for a pre-specified set of points
     bodypart_list = ['paw_l', 'paw_r']
     camera_names = ["left", "right"]

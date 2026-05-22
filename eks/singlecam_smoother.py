@@ -60,6 +60,21 @@ def fit_eks_singlecam(
             input_dfs (list): List of input DataFrames for plotting.
             bodypart_list (list): List of body parts used.
 
+    Examples:
+        >>> from eks import fit_eks_singlecam
+        >>> df, smooth_params, input_dfs, bodyparts = fit_eks_singlecam(
+        ...     input_source='/path/to/csv/dir',
+        ...     save_file='/path/to/output/smoothed.csv',
+        ... )
+
+        >>> # restrict keypoints and fix the smoothing parameter
+        >>> df, smooth_params, input_dfs, bodyparts = fit_eks_singlecam(
+        ...     input_source='/path/to/csv/dir',
+        ...     save_file='/path/to/output/smoothed.csv',
+        ...     bodypart_list=['nose', 'left_ear', 'right_ear'],
+        ...     smooth_param=2.0,
+        ... )
+
     """
     # Load and format input files using the unified format_data function
     input_dfs_list, keypoint_names = format_data(input_source)

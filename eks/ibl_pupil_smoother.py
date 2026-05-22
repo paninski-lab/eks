@@ -152,6 +152,20 @@ def fit_eks_pupil(
             input_dfs_list (list): List of input DataFrames.
             keypoint_names (list): List of keypoint names.
 
+    Examples:
+        >>> from eks import fit_eks_pupil
+        >>> df, smooth_params, input_dfs, keypoints = fit_eks_pupil(
+        ...     input_source='/path/to/csv/dir',
+        ...     save_file='/path/to/output/smoothed.csv',
+        ... )
+
+        >>> # fix both smoothing parameters: [diameter, center-of-mass]
+        >>> df, smooth_params, input_dfs, keypoints = fit_eks_pupil(
+        ...     input_source='/path/to/csv/dir',
+        ...     save_file='/path/to/output/smoothed.csv',
+        ...     smooth_params=[0.99, 0.999],
+        ... )
+
     """
     # pupil smoother only works for a pre-specified set of points
     # NOTE: this order MUST be kept
