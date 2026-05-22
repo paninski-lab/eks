@@ -24,8 +24,8 @@ def test_ensemble_kalman_smoother_singlecam():
     keypoint_names = ['kp1', 'kp2']
     columns = [f'{kp}_{coord}' for kp in keypoint_names for coord in ['x', 'y', 'likelihood']]
     markers_list = [
-        pd.DataFrame(np.random.randn(100, len(columns)), columns=columns),
-        pd.DataFrame(np.random.randn(100, len(columns)), columns=columns),
+        pd.DataFrame(np.random.randn(100, len(columns)), columns=columns),  # type: ignore[call-overload]
+        pd.DataFrame(np.random.randn(100, len(columns)), columns=columns),  # type: ignore[call-overload]
     ]
     s_frames = None
     blocks = []

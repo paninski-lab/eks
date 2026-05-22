@@ -188,8 +188,8 @@ def test_ensemble_kalman_smoother_ibl_pupil():
         'pupil_left_r_x', 'pupil_left_r_y', 'pupil_left_r_likelihood'
     ]
     input_dfs_list = [
-        pd.DataFrame(np.random.randn(100, 12), columns=columns),
-        pd.DataFrame(np.random.randn(100, 12), columns=columns),
+        pd.DataFrame(np.random.randn(100, 12), columns=columns),  # type: ignore[call-overload]
+        pd.DataFrame(np.random.randn(100, 12), columns=columns),  # type: ignore[call-overload]
     ]
     s_frames = [(1, 20)]
     bodypart_list = ['pupil_top_r', 'pupil_bottom_r', 'pupil_right_r', 'pupil_left_r']

@@ -267,7 +267,7 @@ class MarkerArray:
 
 
 def input_dfs_to_markerArray(
-    input_dfs_list: list[pd.DataFrame],
+    input_dfs_list: list[list[pd.DataFrame]],
     bodypart_list: list[str],
     camera_names: list[str],
     data_fields: list[str] = ["x", "y", "likelihood"],

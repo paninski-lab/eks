@@ -5,6 +5,7 @@ __all__ = [
 ]
 
 import os
+from collections.abc import Sequence
 from typing import Literal
 
 import numpy as np
@@ -19,7 +20,7 @@ from eks.utils import convert_lp_dlc
 
 def remove_camera_means(
     ensemble_stacks: list[np.ndarray],
-    camera_means: list[np.ndarray],
+    camera_means: Sequence[np.ndarray | float],
 ) -> list[np.ndarray]:
     """Subtract per-camera mean coordinates from each ensemble member's predictions.
 
@@ -40,7 +41,7 @@ def remove_camera_means(
 
 def add_camera_means(
     ensemble_stacks: list[np.ndarray],
-    camera_means: list[np.ndarray],
+    camera_means: Sequence[np.ndarray | float],
 ) -> list[np.ndarray]:
     """Add per-camera mean coordinates back to each ensemble member's predictions.
 
