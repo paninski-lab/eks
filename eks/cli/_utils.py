@@ -7,6 +7,8 @@ import re
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -318,9 +320,16 @@ def add_com_s(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
 
 
 def plot_results(
-    output_df, input_dfs_list, key, s_final, nll_values, idxs, save_dir, smoother_type,
-    coords=['x', 'y', 'likelihood'],
-):
+    output_df: pd.DataFrame,
+    input_dfs_list: list[pd.DataFrame],
+    key: str,
+    s_final: float | tuple[float, float],
+    nll_values: np.ndarray | None,
+    idxs: tuple[int, int],
+    save_dir: str,
+    smoother_type: str,
+    coords: list[str] = ['x', 'y', 'likelihood'],
+) -> None:
     """Plot EKS smoothing results and save to a PDF.
 
     Args:

@@ -1,3 +1,5 @@
+"""Single-camera EKS: per-keypoint smoothing with ensemble variance as observation noise."""
+
 import logging
 import os
 from typing import Literal

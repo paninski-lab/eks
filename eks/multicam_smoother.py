@@ -1,7 +1,10 @@
+"""Multi-camera EKS: 3D triangulation, projection, and per-keypoint variance inflation."""
+
 import logging
 import os
 import time
-from typing import Literal
+from collections.abc import Callable
+from typing import Any, Literal
 
 import cv2
 import jax
@@ -717,18 +720,20 @@ def inflate_variance(
 # Calibration helpers (only used when `calibration` TOML is given)
 # ================================================================
 
-def rodrigues(rvec):
+def rodrigues(rvec: np.ndarray | jnp.ndarray) -> jnp.ndarray:
     """OpenCV-style Rodrigues: rvec (3,) -> R (3,3)."""
     theta = jnp.linalg.norm(rvec)
 
-    def small_angle(_):
+    def small_angle(_: None) -> jnp.ndarray:
+        """Return first-order rotation matrix approximation for near-zero rotation angles."""
         rx, ry, rz = rvec
         K = jnp.array([[0.0, -rz,  ry],
                        [rz,  0.0, -rx],
                        [-ry, rx,  0.0]])
         return jnp.eye(3) + K
 
-    def general(_):
+    def general(_: None) -> jnp.ndarray:
+        """Return exact rotation matrix via the full Rodrigues formula."""
         rx, ry, rz = rvec / theta
         K = jnp.array([[0.0, -rz,  ry],
                        [rz,  0.0, -rx],
@@ -740,7 +745,7 @@ def rodrigues(rvec):
     return jax.lax.cond(theta < 1e-12, small_angle, general, operand=None)
 
 
-def parse_dist(dist_coeffs):
+def parse_dist(dist_coeffs: np.ndarray | list) -> dict[str, jnp.ndarray]:
     """
     OpenCV pinhole distortion ordering:
       [k1, k2, p1, p2, k3, k4, k5, k6, s1, s2, s3, s4, tx, ty]
@@ -750,21 +755,27 @@ def parse_dist(dist_coeffs):
     return dict(k1=k1, k2=k2, p1=p1, p2=p2, k3=k3, k4=k4, k5=k5, k6=k6, s1=s1, s2=s2, s3=s3, s4=s4)
 
 
-def make_jax_projection_fn(rvec, tvec, K, dist_coeffs):
+def make_jax_projection_fn(
+    rvec: np.ndarray,
+    tvec: np.ndarray,
+    K: np.ndarray,
+    dist_coeffs: np.ndarray,
+) -> Callable:
     """
     JAX-compatible replacement for cv2.projectPoints.
     rvec: (3,), tvec: (3,), K: (3,3) with optional skew K[0,1], dist_coeffs: OpenCV order.
     Returns: project(object_points: (...,3)) -> (...,2)
     """
-    rvec = jnp.asarray(rvec)
-    tvec = jnp.asarray(tvec)
-    K = jnp.asarray(K)
+    rvec = jnp.asarray(rvec)  # type: ignore[assignment]
+    tvec = jnp.asarray(tvec)  # type: ignore[assignment]
+    K = jnp.asarray(K)  # type: ignore[assignment]
     fx, fy, cx, cy, skew = K[0, 0], K[1, 1], K[0, 2], K[1, 2], K[0, 1]
     d = parse_dist(dist_coeffs)
     R = rodrigues(rvec)
 
     @jit
-    def project(object_points):
+    def project(object_points: np.ndarray | jnp.ndarray) -> jnp.ndarray:
+        """Project 3D world points to 2D image coordinates using the camera model."""
         Xw = jnp.asarray(object_points)
         # world -> camera
         Xc = Xw @ R.T + tvec  # (..., 3)
@@ -800,7 +811,7 @@ def make_jax_projection_fn(rvec, tvec, K, dist_coeffs):
     return project
 
 
-def make_projection_from_camgroup(camgroup):
+def make_projection_from_camgroup(camgroup: Any) -> tuple[Callable, list[Callable]]:
     """
     Build a combined multi-view projector h_fn: (B,3) -> (B, 2*C),
     and also return per-camera heads (3,) -> (2,) for variance projection.
@@ -815,8 +826,10 @@ def make_projection_from_camgroup(camgroup):
 
         h_cams.append(make_jax_projection_fn(rvec, tvec, K, dist))
 
-    def make_combined_h_fn(h_list):
-        def h_fn(x):
+    def make_combined_h_fn(h_list: list[Callable]) -> Callable:
+        """Build a combined projection function that concatenates all camera projections."""
+        def h_fn(x: jnp.ndarray) -> jnp.ndarray:
+            """Project 3D point x through all cameras and concatenate the 2D outputs."""
             return jnp.concatenate([h(x) for h in h_list], axis=0)
         return h_fn
 
@@ -824,7 +837,7 @@ def make_projection_from_camgroup(camgroup):
     return h_fn_combined, h_cams
 
 
-def triangulate_3d_models(marker_array, camgroup) -> np.ndarray:
+def triangulate_3d_models(marker_array: MarkerArray, camgroup: Any) -> np.ndarray:
     """Triangulate per-model, per-kpt, per-frame: (M,K,T,3).
 
     M*K calls are independent so we parallelise over all available CPU cores.
@@ -834,7 +847,8 @@ def triangulate_3d_models(marker_array, camgroup) -> np.ndarray:
     M, C, T, K, _ = marker_array.shape
     raw = marker_array.get_array()  # (M,C,T,K,3)
 
-    def _tri(m, k):
+    def _tri(m: int, k: int) -> tuple[int, int, np.ndarray]:
+        """Triangulate all frames for model m and keypoint k; returns (m, k, points_3d)."""
         xy_views = raw[m, :, :, k, :2]  # (C, T, 2)
         # disable_64bit avoids aniposelib enabling JAX x64 as a side effect
         return m, k, camgroup.triangulate(xy_views, fast=True, disable_64bit=True)  # (T, 3)
@@ -849,7 +863,12 @@ def triangulate_3d_models(marker_array, camgroup) -> np.ndarray:
     return tri
 
 
-def project_3d_covariance_to_2d(ms_k, Vs_k, h_cam, inflated_vars_k):
+def project_3d_covariance_to_2d(
+    ms_k: np.ndarray,
+    Vs_k: np.ndarray,
+    h_cam: Callable,
+    inflated_vars_k: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Project 3D covariance matrices to 2D using the Jacobian of the projection function.
 

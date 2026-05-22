@@ -1,3 +1,5 @@
+"""Ensemble Kalman Smoother (EKS) package for pose estimation post-processing."""
+
 import importlib.metadata
 from typing import Any
 

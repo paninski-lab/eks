@@ -1,3 +1,5 @@
+"""Statistical utilities: PCA fitting and Mahalanobis-distance-based variance inflation."""
+
 import numpy as np
 from sklearn.decomposition import PCA, FactorAnalysis
 
@@ -5,12 +7,12 @@ from eks.marker_array import MarkerArray, mA_to_stacked_array
 
 
 def compute_pca(
-        valid_frames_mask,
+        valid_frames_mask: np.ndarray,
         emA_centered_preds: MarkerArray,
         emA_good_centered_preds: MarkerArray,
         n_components: int = 3,
-        pca_object: PCA | None = None
-):
+        pca_object: PCA | None = None,
+) -> tuple[list, list]:
     """
     Performs Principal Component Analysis (PCA) per keypoint using filtered + centered predictions.
 

@@ -265,4 +265,15 @@ linting, and pull request guidelines.
 * [Keemin Lee](https://github.com/keeminlee)
 * [Amol Pasarkar](https://github.com/apasarkar)
 * [Matt Whiteway](https://github.com/themattinthehatt)
-* [Spirit of claude]
+
+### Funding
+
+We are grateful for support from the following:
+* Gatsby Charitable Foundation GAT3708
+* [NIH R50NS145433](https://reporter.nih.gov/search/Hmj4KMmLv0evcYPlPEDa-Q/project-details/11240675)
+* [NIH U19NS123716](https://reporter.nih.gov/search/Hmj4KMmLv0evcYPlPEDa-Q/project-details/11141703)
+* [NSF 1707398](https://ui.adsabs.harvard.edu/abs/2017nsf....1707398A/abstract)
+* [The NSF AI Institute for Artificial and Natural Intelligence](https://ui.adsabs.harvard.edu/abs/2023nsf....2229929Z/abstract)
+* Simons Foundation
+* Wellcome Trust 216324
+* Zuckerman Institute (Columbia University) Team Science

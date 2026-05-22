@@ -1,6 +1,9 @@
+"""Core ensemble and Kalman smoother routines shared across all EKS smoother variants."""
+
 import logging
 import time
-from typing import Literal
+from collections.abc import Callable
+from typing import Any, Literal
 
 import jax
 import numpy as np
@@ -52,7 +55,12 @@ def ensemble(
 
     avg_func = jnp.nanmedian if avg_mode == 'median' else jnp.nanmean
 
-    def compute_stats(data_x, data_y, data_lh):
+    def compute_stats(
+        data_x: jnp.ndarray,
+        data_y: jnp.ndarray,
+        data_lh: jnp.ndarray,
+    ) -> jnp.ndarray:
+        """Compute ensemble mean and variance from per-model x, y, and likelihood arrays."""
         avg_x = avg_func(data_x, axis=0)
         avg_y = avg_func(data_y, axis=0)
 
@@ -125,7 +133,15 @@ def compute_initial_guesses(
     return float(std_dev_guess)
 
 
-def params_nlgssm_for_keypoint(m0, S0, Q, s, R, f_fn, h_fn) -> ParamsNLGSSM:
+def params_nlgssm_for_keypoint(
+    m0: jnp.ndarray,
+    S0: jnp.ndarray,
+    Q: jnp.ndarray,
+    s: float | jnp.ndarray,
+    R: jnp.ndarray,
+    f_fn: Callable,
+    h_fn: Callable,
+) -> ParamsNLGSSM:
     """
     Construct the ParamsNLGSSM for a single (keypoint) sequence.
     """
@@ -157,7 +173,7 @@ def run_kalman_smoother(
     tol: float = 1e-2,
     safety_cap: int = 300,
     # Observation function
-    h_fn=None,
+    h_fn: Callable | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Optimize the process-noise scale `s` (shared within each block of keypoints) by
@@ -255,8 +271,20 @@ def run_kalman_smoother(
 
     _h_fn = h_fn  # fixed across all keypoints; None on linear path
 
-    def _smooth_one(y_k, m0_k, S0_k, A_k, Q_k, C_k, s_k, R_k):
-        def f_fn(x): return A_k @ x
+    def _smooth_one(
+        y_k: jnp.ndarray,
+        m0_k: jnp.ndarray,
+        S0_k: jnp.ndarray,
+        A_k: jnp.ndarray,
+        Q_k: jnp.ndarray,
+        C_k: jnp.ndarray,
+        s_k: jnp.ndarray,
+        R_k: jnp.ndarray,
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        """Run the EKF smoother for a single keypoint and return smoothed means and covariances."""
+        def f_fn(x: jnp.ndarray) -> jnp.ndarray:
+            """Linear state transition x -> A_k @ x."""
+            return A_k @ x
         h_fn_k = (lambda x: C_k @ x) if _h_fn is None else _h_fn
         params = params_nlgssm_for_keypoint(m0_k, S0_k, Q_k, s_k, R_k, f_fn, h_fn_k)
         sm = extended_kalman_smoother(params, y_k)
@@ -292,7 +320,7 @@ def optimize_smooth_param(
     tol: float = 1e-3,
     safety_cap: int = 300,
     min_R_var: float = 1e-4,
-    h_fn_combined=None,
+    h_fn_combined: Callable | None = None,
 ) -> None:
     """
     Optimize a single scalar process-noise scale `s` per block of keypoints by minimizing
@@ -414,11 +442,13 @@ def optimize_smooth_param(
 
         # ---- Build block loss that uses only JAX arrays (no Python callables) ----
         if h_fn_combined is None:  # linear case
-            def block_loss(s_log):
+            def block_loss(s_log: jnp.ndarray) -> jnp.ndarray:
+                """Compute total EKF NLL for all block members under the linear model."""
                 s_log = jnp.clip(s_log, s_lo, s_hi)
                 s = jnp.exp(s_log)
 
-                def one_member(i, acc):
+                def one_member(i: int, acc: jnp.ndarray) -> jnp.ndarray:
+                    """Accumulate NLL for keypoint i into running total acc."""
                     y_k = yB[i]
                     m0_k = m0B[i]
                     S0_k = S0B[i]
@@ -427,10 +457,12 @@ def optimize_smooth_param(
                     C_k = CB[i]
                     Rc_k = RconstB[i]
 
-                    def f_fn(x, A=A_k):
+                    def f_fn(x: jnp.ndarray, A: jnp.ndarray = A_k) -> jnp.ndarray:
+                        """Linear dynamics: x -> A @ x."""
                         return A @ x
 
-                    def h_fn(x, C=C_k):
+                    def h_fn(x: jnp.ndarray, C: jnp.ndarray = C_k) -> jnp.ndarray:
+                        """Linear observation: x -> C @ x."""
                         return C @ x
 
                     params = params_nlgssm_for_keypoint(m0_k, S0_k, Q_k, s, Rc_k, f_fn, h_fn)
@@ -445,11 +477,13 @@ def optimize_smooth_param(
         else:  # nonlinear case
             h_fn = wrap_emission_fn(h_fn_combined)  # shared across members
 
-            def block_loss(s_log):
+            def block_loss(s_log: jnp.ndarray) -> jnp.ndarray:
+                """Compute total EKF NLL for all block members under the nonlinear model."""
                 s_log = jnp.clip(s_log, s_lo, s_hi)
                 s = jnp.exp(s_log)
 
-                def one_member(i, acc):
+                def one_member(i: int, acc: jnp.ndarray) -> jnp.ndarray:
+                    """Accumulate NLL for keypoint i into running total acc."""
                     y_k = yB[i]
                     m0_k = m0B[i]
                     S0_k = S0B[i]
@@ -458,7 +492,8 @@ def optimize_smooth_param(
                     Rc_k = RconstB[i]
 
                     # dynamics and emission for this member
-                    def f_fn(x, A=A_k):
+                    def f_fn(x: jnp.ndarray, A: jnp.ndarray = A_k) -> jnp.ndarray:
+                        """Linear dynamics: x -> A @ x."""
                         return A @ x
 
                     params = params_nlgssm_for_keypoint(m0_k, S0_k, Q_k, s, Rc_k, f_fn, h_fn)
@@ -476,20 +511,26 @@ def optimize_smooth_param(
 
         # Scale grads by lr so we can use adam(1.0)
         @jit
-        def _scaled_loss_and_grad(s_log):
+        def _scaled_loss_and_grad(s_log: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+            """Return (loss, lr-scaled gradient) for the current block loss."""
             loss, g = loss_and_grad(s_log)
             return loss, g * lr
 
         # ---- JIT-compiled tol loop that CLOSES OVER the block loss (no callable arg) ----
         @jit
-        def _run_tol_loop_local(s_log_init):
+        def _run_tol_loop_local(
+            s_log_init: jnp.ndarray,
+        ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+            """Run Adam with early stopping on block_loss; returns (s_log, loss, iters)."""
             opt_state = optax.adam(1.0).init(s_log_init)
 
-            def cond(carry):
+            def cond(carry: Any) -> jnp.ndarray:
+                """Continue while loss has not converged and iteration cap is not reached."""
                 _, _, prev_loss, iters, done = carry
                 return jnp.logical_and(~done, iters < safety_cap)
 
-            def body(carry):
+            def body(carry: Any) -> Any:
+                """Perform one Adam step and check relative-tolerance stopping criterion."""
                 s_log, opt_state, prev_loss, iters, _ = carry
                 loss, grad = _scaled_loss_and_grad(s_log)
                 updates, opt_state = optax.adam(1.0).update(grad, opt_state)
@@ -519,11 +560,25 @@ def optimize_smooth_param(
 
 
 def _vmap_optimize_singletons(
-    ys_np, Rs_np, m0s, S0s, As, Qs, Cs,
-    blocks, s_finals, s_frames,
-    s_guess_per_k, s_lo, s_hi, lr, tol, safety_cap, min_R_var,
-    h_fn_combined,
-):
+    ys_np: np.ndarray,
+    Rs_np: np.ndarray,
+    m0s: jnp.ndarray,
+    S0s: jnp.ndarray,
+    As: jnp.ndarray,
+    Qs: jnp.ndarray,
+    Cs: jnp.ndarray,
+    blocks: list[list[int]],
+    s_finals: np.ndarray,
+    s_frames: list | None,
+    s_guess_per_k: np.ndarray,
+    s_lo: float,
+    s_hi: float,
+    lr: float,
+    tol: float,
+    safety_cap: int,
+    min_R_var: float,
+    h_fn_combined: Callable | None,
+) -> None:
     """
     Fast path for optimize_smooth_param when every block is a single keypoint.
 
@@ -569,13 +624,25 @@ def _vmap_optimize_singletons(
     # Shared emission fn (same for all keypoints; closed over, not vmapped)
     _h_fn = wrap_emission_fn(h_fn_combined) if h_fn_combined is not None else None
 
-    def _optimize_one(y_k, Rconst_k, m0_k, S0_k, A_k, Q_k, C_k, s_log_init):
+    def _optimize_one(
+        y_k: jnp.ndarray,
+        Rconst_k: jnp.ndarray,
+        m0_k: jnp.ndarray,
+        S0_k: jnp.ndarray,
+        A_k: jnp.ndarray,
+        Q_k: jnp.ndarray,
+        C_k: jnp.ndarray,
+        s_log_init: jnp.ndarray,
+    ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
         """Optimize s for one keypoint. All arrays are arguments → no closure over
         concrete arrays → one XLA compilation shared across all K keypoints via vmap."""
 
-        def loss(s_log):
+        def loss(s_log: jnp.ndarray) -> jnp.ndarray:
+            """Compute EKF NLL for one keypoint at the given log-scale smoothing parameter."""
             s = jnp.exp(jnp.clip(s_log, s_lo, s_hi))
-            def f_fn(x): return A_k @ x
+            def f_fn(x: jnp.ndarray) -> jnp.ndarray:
+                """Linear dynamics: x -> A_k @ x."""
+                return A_k @ x
             h_fn_k = _h_fn if _h_fn is not None else (lambda x: C_k @ x)
             params = params_nlgssm_for_keypoint(m0_k, S0_k, Q_k, s, Rconst_k, f_fn, h_fn_k)
             post = extended_kalman_filter(params, y_k)
@@ -587,11 +654,13 @@ def _vmap_optimize_singletons(
         opt = optax.adam(1.0)
         opt_state = opt.init(s_log_init)
 
-        def cond(carry):
+        def cond(carry: Any) -> jnp.ndarray:
+            """Continue while loss has not converged and iteration cap is not reached."""
             _, _, prev_loss, iters, done = carry
             return jnp.logical_and(~done, iters < safety_cap)
 
-        def body(carry):
+        def body(carry: Any) -> Any:
+            """Perform one Adam step and check relative-tolerance stopping criterion."""
             s_log, opt_state, prev_loss, iters, _ = carry
             loss_val, grad = loss_and_grad_fn(s_log)
             grad = grad * lr
@@ -640,10 +709,15 @@ def constant_R_from_timevarying(R_t_np: np.ndarray, min_var: float = 1e-4) -> np
     return np.diag(med).astype(R_t_np.dtype)
 
 
-def wrap_emission_fn(h_fn_combined):
+def wrap_emission_fn(h_fn_combined: Callable) -> Callable:
     """
     Wraps emission h(x)->y to a signature EKF is happy with (x, t, u) -> y.
     """
-    def h(x, t=None, u=None):
+    def h(
+        x: jnp.ndarray,
+        t: int | None = None,
+        u: jnp.ndarray | None = None,
+    ) -> jnp.ndarray:
+        """Forward emission call, discarding unused t and u arguments required by EKF."""
         return h_fn_combined(x)
     return h
