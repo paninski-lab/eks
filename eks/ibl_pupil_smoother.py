@@ -1,5 +1,12 @@
 """IBL pupil smoother: AR(1) EKS for pupil diameter and center-of-mass tracking."""
 
+__all__ = [
+    'fit_eks_pupil',
+    'ensemble_kalman_smoother_ibl_pupil',
+    'get_pupil_location',
+    'get_pupil_diameter',
+]
+
 import logging
 import os
 import warnings

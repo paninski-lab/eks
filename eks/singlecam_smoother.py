@@ -1,5 +1,10 @@
 """Single-camera EKS: per-keypoint smoothing with ensemble variance as observation noise."""
 
+__all__ = [
+    'fit_eks_singlecam',
+    'ensemble_kalman_smoother_singlecam',
+]
+
 import logging
 import os
 from typing import Literal

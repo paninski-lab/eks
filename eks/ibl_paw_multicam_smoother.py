@@ -1,5 +1,9 @@
 """IBL multi-camera paw smoother: interpolation, PCA alignment, and EKS fitting."""
 
+__all__ = [
+    'fit_eks_multicam_ibl_paw',
+]
+
 import os
 from typing import Literal
 

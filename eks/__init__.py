@@ -3,12 +3,28 @@
 import importlib.metadata
 from typing import Any
 
+# Public API — importable directly from `eks`
+from eks.ibl_paw_multicam_smoother import fit_eks_multicam_ibl_paw
+from eks.ibl_pupil_smoother import fit_eks_pupil
+from eks.marker_array import MarkerArray
+from eks.multicam_smoother import fit_eks_mirrored_multicam, fit_eks_multicam
+from eks.singlecam_smoother import fit_eks_singlecam
+
+__all__ = [
+    # data structure
+    'MarkerArray',
+    # single-camera smoother
+    'fit_eks_singlecam',
+    # multi-camera smoother
+    'fit_eks_multicam',
+    'fit_eks_mirrored_multicam',
+    # IBL pupil smoother
+    'fit_eks_pupil',
+    # IBL paw smoother
+    'fit_eks_multicam_ibl_paw',
+]
+
 # from eks import *
-
-
-# Hacky way to get version from pypackage.toml.
-# Adapted from: https://github.com/python-poetry/poetry/issues/273#issuecomment-1877789967
-
 __package_version = "unknown"
 
 

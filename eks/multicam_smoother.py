@@ -1,5 +1,11 @@
 """Multi-camera EKS: 3D triangulation, projection, and per-keypoint variance inflation."""
 
+__all__ = [
+    'fit_eks_multicam',
+    'fit_eks_mirrored_multicam',
+    'ensemble_kalman_smoother_multicam',
+]
+
 import logging
 import os
 import time
