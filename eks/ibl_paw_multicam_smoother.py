@@ -1,3 +1,5 @@
+"""IBL multi-camera paw smoother: interpolation, PCA alignment, and EKS fitting."""
+
 import os
 from typing import Literal
 
@@ -12,6 +14,15 @@ from eks.utils import convert_lp_dlc
 
 
 def remove_camera_means(ensemble_stacks, camera_means):
+    """Subtract per-camera mean coordinates from each ensemble member's predictions.
+
+    Args:
+        ensemble_stacks: List of arrays, one per keypoint, each of shape (T, n_cameras * 2).
+        camera_means: List of per-camera mean arrays to subtract.
+
+    Returns:
+        List of centered arrays with the same structure as ensemble_stacks.
+    """
     centered_ensemble_stacks = ensemble_stacks.copy()
     for k in range(len(ensemble_stacks)):
         for camera_id, camera_mean in enumerate(camera_means):
@@ -21,6 +32,15 @@ def remove_camera_means(ensemble_stacks, camera_means):
 
 
 def add_camera_means(ensemble_stacks, camera_means):
+    """Add per-camera mean coordinates back to each ensemble member's predictions.
+
+    Args:
+        ensemble_stacks: List of arrays, one per keypoint, each of shape (T, n_cameras * 2).
+        camera_means: List of per-camera mean arrays to add back.
+
+    Returns:
+        List of un-centered arrays with the same structure as ensemble_stacks.
+    """
     centered_ensemble_stacks = ensemble_stacks.copy()
     for k in range(len(ensemble_stacks)):
         for camera_id, camera_mean in enumerate(camera_means):
@@ -30,6 +50,17 @@ def add_camera_means(ensemble_stacks, camera_means):
 
 
 def pca(S, n_comps):
+    """Fit a PCA model on data matrix S and return the fitted model with explained variance ratios.
+
+    Args:
+        S: Data matrix of shape (n_samples, n_features).
+        n_comps: Number of principal components to retain.
+
+    Returns:
+        tuple:
+            pca_ (PCA): Fitted sklearn PCA object.
+            explained_variance_ratio_ (np.ndarray): Fraction of variance explained by each PC.
+    """
     pca_ = PCA(n_components=n_comps)
     return pca_.fit(S), pca_.explained_variance_ratio_
 

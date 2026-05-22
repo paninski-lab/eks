@@ -1,3 +1,5 @@
+"""MarkerArray: a structured 5D array container for multi-model, multi-camera pose data."""
+
 from typing import Optional
 
 import jax.numpy as jnp
@@ -6,6 +8,13 @@ import pandas as pd
 
 
 class MarkerArray:
+    """5D array container for structured pose predictions across models, cameras, and keypoints.
+
+    Wraps a NumPy or JAX array of shape
+    (n_models, n_cameras, n_frames, n_keypoints, n_fields) and provides named-axis
+    slicing, stacking, and field-reordering operations.
+    """
+
     def __init__(
         self,
         array: np.ndarray | jnp.ndarray | None = None,
@@ -222,6 +231,7 @@ class MarkerArray:
         return MarkerArray(marker_array=self, data_fields=new_order, array=reordered_array)
 
     def __repr__(self) -> str:
+        """Return a human-readable summary of shape, field names, and array backend."""
         axis_names = ["models", "cameras", "frames", "keypoints", "fields"]
         shape_str = ", ".join(
             f"{name}={size}" for name, size in zip(axis_names, self.array.shape, strict=True)

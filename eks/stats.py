@@ -1,3 +1,5 @@
+"""Statistical utilities: PCA fitting and Mahalanobis-distance-based variance inflation."""
+
 import numpy as np
 from sklearn.decomposition import PCA, FactorAnalysis
 

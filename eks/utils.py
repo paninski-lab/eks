@@ -1,3 +1,5 @@
+"""Shared data-loading, formatting, and prediction-centering utilities for EKS."""
+
 import logging
 import os
 
@@ -14,6 +16,15 @@ def make_dlc_pandas_index(
     keypoint_names: list,
     labels: list = ["x", "y", "likelihood"],
 ) -> pd.MultiIndex:
+    """Build a three-level MultiIndex in DLC format (scorer / bodyparts / coords).
+
+    Args:
+        keypoint_names: List of keypoint/body-part name strings.
+        labels: Coordinate labels for the innermost level.
+
+    Returns:
+        pd.MultiIndex with levels [scorer, bodyparts, coords].
+    """
     pdindex = pd.MultiIndex.from_product(
         [["ensemble-kalman_tracker"], keypoint_names, labels],
         names=["scorer", "bodyparts", "coords"],
@@ -26,6 +37,16 @@ def convert_lp_dlc(
     keypoint_names: list,
     model_name: str | None = None,
 ) -> pd.DataFrame:
+    """Convert a Lightning Pose multi-index DataFrame to flat DLC-style column names.
+
+    Args:
+        df_lp: DataFrame with a three-level MultiIndex column (scorer, bodypart, coord).
+        keypoint_names: List of keypoint names to extract.
+        model_name: Scorer name at the top level; inferred from the first column if None.
+
+    Returns:
+        DataFrame with flat columns like '{keypoint}_{coord}'.
+    """
     df_dlc = {}
     for feat in keypoint_names:
         for feat2 in ['x', 'y', 'likelihood']:
@@ -49,6 +70,17 @@ def convert_lp_dlc(
 
 
 def convert_slp_dlc(base_dir: str, slp_file: str) -> tuple:
+    """Convert a SLEAP .slp annotation file to a flat DLC-style DataFrame and save as CSV.
+
+    Args:
+        base_dir: Directory containing the .slp file.
+        slp_file: Filename of the .slp file (relative to base_dir).
+
+    Returns:
+        tuple:
+            df (pd.DataFrame): Flat DataFrame with columns '{instance}_{keypoint}_{x/y/likelihood}'.
+            keypoint_names (list): List of keypoint name strings.
+    """
     # Read data from .slp file
     filepath = os.path.join(base_dir, slp_file)
     labels = read_labels(filepath)
@@ -91,6 +123,14 @@ def convert_slp_dlc(base_dir: str, slp_file: str) -> tuple:
 
 
 def get_keypoint_names(df: pd.DataFrame) -> list:
+    """Extract keypoint names from a DLC-format DataFrame with MultiIndex columns.
+
+    Args:
+        df: DataFrame with a MultiIndex column containing a 'coords' level.
+
+    Returns:
+        List of body-part name strings corresponding to the 'x' coordinate entries.
+    """
     kps = df.columns[df.columns.get_level_values('coords') == 'x'].get_level_values('bodyparts')
     return kps.tolist()
 

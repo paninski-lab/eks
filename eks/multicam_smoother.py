@@ -1,3 +1,5 @@
+"""Multi-camera EKS: 3D triangulation, projection, and per-keypoint variance inflation."""
+
 import logging
 import os
 import time
@@ -722,6 +724,7 @@ def rodrigues(rvec):
     theta = jnp.linalg.norm(rvec)
 
     def small_angle(_):
+        """Return first-order rotation matrix approximation for near-zero rotation angles."""
         rx, ry, rz = rvec
         K = jnp.array([[0.0, -rz,  ry],
                        [rz,  0.0, -rx],
@@ -729,6 +732,7 @@ def rodrigues(rvec):
         return jnp.eye(3) + K
 
     def general(_):
+        """Return exact rotation matrix via the full Rodrigues formula."""
         rx, ry, rz = rvec / theta
         K = jnp.array([[0.0, -rz,  ry],
                        [rz,  0.0, -rx],
@@ -765,6 +769,7 @@ def make_jax_projection_fn(rvec, tvec, K, dist_coeffs):
 
     @jit
     def project(object_points):
+        """Project 3D world points to 2D image coordinates using the camera model."""
         Xw = jnp.asarray(object_points)
         # world -> camera
         Xc = Xw @ R.T + tvec  # (..., 3)
@@ -816,7 +821,9 @@ def make_projection_from_camgroup(camgroup):
         h_cams.append(make_jax_projection_fn(rvec, tvec, K, dist))
 
     def make_combined_h_fn(h_list):
+        """Build a combined projection function that concatenates all camera projections."""
         def h_fn(x):
+            """Project 3D point x through all cameras and concatenate the 2D outputs."""
             return jnp.concatenate([h(x) for h in h_list], axis=0)
         return h_fn
 
@@ -835,6 +842,7 @@ def triangulate_3d_models(marker_array, camgroup) -> np.ndarray:
     raw = marker_array.get_array()  # (M,C,T,K,3)
 
     def _tri(m, k):
+        """Triangulate all frames for model m and keypoint k; returns (m, k, points_3d)."""
         xy_views = raw[m, :, :, k, :2]  # (C, T, 2)
         # disable_64bit avoids aniposelib enabling JAX x64 as a side effect
         return m, k, camgroup.triangulate(xy_views, fast=True, disable_64bit=True)  # (T, 3)

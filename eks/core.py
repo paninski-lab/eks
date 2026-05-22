@@ -1,3 +1,5 @@
+"""Core ensemble and Kalman smoother routines shared across all EKS smoother variants."""
+
 import logging
 import time
 from typing import Literal
@@ -53,6 +55,7 @@ def ensemble(
     avg_func = jnp.nanmedian if avg_mode == 'median' else jnp.nanmean
 
     def compute_stats(data_x, data_y, data_lh):
+        """Compute ensemble mean and variance from per-model x, y, and likelihood arrays."""
         avg_x = avg_func(data_x, axis=0)
         avg_y = avg_func(data_y, axis=0)
 
@@ -256,7 +259,10 @@ def run_kalman_smoother(
     _h_fn = h_fn  # fixed across all keypoints; None on linear path
 
     def _smooth_one(y_k, m0_k, S0_k, A_k, Q_k, C_k, s_k, R_k):
-        def f_fn(x): return A_k @ x
+        """Run the EKF smoother for a single keypoint and return smoothed means and covariances."""
+        def f_fn(x):
+            """Linear state transition x -> A_k @ x."""
+            return A_k @ x
         h_fn_k = (lambda x: C_k @ x) if _h_fn is None else _h_fn
         params = params_nlgssm_for_keypoint(m0_k, S0_k, Q_k, s_k, R_k, f_fn, h_fn_k)
         sm = extended_kalman_smoother(params, y_k)
@@ -415,10 +421,12 @@ def optimize_smooth_param(
         # ---- Build block loss that uses only JAX arrays (no Python callables) ----
         if h_fn_combined is None:  # linear case
             def block_loss(s_log):
+                """Compute total EKF NLL for all block members under the linear model."""
                 s_log = jnp.clip(s_log, s_lo, s_hi)
                 s = jnp.exp(s_log)
 
                 def one_member(i, acc):
+                    """Accumulate NLL for keypoint i into running total acc."""
                     y_k = yB[i]
                     m0_k = m0B[i]
                     S0_k = S0B[i]
@@ -428,9 +436,11 @@ def optimize_smooth_param(
                     Rc_k = RconstB[i]
 
                     def f_fn(x, A=A_k):
+                        """Linear dynamics: x -> A @ x."""
                         return A @ x
 
                     def h_fn(x, C=C_k):
+                        """Linear observation: x -> C @ x."""
                         return C @ x
 
                     params = params_nlgssm_for_keypoint(m0_k, S0_k, Q_k, s, Rc_k, f_fn, h_fn)
@@ -446,10 +456,12 @@ def optimize_smooth_param(
             h_fn = wrap_emission_fn(h_fn_combined)  # shared across members
 
             def block_loss(s_log):
+                """Compute total EKF NLL for all block members under the nonlinear model."""
                 s_log = jnp.clip(s_log, s_lo, s_hi)
                 s = jnp.exp(s_log)
 
                 def one_member(i, acc):
+                    """Accumulate NLL for keypoint i into running total acc."""
                     y_k = yB[i]
                     m0_k = m0B[i]
                     S0_k = S0B[i]
@@ -459,6 +471,7 @@ def optimize_smooth_param(
 
                     # dynamics and emission for this member
                     def f_fn(x, A=A_k):
+                        """Linear dynamics: x -> A @ x."""
                         return A @ x
 
                     params = params_nlgssm_for_keypoint(m0_k, S0_k, Q_k, s, Rc_k, f_fn, h_fn)
@@ -477,19 +490,23 @@ def optimize_smooth_param(
         # Scale grads by lr so we can use adam(1.0)
         @jit
         def _scaled_loss_and_grad(s_log):
+            """Return (loss, lr-scaled gradient) for the current block loss."""
             loss, g = loss_and_grad(s_log)
             return loss, g * lr
 
         # ---- JIT-compiled tol loop that CLOSES OVER the block loss (no callable arg) ----
         @jit
         def _run_tol_loop_local(s_log_init):
+            """Run Adam with early stopping on block_loss; returns (s_log, loss, iters)."""
             opt_state = optax.adam(1.0).init(s_log_init)
 
             def cond(carry):
+                """Continue while loss has not converged and iteration cap is not reached."""
                 _, _, prev_loss, iters, done = carry
                 return jnp.logical_and(~done, iters < safety_cap)
 
             def body(carry):
+                """Perform one Adam step and check relative-tolerance stopping criterion."""
                 s_log, opt_state, prev_loss, iters, _ = carry
                 loss, grad = _scaled_loss_and_grad(s_log)
                 updates, opt_state = optax.adam(1.0).update(grad, opt_state)
@@ -574,8 +591,11 @@ def _vmap_optimize_singletons(
         concrete arrays → one XLA compilation shared across all K keypoints via vmap."""
 
         def loss(s_log):
+            """Compute EKF NLL for one keypoint at the given log-scale smoothing parameter."""
             s = jnp.exp(jnp.clip(s_log, s_lo, s_hi))
-            def f_fn(x): return A_k @ x
+            def f_fn(x):
+                """Linear dynamics: x -> A_k @ x."""
+                return A_k @ x
             h_fn_k = _h_fn if _h_fn is not None else (lambda x: C_k @ x)
             params = params_nlgssm_for_keypoint(m0_k, S0_k, Q_k, s, Rconst_k, f_fn, h_fn_k)
             post = extended_kalman_filter(params, y_k)
@@ -588,10 +608,12 @@ def _vmap_optimize_singletons(
         opt_state = opt.init(s_log_init)
 
         def cond(carry):
+            """Continue while loss has not converged and iteration cap is not reached."""
             _, _, prev_loss, iters, done = carry
             return jnp.logical_and(~done, iters < safety_cap)
 
         def body(carry):
+            """Perform one Adam step and check relative-tolerance stopping criterion."""
             s_log, opt_state, prev_loss, iters, _ = carry
             loss_val, grad = loss_and_grad_fn(s_log)
             grad = grad * lr
@@ -645,5 +667,6 @@ def wrap_emission_fn(h_fn_combined):
     Wraps emission h(x)->y to a signature EKF is happy with (x, t, u) -> y.
     """
     def h(x, t=None, u=None):
+        """Forward emission call, discarding unused t and u arguments required by EKF."""
         return h_fn_combined(x)
     return h
