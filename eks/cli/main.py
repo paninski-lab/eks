@@ -14,7 +14,7 @@ def main() -> None:
         prog='eks',
         description='Ensemble Kalman Smoother for pose estimation.',
     )
-    parser.add_argument('--version', action='version', version=f'%(prog)s {eks.__version__}')
+    parser.add_argument('--version', action='version', version=f'ensemble-kalman-smoother {eks.__version__}')
     subparsers = parser.add_subparsers(
         title='subcommands',
         dest='subcommand',
