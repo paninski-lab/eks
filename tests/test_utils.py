@@ -191,6 +191,24 @@ class TestFormatData:
         assert len(input_dfs_list[0]) == 2
         assert len(input_dfs_list[1]) == 2
 
+    def test_format_data_camera_mapping_input(self, tmp_path):
+        """Test loading camera-specific files from a mapping."""
+        # Arrange
+        top0 = _make_dlc_csv(tmp_path, 'model0_top.csv', ['nose'])
+        top1 = _make_dlc_csv(tmp_path, 'model1_top.csv', ['nose'])
+        bot0 = _make_dlc_csv(tmp_path, 'model0_bot.csv', ['nose'])
+        bot1 = _make_dlc_csv(tmp_path, 'model1_bot.csv', ['nose'])
+
+        # Act
+        input_dfs_list, keypoint_names = format_data(
+            {'top': [str(top1), str(top0)], 'bot': [str(bot1), str(bot0)]},
+            camera_names=['top', 'bot'],
+        )
+
+        # Assert
+        assert [len(dfs) for dfs in input_dfs_list] == [2, 2]
+        assert keypoint_names == ['nose']
+
     def test_format_data_camera_not_found_raises(self, tmp_path):
         # Arrange - only 'top' files exist
         _make_dlc_csv(tmp_path, 'model0_top.csv', ['nose'])
