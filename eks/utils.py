@@ -143,7 +143,8 @@ def format_data(
     Load and format input files from a directory or a list of file paths.
 
     Args:
-        input_source (str or list): Directory path or list of file paths.
+        input_source (str or list or dict): Directory path, list of file paths, or dictionary
+            mapping camera_names to list of file paths per camera.
         camera_names (None or list): List of multiple camera/view names. None = single camera
             *** data with mirrored naming schemes (e.g. paw1LH_top), keep camera_names as None
 

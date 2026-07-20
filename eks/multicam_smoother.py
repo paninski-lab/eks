@@ -211,6 +211,14 @@ def fit_eks_multicam(
         ...     camera_names=['cam0', 'cam1', 'cam2'],
         ... )
 
+        >>> from eks import fit_eks_multicam
+        >>> camera_dfs, smooth_params, input_dfs, bodyparts, df_3d = fit_eks_multicam(
+        ...     input_source={'cam0': ['/path/to/seed0/cam0.csv', '/path/to/seed1/cam0.csv'],
+                              'cam1': ['/path/to/seed0/cam1.csv', '/path/to/seed1/cam1.csv']},
+        ...     save_dir='/path/to/output/',
+        ...     camera_names=['cam0', 'cam1']
+        ... )
+
         >>> # with a calibration file for nonlinear 3D projection
         >>> camera_dfs, smooth_params, input_dfs, bodyparts, df_3d = fit_eks_multicam(
         ...     input_source='/path/to/csv/dir',
