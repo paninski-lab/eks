@@ -154,7 +154,7 @@ def fit_eks_mirrored_multicam(
 
 
 def fit_eks_multicam(
-    input_source: str | list,
+    input_source: str | list | dict,
     save_dir: str,
     bodypart_list: list | None = None,
     smooth_param: float | list | None = None,
@@ -172,7 +172,9 @@ def fit_eks_multicam(
     Fit the Ensemble Kalman Smoother for un-mirrored multi-camera data.
 
     Args:
-        input_source: Directory path or list of CSV file paths with columns for all cameras.
+        input_source: Directory path, a list of CSV file paths with columns for all cameras,
+            or a dictionary mapping each camera name to a list of CSV file paths.
+            (camera names must match either camera_names or the calibration .toml).
         save_dir: Directory to save output DataFrame.
         bodypart_list: List of body parts.
         smooth_param: Value in (0, Inf); smaller values lead to more smoothing.
@@ -207,6 +209,14 @@ def fit_eks_multicam(
         ...     input_source='/path/to/csv/dir',
         ...     save_dir='/path/to/output/',
         ...     camera_names=['cam0', 'cam1', 'cam2'],
+        ... )
+
+        >>> from eks import fit_eks_multicam
+        >>> camera_dfs, smooth_params, input_dfs, bodyparts, df_3d = fit_eks_multicam(
+        ...     input_source={'cam0': ['/path/to/seed0/cam0.csv', '/path/to/seed1/cam0.csv'],
+                              'cam1': ['/path/to/seed0/cam1.csv', '/path/to/seed1/cam1.csv']},
+        ...     save_dir='/path/to/output/',
+        ...     camera_names=['cam0', 'cam1']
         ... )
 
         >>> # with a calibration file for nonlinear 3D projection

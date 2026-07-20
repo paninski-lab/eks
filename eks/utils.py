@@ -135,12 +135,16 @@ def get_keypoint_names(df: pd.DataFrame) -> list:
     return kps.tolist()
 
 
-def format_data(input_source: str | list, camera_names: list | None = None) -> tuple[list, list]:
+def format_data(
+    input_source: str | list | dict,
+    camera_names: list | None = None,
+) -> tuple[list, list]:
     """
     Load and format input files from a directory or a list of file paths.
 
     Args:
-        input_source (str or list): Directory path or list of file paths.
+        input_source (str or list or dict): Directory path, list of file paths, or dictionary
+            mapping camera_names to list of file paths per camera.
         camera_names (None or list): List of multiple camera/view names. None = single camera
             *** data with mirrored naming schemes (e.g. paw1LH_top), keep camera_names as None
 
@@ -161,8 +165,16 @@ def format_data(input_source: str | list, camera_names: list | None = None) -> t
     elif isinstance(input_source, list):
         # If it's a list of file paths, use it directly
         file_paths = sorted(input_source)
+    elif isinstance(input_source, dict):
+        # If it's a dictionary, keep as is, and we pick the correct entry below
+        # when looping over camera_names
+        file_paths = input_source
+
     else:
-        raise ValueError('input_source must be a directory path or a list of file paths')
+        raise ValueError(
+            'input_source must be a directory path, '
+            'a list of file paths, or a map from camera names to list of file paths'
+        )
 
     # Process each file based on the data type
     if camera_names is None:
@@ -181,7 +193,8 @@ def format_data(input_source: str | list, camera_names: list | None = None) -> t
             input_dfs_list.append(markers_curr_fmt)
     else:
         for camera in camera_names:
-            matched = [fp for fp in file_paths if camera in os.path.basename(fp)]
+            files = file_paths if isinstance(file_paths, list) else file_paths.get(camera, [])
+            matched = [fp for fp in files if camera in os.path.basename(fp)]
             valid = [fp for fp in matched if fp.endswith('.csv') or fp.endswith('.slp')]
             if len(valid) == 0:
                 raise FileNotFoundError(
