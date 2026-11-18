@@ -1,3 +1,4 @@
+import inspect
 import warnings
 from unittest.mock import patch
 
@@ -11,7 +12,9 @@ from sklearn.decomposition import PCA
 
 from eks.marker_array import MarkerArray
 from eks.multicam_smoother import (
+    _inflate_keypoint,
     ensemble_kalman_smoother_multicam,
+    fit_eks_mirrored_multicam,
     fit_eks_multicam,
     inflate_variance,
     mA_compute_maha,
@@ -315,6 +318,155 @@ class TestInflateVariance:
             inflate_variance(v=np.ones((4, 2)), maha_dict={0: np.ones((4, 1))})
 
 
+def _make_keypoint_arrays(n_frames=120, n_cams=4, n_latent=2, seed=0):
+    """Build centered predictions and variances for one keypoint that follow a low-rank model."""
+    rng = np.random.default_rng(seed)
+    W = rng.normal(size=(2 * n_cams, n_latent))
+    preds = rng.normal(size=(n_frames, n_latent)) @ W.T + 0.01 * rng.normal(
+        size=(n_frames, 2 * n_cams))
+    variances = rng.uniform(1.0, 2.0, size=preds.shape)
+    return preds, variances
+
+
+def _maha_results(n_frames, n_cams, value):
+    """Fake compute_mahalanobis output with a constant distance for every frame and view."""
+    return {'mahalanobis': {c: np.full((n_frames, 1), value) for c in range(n_cams)}}
+
+
+class TestInflateKeypoint:
+    """Test the function _inflate_keypoint."""
+
+    def test_inflate_keypoint_output_shape(self):
+        preds, variances = _make_keypoint_arrays()
+        out = _inflate_keypoint(preds, variances, n_latent=2, maha_kwargs={})
+        assert out.shape == variances.shape
+
+    def test_inflate_keypoint_clean_data_is_not_inflated(self):
+        preds, variances = _make_keypoint_arrays()
+        out = _inflate_keypoint(preds, variances, n_latent=2, maha_kwargs={})
+        assert np.allclose(out, variances)
+
+    def test_inflate_keypoint_inflates_corrupted_frame(self):
+        preds, variances = _make_keypoint_arrays()
+        preds, variances = preds.copy(), variances.copy()
+        preds[30, 2:4] += 100.0  # corrupt camera 1, frame 30
+        # high-variance frames are excluded from the factor analysis fit, so the outlier does
+        # not distort the latent model it is judged against
+        variances[30] = 2.5
+        out = _inflate_keypoint(preds, variances, n_latent=2, maha_kwargs={})
+        ratio = out / variances
+        assert (ratio[30, 2:4] >= 10.0 - 1e-6).all()
+        # most other entries are untouched
+        assert np.mean(np.isclose(ratio, 1.0)) > 0.9
+
+    def test_inflate_keypoint_does_not_modify_inputs(self):
+        preds, variances = _make_keypoint_arrays()
+        preds = preds.copy()
+        preds[30, 2:4] += 100.0
+        preds0, variances0 = preds.copy(), variances.copy()
+        _inflate_keypoint(preds, variances, n_latent=2, maha_kwargs={})
+        assert np.array_equal(preds, preds0)
+        assert np.array_equal(variances, variances0)
+
+    def test_inflate_keypoint_variances_never_decrease(self):
+        preds, variances = _make_keypoint_arrays(seed=3)
+        preds = preds.copy()
+        preds[10:20] += np.random.default_rng(1).normal(scale=30, size=preds[10:20].shape)
+        out = _inflate_keypoint(preds, variances, n_latent=2, maha_kwargs={})
+        assert (out >= variances - 1e-9).all()
+
+    def test_inflate_keypoint_inflation_factors_are_powers_of_scalar(self):
+        preds, variances = _make_keypoint_arrays(seed=4)
+        preds = preds.copy()
+        preds[5:15, 0:2] += 80.0
+        out = _inflate_keypoint(preds, variances, n_latent=2, maha_kwargs={}, scalar=10.0)
+        log_ratio = np.log10(out / variances)
+        assert np.allclose(log_ratio, np.round(log_ratio), atol=1e-6)
+
+    def test_inflate_keypoint_repeats_until_no_variance_is_inflated(self):
+        preds, variances = _make_keypoint_arrays()
+        far, near = _maha_results(120, 4, 100.0), _maha_results(120, 4, 0.0)
+        with patch(
+            'eks.multicam_smoother.compute_mahalanobis', side_effect=[far, far, near],
+        ) as mock_maha:
+            out = _inflate_keypoint(
+                preds, variances, n_latent=2, maha_kwargs={}, threshold=5.0, scalar=10.0,
+            )
+        assert mock_maha.call_count == 3
+        assert np.allclose(out, 100.0 * variances)  # two inflating passes
+
+    def test_inflate_keypoint_passes_current_variances_to_each_pass(self):
+        preds, variances = _make_keypoint_arrays()
+        far, near = _maha_results(120, 4, 100.0), _maha_results(120, 4, 0.0)
+        with patch(
+            'eks.multicam_smoother.compute_mahalanobis', side_effect=[far, near],
+        ) as mock_maha:
+            _inflate_keypoint(preds, variances, n_latent=2, maha_kwargs={}, scalar=10.0)
+        v_first = mock_maha.call_args_list[0].args[1]
+        v_second = mock_maha.call_args_list[1].args[1]
+        assert np.allclose(v_second, 10.0 * v_first)
+
+    def test_inflate_keypoint_forwards_n_latent_and_maha_kwargs(self):
+        preds, variances = _make_keypoint_arrays()
+        near = _maha_results(120, 4, 0.0)
+        kwargs = {'v_quantile_threshold': 75.0, 'max_iters_fa': 50}
+        with patch('eks.multicam_smoother.compute_mahalanobis', return_value=near) as mock_maha:
+            _inflate_keypoint(preds, variances, n_latent=3, maha_kwargs=kwargs)
+        assert mock_maha.call_args.kwargs == {'n_latent': 3, **kwargs}
+        assert np.array_equal(mock_maha.call_args.args[0], preds)
+
+    def test_inflate_keypoint_default_max_iters_is_10(self):
+        preds, variances = _make_keypoint_arrays()
+        far = _maha_results(120, 4, 100.0)
+        with patch('eks.multicam_smoother.compute_mahalanobis', return_value=far) as mock_maha:
+            out = _inflate_keypoint(preds, variances, n_latent=2, maha_kwargs={}, scalar=2.0)
+        assert mock_maha.call_count == 10
+        assert np.allclose(out, 2.0 ** 10 * variances)
+
+    def test_inflate_keypoint_max_iters_caps_passes(self):
+        preds, variances = _make_keypoint_arrays()
+        far = _maha_results(120, 4, 100.0)
+        with patch('eks.multicam_smoother.compute_mahalanobis', return_value=far) as mock_maha:
+            out = _inflate_keypoint(
+                preds, variances, n_latent=2, maha_kwargs={}, scalar=10.0, max_iters=3,
+            )
+        assert mock_maha.call_count == 3
+        assert np.allclose(out, 1000.0 * variances)
+
+    def test_inflate_keypoint_max_iters_none_disables_cap(self):
+        preds, variances = _make_keypoint_arrays()
+        far, near = _maha_results(120, 4, 100.0), _maha_results(120, 4, 0.0)
+        with patch(
+            'eks.multicam_smoother.compute_mahalanobis', side_effect=[far] * 15 + [near],
+        ) as mock_maha:
+            out = _inflate_keypoint(
+                preds, variances, n_latent=2, maha_kwargs={}, scalar=2.0, max_iters=None,
+            )
+        assert mock_maha.call_count == 16
+        assert np.allclose(out, 2.0 ** 15 * variances)
+
+    def test_inflate_keypoint_warns_with_keypoint_index_when_cap_is_hit(self, caplog):
+        preds, variances = _make_keypoint_arrays()
+        far = _maha_results(120, 4, 100.0)
+        with patch('eks.multicam_smoother.compute_mahalanobis', return_value=far):
+            with caplog.at_level('WARNING', logger='eks.multicam_smoother'):
+                _inflate_keypoint(
+                    preds, variances, n_latent=2, maha_kwargs={}, max_iters=2, idx_keypoint=7,
+                )
+        messages = [r.getMessage() for r in caplog.records if r.levelname == 'WARNING']
+        assert len(messages) == 1
+        assert 'keypoint 7' in messages[0]
+        assert 'max_iters_inflate_vars=2' in messages[0]
+
+    def test_inflate_keypoint_no_warning_when_converged(self, caplog):
+        preds, variances = _make_keypoint_arrays()
+        far, near = _maha_results(120, 4, 100.0), _maha_results(120, 4, 0.0)
+        with patch('eks.multicam_smoother.compute_mahalanobis', side_effect=[far, near]):
+            with caplog.at_level('WARNING', logger='eks.multicam_smoother'):
+                _inflate_keypoint(preds, variances, n_latent=2, maha_kwargs={}, max_iters=2)
+        assert not [r for r in caplog.records if r.levelname == 'WARNING']
+
+
 def _make_maha_marker_arrays(n_frames=120, n_cams=4, n_keypoints=2, n_latent=2, seed=0):
     """Build centered predictions and variances that follow a low-rank model."""
     rng = np.random.default_rng(seed)
@@ -329,6 +481,17 @@ def _make_maha_marker_arrays(n_frames=120, n_cams=4, n_keypoints=2, n_latent=2, 
         MarkerArray(preds, data_fields=['x', 'y']),
         MarkerArray(variances, data_fields=['var_x', 'var_y']),
     )
+
+
+class TestInflateVarsDefault:
+    """Test that variance inflation is on by default in the multi-view Python API."""
+
+    @pytest.mark.parametrize(
+        'func',
+        [fit_eks_multicam, fit_eks_mirrored_multicam, ensemble_kalman_smoother_multicam],
+    )
+    def test_inflate_vars_defaults_to_true(self, func):
+        assert inspect.signature(func).parameters['inflate_vars'].default is True
 
 
 class TestFitEksMulticamInflateVarsKwargs:
@@ -609,6 +772,32 @@ class TestMAComputeMaha:
         with warnings.catch_warnings():
             warnings.simplefilter('error', DeprecationWarning)
             mA_compute_maha(preds, variances, n_latent=2, inflate_vars_kwargs={})
+
+    def test_mA_compute_maha_calls_inflate_keypoint_once_per_keypoint(self):
+        preds, variances = _make_maha_marker_arrays(n_keypoints=3)
+        with patch(
+            'eks.multicam_smoother._inflate_keypoint',
+            side_effect=lambda **kw: kw['variances'],
+        ) as mock_inflate:
+            mA_compute_maha(
+                preds, variances, n_latent=2,
+                inflate_vars_kwargs={'max_iters_inflate_vars': 4, 'max_iters_fa': 50},
+                threshold=3.0, scalar=7.0,
+            )
+        assert mock_inflate.call_count == 3
+        assert [c.kwargs['idx_keypoint'] for c in mock_inflate.call_args_list] == [0, 1, 2]
+        kwargs = mock_inflate.call_args.kwargs
+        assert kwargs['n_latent'] == 2
+        assert kwargs['max_iters'] == 4
+        assert kwargs['threshold'] == 3.0
+        assert kwargs['scalar'] == 7.0
+        assert kwargs['maha_kwargs'] == {'max_iters_fa': 50, 'v_quantile_threshold': 50.0}
+
+    def test_mA_compute_maha_does_not_modify_inflate_vars_kwargs(self):
+        preds, variances = _make_maha_marker_arrays(n_keypoints=1)
+        kwargs = {'max_iters_inflate_vars': 2}
+        mA_compute_maha(preds, variances, n_latent=2, inflate_vars_kwargs=kwargs)
+        assert kwargs == {'max_iters_inflate_vars': 2}
 
     def test_mA_compute_maha_does_not_modify_input_marker_arrays(self):
         preds, variances = _make_maha_marker_arrays()

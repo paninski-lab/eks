@@ -141,6 +141,43 @@ cameras:
 eks ibl-paw --input-dir ./data/ibl-paw --make-plot
 ```
 
+### Variance inflation (multi-view)
+
+In multi-view EKS, the disagreement across seeds sets how much each camera's prediction is trusted
+at every frame. Sometimes a camera is confidently wrong, for example when a keypoint is occluded in
+one view. Variance inflation catches these cases using the other views: it fits a low-dimensional
+linear model of how a keypoint's 2D positions co-vary across cameras and measures, with a
+Mahalanobis distance, how far each camera's prediction falls from what the other cameras imply.
+When a camera is too far off, its variance is increased so the smoother relies on it less at that
+frame.
+
+Inflation is on by default for `multicam`, `mirrored-multicam` and `ibl-paw`, both from the command
+line and in Python. From the command line, turn it off with `--no-inflate-vars`:
+
+```console
+eks multicam --input-dir ./data/fly --bodypart-list L1A L1B --camera-names Cam-A Cam-B Cam-C --calibration ./data/fly/calibration.toml --no-inflate-vars
+```
+
+In Python, pass `inflate_vars=False` to turn it off. Options for the Mahalanobis step can be passed
+as a dictionary with `inflate_vars_kwargs`. The most relevant one is `v_quantile_threshold`
+(default `50.0`): the linear model is fit using only the most confident frames, those whose largest
+ensemble variance is below this percentile (`None` uses all frames). The number of latent dimensions
+of the linear model is set separately with the `n_latent` argument (default `3`). The full list of
+options is in the `fit_eks_multicam` docstring.
+
+```python
+from eks import fit_eks_multicam
+
+camera_dfs, smooth_params, input_dfs, bodyparts, df_3d = fit_eks_multicam(
+    input_source='./data/fly',
+    save_dir='./outputs',
+    camera_names=['Cam-A', 'Cam-B', 'Cam-C'],
+    inflate_vars_kwargs={'v_quantile_threshold': 75.0},
+)
+```
+
+Variance inflation needs at least two views.
+
 ## Organizing your data
 
 EKS expects prediction files in **CSV format** using the Lightning Pose / DLC three-row header
