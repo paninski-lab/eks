@@ -246,7 +246,6 @@ def fit_eks_multicam_ibl_paw(
         var_mode=var_mode,
         inflate_vars=inflate_vars,
         n_latent=n_latent,
-        inflate_vars_kwargs={'likelihoods': None},
     )
     # Save output DataFrames to CSVs (one per camera view)
     os.makedirs(save_dir, exist_ok=True)

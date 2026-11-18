@@ -9,6 +9,7 @@ __all__ = [
 import logging
 import os
 import time
+import warnings
 from collections.abc import Callable
 from typing import Any, Literal
 
@@ -34,6 +35,8 @@ from eks.utils import center_predictions, format_data, make_dlc_pandas_index
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_ITERS_INFLATE_VARS = 10
+# inflate_vars_kwargs keys that no longer have any effect; ignored with a DeprecationWarning
+DEPRECATED_INFLATE_VARS_KWARGS = ('likelihoods', 'likelihood_threshold')
 
 
 def fit_eks_mirrored_multicam(
@@ -207,11 +210,6 @@ def fit_eks_multicam(
             - 'v_quantile_threshold' (float | None): only frames whose maximum ensemble variance is
               below this percentile are used to fit factor analysis. Default 50.0; None uses all
               frames.
-            - 'likelihood_threshold' (float | None): minimum likelihood (across views) for a frame
-              to be used in the factor analysis fit. Default 0.9. Has no effect unless
-              'likelihoods' is given.
-            - 'likelihoods': not currently usable; leave unset (a non-None value raises a
-              TypeError).
             - 'epsilon' (float): added to variances to prevent singular matrices. Default 1e-6.
             - 'loading_matrix' (np.ndarray, shape (2 * n_cameras, n_latent)) and 'mean'
               (np.ndarray, shape (2 * n_cameras,)): precomputed factor analysis parameters; both
@@ -353,11 +351,6 @@ def ensemble_kalman_smoother_multicam(
             - 'v_quantile_threshold' (float | None): only frames whose maximum ensemble variance is
               below this percentile are used to fit factor analysis. Default 50.0; None uses all
               frames.
-            - 'likelihood_threshold' (float | None): minimum likelihood (across views) for a frame
-              to be used in the factor analysis fit. Default 0.9. Has no effect unless
-              'likelihoods' is given.
-            - 'likelihoods': not currently usable; leave unset (a non-None value raises a
-              TypeError).
             - 'epsilon' (float): added to variances to prevent singular matrices. Default 1e-6.
             - 'loading_matrix' (np.ndarray, shape (2 * n_cameras, n_latent)) and 'mean'
               (np.ndarray, shape (2 * n_cameras,)): precomputed factor analysis parameters; both
@@ -398,7 +391,7 @@ def ensemble_kalman_smoother_multicam(
             # set mean to zero since we are passing in centered predictions
             inflate_vars_kwargs["mean"] = np.zeros_like(inflate_vars_kwargs["mean"])
         emA_inflated_vars = mA_compute_maha(
-            emA_centered, emA_vars, emA_likes, n_latent,
+            emA_centered, emA_vars, n_latent,
             inflate_vars_kwargs=inflate_vars_kwargs,
         )
     else:
@@ -695,7 +688,6 @@ def initialize_kalman_filter_geometric(ys: np.ndarray) -> tuple[jnp.ndarray, ...
 def mA_compute_maha(
     centered_emA_preds: MarkerArray,
     emA_vars: MarkerArray,
-    emA_likes: MarkerArray,
     n_latent: int,
     inflate_vars_kwargs: dict={},
     threshold: float = 5.0,
@@ -708,7 +700,6 @@ def mA_compute_maha(
     Args:
         centered_emA_preds (numpy.ndarray): centered predicted marker positions.
         emA_vars (numpy.ndarray): Variance values associated with predictions.
-        emA_likes (numpy.ndarray): Likelihood values associated with predictions.
         n_latent (int): Number of dimensions to extract from dimensional reduction.
         inflate_vars_kwargs (dict): kwargs for variance inflation. Options:
             - 'max_iters_inflate_vars' (int | None): maximum number of inflation passes per
@@ -719,11 +710,6 @@ def mA_compute_maha(
             - 'v_quantile_threshold' (float | None): only frames whose maximum ensemble variance is
               below this percentile are used to fit factor analysis. Default 50.0; None uses all
               frames.
-            - 'likelihood_threshold' (float | None): minimum likelihood (across views) for a frame
-              to be used in the factor analysis fit. Default 0.9. Has no effect unless
-              'likelihoods' is given.
-            - 'likelihoods': not currently usable; leave unset (a non-None value raises a
-              TypeError).
             - 'epsilon' (float): added to variances to prevent singular matrices. Default 1e-6.
             - 'loading_matrix' (np.ndarray, shape (2 * n_cameras, n_latent)) and 'mean'
               (np.ndarray, shape (2 * n_cameras,)): precomputed factor analysis parameters; both
@@ -739,6 +725,15 @@ def mA_compute_maha(
     """
     _, n_cameras, _, n_keypoints, _ = centered_emA_preds.shape
 
+    deprecated = [key for key in DEPRECATED_INFLATE_VARS_KWARGS if key in inflate_vars_kwargs]
+    if deprecated:
+        warnings.warn(
+            f'inflate_vars_kwargs keys {deprecated} are deprecated and ignored; frames used to '
+            f'fit factor analysis are now selected using v_quantile_threshold only',
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
     max_iters = inflate_vars_kwargs.get('max_iters_inflate_vars', DEFAULT_MAX_ITERS_INFLATE_VARS)
     if max_iters is not None and (not isinstance(max_iters, int) or max_iters < 1):
         raise ValueError(
@@ -750,17 +745,14 @@ def mA_compute_maha(
         # Transform mA into array of Shape: (n_models, n_frames, n_cameras * n_fields)
         preds = mA_to_stacked_array(centered_emA_preds, k)
         vars = mA_to_stacked_array(emA_vars, k)
-        likes = mA_to_stacked_array(emA_likes, k)
 
         # set some maha defaults
-        if 'likelihood_threshold' not in inflate_vars_kwargs:
-            inflate_vars_kwargs['likelihood_threshold'] = 0.9
         if 'v_quantile_threshold' not in inflate_vars_kwargs:
             inflate_vars_kwargs['v_quantile_threshold'] = 50.0
         # kwargs forwarded to compute_mahalanobis (max_iters_inflate_vars is consumed here)
         maha_kwargs = {
             key: val for key, val in inflate_vars_kwargs.items()
-            if key != 'max_iters_inflate_vars'
+            if key not in ('max_iters_inflate_vars', *DEPRECATED_INFLATE_VARS_KWARGS)
         }
         inflated = True
         tmp_vars = vars
@@ -771,17 +763,11 @@ def mA_compute_maha(
         while inflated and (max_iters is None or idx_pass < max_iters):
             t_pass = time.perf_counter()
             # Compute Mahalanobis distances
-            if maha_kwargs.get("likelihoods", None) is None:
-                maha_results = compute_mahalanobis(
-                    preds, tmp_vars, n_latent=n_latent, **maha_kwargs,
-                )
-            else:
-                maha_results = compute_mahalanobis(
-                    preds, tmp_vars, n_latent=n_latent, likelihoods=likes, **maha_kwargs,
-                )
+            maha_results = compute_mahalanobis(preds, tmp_vars, n_latent=n_latent, **maha_kwargs)
             # Inflate variances based on Mahalanobis distances
             inflated_ens_vars_k, inflated = inflate_variance(
-                tmp_vars, maha_results['mahalanobis'], threshold, scalar)
+                tmp_vars, maha_results['mahalanobis'], threshold, scalar,
+            )
             idx_pass += 1
             n_changed = int(np.any(inflated_ens_vars_k != tmp_vars, axis=1).sum())
             factor_max = float(np.max(inflated_ens_vars_k / vars))
