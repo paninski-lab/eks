@@ -49,7 +49,7 @@ def fit_eks_mirrored_multicam(
     quantile_keep_pca: float = 50.0,
     avg_mode: Literal['mean', 'median'] = 'median',
     var_mode: Literal['var', 'confidence_weighted_var'] = 'confidence_weighted_var',
-    inflate_vars: bool = False,
+    inflate_vars: bool = True,
     n_latent: int = 3
 ) -> tuple:
     """
@@ -72,7 +72,8 @@ def fit_eks_mirrored_multicam(
         avg_mode: Mode for averaging across ensemble ('median', 'mean').
         var_mode: mode for computing ensemble variance
             'var' | 'confidence_weighted_var'
-        inflate_vars: True to use Mahalanobis distance thresholding to inflate ensemble variance
+        inflate_vars: True to use Mahalanobis distance thresholding to inflate ensemble variance;
+            requires at least two cameras (default: True)
         n_latent: number of dimensions to keep from PCA
 
     Returns:
@@ -168,7 +169,7 @@ def fit_eks_multicam(
     quantile_keep_pca: float = 50.0,
     avg_mode: Literal['mean', 'median'] = 'median',
     var_mode: Literal['var', 'confidence_weighted_var'] = 'confidence_weighted_var',
-    inflate_vars: bool = False,
+    inflate_vars: bool = True,
     n_latent: int = 3,
     calibration: str | None = None,
     save_3d_outputs: bool = True,
@@ -196,7 +197,8 @@ def fit_eks_multicam(
         avg_mode: Mode for averaging across ensemble ('median', 'mean').
         var_mode: mode for computing ensemble variance
             'var' | 'confidence_weighted_var'
-        inflate_vars: True to use Mahalanobis distance thresholding to inflate ensemble variance
+        inflate_vars: True to use Mahalanobis distance thresholding to inflate ensemble variance;
+            requires at least two cameras (default: True)
         n_latent: number of dimensions to keep from PCA
         calibration: path to the .toml calibration file for nonlinear projection
         save_3d_outputs: if True and calibration is not None, save 3D latents to CSV
@@ -306,7 +308,7 @@ def ensemble_kalman_smoother_multicam(
     s_frames: list | None = None,
     avg_mode: Literal['mean', 'median'] = 'median',
     var_mode: Literal['var', 'confidence_weighted_var'] = 'confidence_weighted_var',
-    inflate_vars: bool = False,
+    inflate_vars: bool = True,
     inflate_vars_kwargs: dict = {},
     pca_object: PCA | None = None,
     n_latent: int = 3,
@@ -340,7 +342,8 @@ def ensemble_kalman_smoother_multicam(
             'median' | 'mean'
         var_mode: mode for computing ensemble variance
             'var' | 'confidence_weighted_var'
-        inflate_vars: True to use Mahalanobis distance thresholding to inflate ensemble variance
+        inflate_vars: True to use Mahalanobis distance thresholding to inflate ensemble variance;
+            requires at least two cameras (default: True)
         inflate_vars_kwargs: kwargs for variance inflation; only used if inflate_vars is True.
             Options:
             - 'max_iters_inflate_vars' (int | None): maximum number of inflation passes per
@@ -740,60 +743,33 @@ def mA_compute_maha(
             f'max_iters_inflate_vars must be a positive integer or None, got {max_iters!r}'
         )
 
+    # kwargs forwarded to compute_mahalanobis (max_iters_inflate_vars is consumed here)
+    maha_kwargs = {
+        key: val for key, val in inflate_vars_kwargs.items()
+        if key not in ('max_iters_inflate_vars', *DEPRECATED_INFLATE_VARS_KWARGS)
+    }
+    maha_kwargs.setdefault('v_quantile_threshold', 50.0)
+
     emA_inflated_vars_list = []
     for k in range(n_keypoints):
-        # Transform mA into array of Shape: (n_models, n_frames, n_cameras * n_fields)
+        # Transform mA into array of Shape: (n_frames, n_cameras * n_fields)
         preds = mA_to_stacked_array(centered_emA_preds, k)
-        vars = mA_to_stacked_array(emA_vars, k)
+        variances = mA_to_stacked_array(emA_vars, k)
 
-        # set some maha defaults
-        if 'v_quantile_threshold' not in inflate_vars_kwargs:
-            inflate_vars_kwargs['v_quantile_threshold'] = 50.0
-        # kwargs forwarded to compute_mahalanobis (max_iters_inflate_vars is consumed here)
-        maha_kwargs = {
-            key: val for key, val in inflate_vars_kwargs.items()
-            if key not in ('max_iters_inflate_vars', *DEPRECATED_INFLATE_VARS_KWARGS)
-        }
-        inflated = True
-        tmp_vars = vars
-        inflated_ens_vars_k = tmp_vars
-        logger.info(f'inflating keypoint: {k}')
-        idx_pass = 0
-        n_changed = 0
-        t_keypoint = time.perf_counter()
-        while inflated and (max_iters is None or idx_pass < max_iters):
-            t_pass = time.perf_counter()
-            # Compute Mahalanobis distances
-            maha_results = compute_mahalanobis(preds, tmp_vars, n_latent=n_latent, **maha_kwargs)
-            # Inflate variances based on Mahalanobis distances
-            inflated_ens_vars_k, inflated = inflate_variance(
-                tmp_vars, maha_results['mahalanobis'], threshold, scalar,
-            )
-            idx_pass += 1
-            n_changed = int(np.any(inflated_ens_vars_k != tmp_vars, axis=1).sum())
-            factor_max = float(np.max(inflated_ens_vars_k / vars))
-            logger.debug(
-                f'[maha] keypoint {k} pass {idx_pass}: {n_changed}/{vars.shape[0]} frames '
-                f'inflated, max cumulative factor {factor_max:.3g}, '
-                f'{time.perf_counter() - t_pass:.2f}s'
-            )
-            tmp_vars = inflated_ens_vars_k
-        if inflated and max_iters is not None:
-            logger.warning(
-                f'variance inflation for keypoint {k} stopped at max_iters_inflate_vars='
-                f'{max_iters} with {n_changed}/{vars.shape[0]} frames still being inflated; '
-                f'cumulative inflation is capped at {scalar ** max_iters:.3g}x'
-            )
-        n_frames_ever = int(np.any(inflated_ens_vars_k != vars, axis=1).sum())
-        logger.debug(
-            f'[maha] keypoint {k} done: {idx_pass} passes, '
-            f'{n_frames_ever}/{vars.shape[0]} frames ever inflated, '
-            f'{time.perf_counter() - t_keypoint:.2f}s'
+        inflated_vars_k = _inflate_keypoint(
+            preds=preds,
+            variances=variances,
+            n_latent=n_latent,
+            maha_kwargs=maha_kwargs,
+            threshold=threshold,
+            scalar=scalar,
+            max_iters=max_iters,
+            idx_keypoint=k,
         )
 
         # Reshape array back into mA
         emA_inflated_vars_k = stacked_array_to_mA(
-            inflated_ens_vars_k, n_cameras, data_fields=["var_x", "var_y"],
+            inflated_vars_k, n_cameras, data_fields=["var_x", "var_y"],
         )
 
         # Store in list
@@ -803,6 +779,76 @@ def mA_compute_maha(
     emA_inflated_vars = MarkerArray.stack(emA_inflated_vars_list, "keypoints")
 
     return emA_inflated_vars
+
+
+def _inflate_keypoint(
+    preds: np.ndarray,
+    variances: np.ndarray,
+    n_latent: int,
+    maha_kwargs: dict[str, Any],
+    threshold: float = 5.0,
+    scalar: float = 10.0,
+    max_iters: int | None = DEFAULT_MAX_ITERS_INFLATE_VARS,
+    idx_keypoint: int = 0,
+) -> np.ndarray:
+    """Inflate the ensemble variances of a single keypoint using Mahalanobis distances.
+
+    Repeatedly computes Mahalanobis distances (refitting factor analysis each pass with the
+    current variances) and multiplies the variances of flagged observations by `scalar`, until no
+    observation is flagged or `max_iters` passes have been made. Inputs are not modified.
+
+    Args:
+        preds: centered predictions for one keypoint, shape (n_frames, 2 * n_cameras)
+        variances: ensemble variances for one keypoint, shape (n_frames, 2 * n_cameras)
+        n_latent: number of latent dimensions for factor analysis
+        maha_kwargs: kwargs forwarded to compute_mahalanobis (e.g. 'v_quantile_threshold',
+            'max_iters_fa', 'epsilon', 'loading_matrix', 'mean')
+        threshold: Mahalanobis distance above which an observation's variance is inflated
+        scalar: factor by which to multiply flagged variances on each pass
+        max_iters: maximum number of inflation passes; None for no limit
+        idx_keypoint: keypoint index, used only in log messages
+
+    Returns:
+        inflated variances with the same shape as `variances`
+    """
+    k = idx_keypoint
+    inflated = True
+    tmp_vars = variances
+    inflated_vars = tmp_vars
+    logger.info(f'inflating keypoint: {k}')
+    idx_pass = 0
+    n_changed = 0
+    t_keypoint = time.perf_counter()
+    while inflated and (max_iters is None or idx_pass < max_iters):
+        t_pass = time.perf_counter()
+        # Compute Mahalanobis distances
+        maha_results = compute_mahalanobis(preds, tmp_vars, n_latent=n_latent, **maha_kwargs)
+        # Inflate variances based on Mahalanobis distances
+        inflated_vars, inflated = inflate_variance(
+            tmp_vars, maha_results['mahalanobis'], threshold, scalar,
+        )
+        idx_pass += 1
+        n_changed = int(np.any(inflated_vars != tmp_vars, axis=1).sum())
+        factor_max = float(np.max(inflated_vars / variances))
+        logger.debug(
+            f'[maha] keypoint {k} pass {idx_pass}: {n_changed}/{variances.shape[0]} frames '
+            f'inflated, max cumulative factor {factor_max:.3g}, '
+            f'{time.perf_counter() - t_pass:.2f}s'
+        )
+        tmp_vars = inflated_vars
+    if inflated and max_iters is not None:
+        logger.warning(
+            f'variance inflation for keypoint {k} stopped at max_iters_inflate_vars='
+            f'{max_iters} with {n_changed}/{variances.shape[0]} frames still being inflated; '
+            f'cumulative inflation is capped at {scalar ** max_iters:.3g}x'
+        )
+    n_frames_ever = int(np.any(inflated_vars != variances, axis=1).sum())
+    logger.debug(
+        f'[maha] keypoint {k} done: {idx_pass} passes, '
+        f'{n_frames_ever}/{variances.shape[0]} frames ever inflated, '
+        f'{time.perf_counter() - t_keypoint:.2f}s'
+    )
+    return inflated_vars
 
 
 def inflate_variance(

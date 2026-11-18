@@ -1,8 +1,14 @@
 """Tests for eks.ibl_paw_multicam_smoother."""
 
+import inspect
+
 import numpy as np
 
-from eks.ibl_paw_multicam_smoother import add_camera_means, remove_camera_means
+from eks.ibl_paw_multicam_smoother import (
+    add_camera_means,
+    fit_eks_multicam_ibl_paw,
+    remove_camera_means,
+)
 
 
 class TestRemoveCameraAndAddCameraMeans:
@@ -53,3 +59,11 @@ class TestRemoveCameraAndAddCameraMeans:
         # Assert
         for k in range(len(stacks)):
             np.testing.assert_allclose(result[k], originals[k])
+
+
+class TestFitEksMulticamIblPaw:
+    """Test the function fit_eks_multicam_ibl_paw."""
+
+    def test_fit_eks_multicam_ibl_paw_inflate_vars_defaults_to_true(self):
+        parameters = inspect.signature(fit_eks_multicam_ibl_paw).parameters
+        assert parameters['inflate_vars'].default is True

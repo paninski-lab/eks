@@ -85,7 +85,7 @@ def fit_eks_multicam_ibl_paw(
     avg_mode: Literal['mean', 'median'] = 'median',
     var_mode: Literal['var', 'confidence_weighted_var'] = 'confidence_weighted_var',
     img_width: int = 128,
-    inflate_vars: bool = False,
+    inflate_vars: bool = True,
     n_latent: int = 3
 ) -> tuple:
     """Fit the Ensemble Kalman Smoother for IBL multi-camera paw data.
@@ -106,7 +106,8 @@ def fit_eks_multicam_ibl_paw(
         var_mode: mode for computing ensemble variance
             'var' | 'confidence_weighted_var'
         img_width: The width of the image being smoothed (128 default, IBL-specific).
-        inflate_vars: True to use Mahalanobis distance threshold to inflate ensemble variance
+        inflate_vars: True to use Mahalanobis distance threshold to inflate ensemble variance;
+            requires at least two cameras (default: True)
         n_latent: number of dimensions to keep from PCA
 
     Returns:

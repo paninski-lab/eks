@@ -23,20 +23,29 @@ You only need to do this once per clone.
 ## Running the tests
 
 ```bash
-pytest
+pytest tests --ignore=tests/integration    # unit tests
+pytest tests/integration                    # integration tests (run the CLI end to end)
 ```
 
-Integration tests compare outputs against golden files stored in `tests/integration/golden/`.
-These files are hosted remotely and downloaded automatically when the test suite runs.
-If your change intentionally alters numerical outputs, you can regenerate your local copies with:
+Run the unit and integration tests as two separate commands. Running them in one `pytest`
+session can change numerical outputs slightly, which makes the golden-file comparisons below fail.
+
+### Golden files
+
+Integration tests compare each command's CSV outputs against **golden files**: reference outputs
+hosted as a zip in a GitHub release (`GOLDEN_URL` in `tests/conftest.py`). The zip is downloaded
+automatically once per test session, and outputs must match to within `atol=1e-4`.
+
+If your change intentionally alters numerical outputs, generate new golden files locally:
 
 ```bash
-pytest --update-golden
+pytest tests/integration --generate-golden --golden-dir /tmp/eks_golden
 ```
 
-However, the remote golden files can only be updated by a repo maintainer.
-If your PR requires golden file changes, note this in the PR description and a maintainer
-will update them before merging.
+This writes each test's CSVs to `/tmp/eks_golden/<test_name>/`. Only a repo maintainer can publish
+new golden files (zip them, upload them to a release, and update `GOLDEN_URL`; see
+[tests/integration/README.md](tests/integration/README.md) for the full steps). If your PR requires
+golden file changes, say so in the PR description and a maintainer will update them before merging.
 
 ## Linting
 
@@ -62,9 +71,19 @@ Configuration lives in `[tool.pyright]` in `pyproject.toml`.
 Pyright runs in CI on every pull request but is not in the pre-commit hook (it
 checks the whole project on every run, adding ~15s per commit).
 
+## Before opening a pull request
+
+Run each of these from the repository root and make sure they all pass:
+
+1. Lint: `ruff check eks tests`
+2. Type check: `pyright eks` (CI runs this on every pull request; the pre-commit hook does not)
+3. Unit tests: `pytest tests --ignore=tests/integration`
+4. Integration tests, in a separate command: `pytest tests/integration`
+5. If your change intentionally alters numerical outputs, follow the golden-file steps above.
+
 ## Pull requests
 
 - Keep PRs focused — one feature or fix per PR
 - Include tests for new functionality
-- Ensure `pytest` and `ruff check` both pass before opening the PR
+- Complete the [checklist above](#before-opening-a-pull-request) before opening the PR
 - Open against the `main` branch
