@@ -3,7 +3,8 @@ from unittest.mock import patch
 
 import numpy as np
 import pytest
-from sklearn.decomposition import PCA
+from sklearn.decomposition import PCA, FactorAnalysis
+from sklearn.exceptions import ConvergenceWarning
 
 from eks.marker_array import MarkerArray
 from eks.stats import (
@@ -135,28 +136,15 @@ class TestSelectFaRows:
 
     def test_select_fa_rows_no_filters_keeps_all(self):
         v = np.random.default_rng(0).uniform(1, 2, size=(20, 6))
-        mask = _select_fa_rows(v, None, None, None)
+        mask = _select_fa_rows(v, None)
         assert mask.dtype == bool
         assert mask.shape == (20,)
         assert mask.all()
 
-    def test_select_fa_rows_likelihood_filter(self):
-        v = np.ones((4, 4))
-        likes = np.array([[0.95, 0.95], [0.95, 0.5], [0.9, 0.99], [0.1, 0.99]])
-        mask = _select_fa_rows(v, likes, 0.9, None)
-        # a row is kept only if *every* view meets the threshold (inclusive)
-        assert mask.tolist() == [True, False, True, False]
-
-    def test_select_fa_rows_likelihood_ignored_without_threshold_or_likelihoods(self):
-        v = np.ones((4, 4))
-        likes = np.zeros((4, 2))
-        assert _select_fa_rows(v, likes, None, None).all()
-        assert _select_fa_rows(v, None, 0.9, None).all()
-
     def test_select_fa_rows_variance_quantile_filter(self):
         # max variance per row is 1..10
         v = np.repeat(np.arange(1.0, 11.0)[:, None], 4, axis=1)
-        mask = _select_fa_rows(v, None, None, 50.0)
+        mask = _select_fa_rows(v, 50.0)
         # strictly below the 50th percentile (5.5) -> rows with max var 1..5
         assert mask.sum() == 5
         assert mask[:5].all() and not mask[5:].any()
@@ -164,25 +152,18 @@ class TestSelectFaRows:
     def test_select_fa_rows_variance_uses_max_across_views(self):
         v = np.ones((10, 4))
         v[:, 3] = np.arange(10.0)  # only one column varies; it determines the row max
-        mask = _select_fa_rows(v, None, None, 50.0)
+        mask = _select_fa_rows(v, 50.0)
         assert mask.sum() == 5
         assert mask[:5].all()
 
-    def test_select_fa_rows_filters_are_combined(self):
-        v = np.repeat(np.arange(1.0, 11.0)[:, None], 4, axis=1)
-        likes = np.ones((10, 2))
-        likes[0] = 0.0  # fails likelihood although it has the lowest variance
-        mask = _select_fa_rows(v, likes, 0.9, 50.0)
-        assert mask.tolist() == [False] + [True] * 4 + [False] * 5
-
     def test_select_fa_rows_constant_variance_keeps_no_rows(self):
         # strict inequality against the percentile -> nothing survives; callers must avoid this
-        mask = _select_fa_rows(np.ones((10, 4)), None, None, 50.0)
+        mask = _select_fa_rows(np.ones((10, 4)), 50.0)
         assert not mask.any()
 
     def test_select_fa_rows_quantile_100_keeps_all_but_max(self):
         v = np.repeat(np.arange(1.0, 11.0)[:, None], 4, axis=1)
-        mask = _select_fa_rows(v, None, None, 100.0)
+        mask = _select_fa_rows(v, 100.0)
         assert mask.sum() == 9
         assert not mask[-1]
 
@@ -207,6 +188,23 @@ class TestFitFactorAnalysis:
         # the column spaces should coincide: projecting W_true onto span(W) is lossless
         proj = W @ np.linalg.pinv(W) @ W_true
         assert np.allclose(proj, W_true, atol=0.1)
+
+    def test_fit_factor_analysis_max_iters_is_forwarded(self):
+        x, _, _, _, _ = _make_inputs(n=60)
+        with patch('eks.stats.FactorAnalysis', wraps=FactorAnalysis) as mock_fa:
+            _fit_factor_analysis(x, n_latent=2, max_iters=123)
+        assert mock_fa.call_args.kwargs['max_iter'] == 123
+
+    def test_fit_factor_analysis_default_max_iters_is_500(self):
+        x, _, _, _, _ = _make_inputs(n=60)
+        with patch('eks.stats.FactorAnalysis', wraps=FactorAnalysis) as mock_fa:
+            _fit_factor_analysis(x, n_latent=2)
+        assert mock_fa.call_args.kwargs['max_iter'] == 500
+
+    def test_fit_factor_analysis_warns_when_iteration_cap_is_hit(self):
+        x, _, _, _, _ = _make_inputs(n=60)
+        with pytest.warns(ConvergenceWarning):
+            _fit_factor_analysis(x, n_latent=2, max_iters=1)
 
     def test_fit_factor_analysis_deterministic(self):
         x, _, _, _, _ = _make_inputs(n=60)
@@ -433,28 +431,13 @@ class TestComputeMahalanobis:
         assert out['posterior_variance'][0].shape == (n_t, 2, 2)
         assert out['reconstructed'].shape == x.shape
 
-    def test_compute_mahalanobis_with_likelihoods(self):
-        np.random.seed(0)
-        n_t, n_cams = 100, 6
-        x = np.random.randn(n_t, 2 * n_cams)
-        v = np.ones(x.shape)
-        likes = np.random.rand(n_t, n_cams)
-        out = compute_mahalanobis(
-            x=x, v=v, n_latent=3, likelihoods=likes,
-            likelihood_threshold=0.1,
-            v_quantile_threshold=None,
-        )
-        assert out['mahalanobis'][0].shape == (n_t, 1)
-        assert out['posterior_variance'][0].shape == (n_t, 2, 2)
-        assert out['reconstructed'].shape == x.shape
-
     def test_compute_mahalanobis_with_ensemble_variances(self):
         np.random.seed(0)
         n_t, n_cams = 100, 6
         x = np.random.randn(n_t, 2 * n_cams)
         v = 0.01 * np.random.randn(*x.shape) + np.ones(x.shape)
         out = compute_mahalanobis(
-            x=x, v=v, n_latent=3, likelihoods=None, v_quantile_threshold=50,
+            x=x, v=v, n_latent=3, v_quantile_threshold=50,
         )
         assert out['mahalanobis'][0].shape == (n_t, 1)
         assert out['posterior_variance'][0].shape == (n_t, 2, 2)
@@ -510,13 +493,21 @@ class TestComputeMahalanobis:
 
     def test_compute_mahalanobis_fits_factor_analysis_on_selected_rows_only(self):
         x, v, _, _, _ = _make_inputs(n=40)
-        expected_rows = _select_fa_rows(v, None, None, 50.0)
+        expected_rows = _select_fa_rows(v, 50.0)
         W, mu = _fit_factor_analysis(x[expected_rows], 2)
         with patch('eks.stats._fit_factor_analysis', return_value=(W, mu)) as mock_fit:
             compute_mahalanobis(x, v, n_latent=2, v_quantile_threshold=50.0)
-        fit_x, fit_n_latent = mock_fit.call_args.args
+        fit_x, fit_n_latent, fit_max_iters = mock_fit.call_args.args
         assert np.array_equal(fit_x, x[expected_rows])
         assert fit_n_latent == 2
+        assert fit_max_iters == 500  # default
+
+    def test_compute_mahalanobis_forwards_max_iters_fa(self):
+        x, v, _, _, _ = _make_inputs(n=40)
+        W, mu = _fit_factor_analysis(x, 2)
+        with patch('eks.stats._fit_factor_analysis', return_value=(W, mu)) as mock_fit:
+            compute_mahalanobis(x, v, n_latent=2, v_quantile_threshold=None, max_iters_fa=7)
+        assert mock_fit.call_args.args[2] == 7
 
     def test_compute_mahalanobis_matches_reference_with_fixed_parameters(self):
         # end-to-end check against naive per-frame implementations

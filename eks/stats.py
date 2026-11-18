@@ -71,47 +71,43 @@ def compute_pca(
 
 def _select_fa_rows(
     v: np.ndarray,
-    likelihoods: np.ndarray | None,
-    likelihood_threshold: float | None,
     v_quantile_threshold: float | None,
 ) -> np.ndarray:
     """Select the rows used to fit factor analysis.
 
-    Rows are kept if every view's likelihood is at least `likelihood_threshold` (only applied
-    when both `likelihoods` and `likelihood_threshold` are given) and if the row's maximum
-    ensemble variance is strictly below the `v_quantile_threshold` percentile of those maxima.
+    Rows are kept if the row's maximum ensemble variance is strictly below the
+    `v_quantile_threshold` percentile of those maxima. Ensemble variance already reflects
+    prediction confidence (for a single model it is the inverse of the likelihood), so this
+    favors confident frames.
 
     Args:
         v: variance data (Nx2C array)
-        likelihoods: likelihoods for each row and view (NxC array) or None
-        likelihood_threshold: minimum likelihood for a row to be kept, or None to skip
         v_quantile_threshold: percentile of the per-row max variance below which rows are kept,
-            or None to skip
+            or None to keep all rows
 
     Returns:
         boolean mask of shape (N,)
 
     """
-    if likelihoods is not None and likelihood_threshold is not None:
-        valid_rows = np.min(likelihoods, axis=1) >= likelihood_threshold
-    else:
-        valid_rows = np.ones(v.shape[0], dtype=bool)
-    # we want low variance predictions for FA
+    valid_rows = np.ones(v.shape[0], dtype=bool)
     if v_quantile_threshold is not None:
         ev_max = v.max(axis=1)
-        valid_rows = valid_rows & (ev_max < np.percentile(ev_max, v_quantile_threshold))
+        valid_rows = ev_max < np.percentile(ev_max, v_quantile_threshold)
     return valid_rows
 
 
 def _fit_factor_analysis(
     x: np.ndarray,
     n_latent: int,
+    max_iters: int = 500,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Fit factor analysis and return the loading matrix and mean.
 
     Args:
         x: observations used for fitting (nx2C array)
         n_latent: number of latent dimensions
+        max_iters: maximum number of EM iterations; sklearn emits a ConvergenceWarning if the
+            fit has not converged by then
 
     Returns:
         tuple:
@@ -119,7 +115,7 @@ def _fit_factor_analysis(
             mu_x: mean of the observations (2C,)
 
     """
-    fa = FactorAnalysis(n_components=n_latent)
+    fa = FactorAnalysis(n_components=n_latent, max_iter=max_iters)
     t_fa = time.perf_counter()
     fa.fit(x)
     logger.debug(
@@ -218,30 +214,28 @@ def compute_mahalanobis(
     v: np.ndarray,
     n_latent: int = 3,
     v_quantile_threshold: float | None = 50.0,
-    likelihoods: np.ndarray | None = None,
-    likelihood_threshold: float | None = 0.9,
     epsilon: float | None = 1e-6,
     loading_matrix: np.ndarray | None = None,
     mean: np.ndarray | None = None,
+    max_iters_fa: int = 500,
 ) -> dict:
     """Compute Mahalanobis distance and posterior predictive variance for observations.
 
     This function assumes the observations x are generated with a linear latent variable model.
     Parameters for this model are learned using Factor Analysis.
-    Observations with high ensemble variance (above v_quantile_threshold) or low likelihoods (below
-    likelihood_threshold) are excluded from Factor Analysis fitting; reconstructions, posterior
-    predictive variances, and Mahalanobis distances are then computed for all observations.
+    Observations with high ensemble variance (above v_quantile_threshold) are excluded from Factor
+    Analysis fitting; reconstructions, posterior predictive variances, and Mahalanobis distances
+    are then computed for all observations.
 
     Args:
         x: Observed data (Nx2C array).
         v: Variance data (Nx2C array).
         n_latent: Number of latent dimensions to extract.
         v_quantile_threshold: maximum variance (percentage) for a row to be used in FA fitting.
-        likelihoods: Likelihoods for each row and view (NxC array).
-        likelihood_threshold: Minimum likelihood for a row to be used in FA fitting.
         epsilon: Specifies epsilon added to prevent singular matrices.
         loading_matrix: shape (2C x n_latent)
         mean: shape (2C,)
+        max_iters_fa: maximum number of EM iterations for the factor analysis fit.
 
     Returns:
         dict: Mahalanobis distances, posterior predictive variance, and reconstructed data.
@@ -249,8 +243,8 @@ def compute_mahalanobis(
     """
 
     if loading_matrix is None or mean is None:
-        valid_rows = _select_fa_rows(v, likelihoods, likelihood_threshold, v_quantile_threshold)
-        W, mu_x = _fit_factor_analysis(x[valid_rows], n_latent)
+        valid_rows = _select_fa_rows(v, v_quantile_threshold)
+        W, mu_x = _fit_factor_analysis(x[valid_rows], n_latent, max_iters_fa)
     else:
         W = loading_matrix
         mu_x = mean
