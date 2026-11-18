@@ -10,12 +10,12 @@ license = "MIT"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [
-    { name = "Cole Hurwitz"},
-    { name = "Keemin Lee"},
+    { name = "Cole Hurwitz" },
+    { name = "Keemin Lee" },
     { name = "Matt Whiteway" },
 ]
 maintainers = [
-    { name = "Matt Whiteway"},
+    { name = "Matt Whiteway" },
 ]
 keywords = ["machine learning", "state space models", "pose estimation"]
 classifiers = [
@@ -48,6 +48,7 @@ dependencies = [
     "scikit-learn",
     "scipy (>=1.2.0)",
     "sleap_io",
+    "threadpoolctl",
     "toml",
     "tqdm",
 ]

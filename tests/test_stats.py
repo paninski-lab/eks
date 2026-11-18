@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 from sklearn.decomposition import PCA, FactorAnalysis
 from sklearn.exceptions import ConvergenceWarning
+from threadpoolctl import threadpool_info
 
 from eks.marker_array import MarkerArray
 from eks.stats import (
@@ -205,6 +206,26 @@ class TestFitFactorAnalysis:
         x, _, _, _, _ = _make_inputs(n=60)
         with pytest.warns(ConvergenceWarning):
             _fit_factor_analysis(x, n_latent=2, max_iters=1)
+
+    def test_fit_factor_analysis_runs_with_single_threaded_blas(self):
+        x, _, _, _, _ = _make_inputs(n=60)
+        seen = []
+        original_fit = FactorAnalysis.fit
+
+        def spy_fit(self, X, y=None):
+            seen.append({info['num_threads'] for info in threadpool_info()})
+            return original_fit(self, X, y)
+
+        with patch.object(FactorAnalysis, 'fit', spy_fit):
+            _fit_factor_analysis(x, n_latent=2)
+        assert seen == [{1}]
+
+    def test_fit_factor_analysis_restores_blas_thread_limits(self):
+        x, _, _, _, _ = _make_inputs(n=60)
+        before = [(i['internal_api'], i['num_threads']) for i in threadpool_info()]
+        _fit_factor_analysis(x, n_latent=2)
+        after = [(i['internal_api'], i['num_threads']) for i in threadpool_info()]
+        assert before == after
 
     def test_fit_factor_analysis_deterministic(self):
         x, _, _, _, _ = _make_inputs(n=60)

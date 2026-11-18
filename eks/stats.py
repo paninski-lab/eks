@@ -5,6 +5,7 @@ import time
 
 import numpy as np
 from sklearn.decomposition import PCA, FactorAnalysis
+from threadpoolctl import threadpool_limits
 
 from eks.marker_array import MarkerArray, mA_to_stacked_array
 
@@ -117,7 +118,10 @@ def _fit_factor_analysis(
     """
     fa = FactorAnalysis(n_components=n_latent, max_iter=max_iters)
     t_fa = time.perf_counter()
-    fa.fit(x)
+    # the matrices here are tiny (N x 2C), so multithreaded BLAS is dominated by threading
+    # overhead and is several times slower than a single thread
+    with threadpool_limits(limits=1):
+        fa.fit(x)
     logger.debug(
         f'[maha] factor analysis: {x.shape[0]} rows, {fa.n_iter_} iters, '
         f'{time.perf_counter() - t_fa:.2f}s'
