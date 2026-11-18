@@ -197,11 +197,25 @@ def fit_eks_multicam(
         n_latent: number of dimensions to keep from PCA
         calibration: path to the .toml calibration file for nonlinear projection
         save_3d_outputs: if True and calibration is not None, save 3D latents to CSV
-        inflate_vars_kwargs: kwargs for compute_mahalanobis function for variance inflation;
-            only used if inflate_vars is True. Accepts e.g. 'likelihood_threshold',
-            'v_quantile_threshold', 'max_iters_fa' (max factor analysis EM iterations,
-            default 500), and 'max_iters_inflate_vars' (max inflation passes per keypoint,
-            default 10, None for no cap). The dict is copied, not modified.
+        inflate_vars_kwargs: kwargs for variance inflation; only used if inflate_vars is True.
+            The dict is copied, not modified. Options:
+            - 'max_iters_inflate_vars' (int | None): maximum number of inflation passes per
+              keypoint; each pass multiplies flagged variances by `scalar`, so cumulative inflation
+              is bounded by scalar ** max_iters_inflate_vars. Default 10; None disables the cap.
+            - 'max_iters_fa' (int): maximum number of EM iterations for each factor analysis fit.
+              Default 500.
+            - 'v_quantile_threshold' (float | None): only frames whose maximum ensemble variance is
+              below this percentile are used to fit factor analysis. Default 50.0; None uses all
+              frames.
+            - 'likelihood_threshold' (float | None): minimum likelihood (across views) for a frame
+              to be used in the factor analysis fit. Default 0.9. Has no effect unless
+              'likelihoods' is given.
+            - 'likelihoods': not currently usable; leave unset (a non-None value raises a
+              TypeError).
+            - 'epsilon' (float): added to variances to prevent singular matrices. Default 1e-6.
+            - 'loading_matrix' (np.ndarray, shape (2 * n_cameras, n_latent)) and 'mean'
+              (np.ndarray, shape (2 * n_cameras,)): precomputed factor analysis parameters; both
+              must be given to skip the factor analysis fit.
 
     Returns:
         tuple:
@@ -329,9 +343,25 @@ def ensemble_kalman_smoother_multicam(
         var_mode: mode for computing ensemble variance
             'var' | 'confidence_weighted_var'
         inflate_vars: True to use Mahalanobis distance thresholding to inflate ensemble variance
-        inflate_vars_kwargs: kwargs for compute_mahalanobis function for variance inflation.
-            Also accepts 'max_iters_inflate_vars' (max inflation passes per keypoint, default 10,
-            None for no cap) and 'max_iters_fa' (max factor analysis EM iterations, default 500).
+        inflate_vars_kwargs: kwargs for variance inflation; only used if inflate_vars is True.
+            Options:
+            - 'max_iters_inflate_vars' (int | None): maximum number of inflation passes per
+              keypoint; each pass multiplies flagged variances by `scalar`, so cumulative inflation
+              is bounded by scalar ** max_iters_inflate_vars. Default 10; None disables the cap.
+            - 'max_iters_fa' (int): maximum number of EM iterations for each factor analysis fit.
+              Default 500.
+            - 'v_quantile_threshold' (float | None): only frames whose maximum ensemble variance is
+              below this percentile are used to fit factor analysis. Default 50.0; None uses all
+              frames.
+            - 'likelihood_threshold' (float | None): minimum likelihood (across views) for a frame
+              to be used in the factor analysis fit. Default 0.9. Has no effect unless
+              'likelihoods' is given.
+            - 'likelihoods': not currently usable; leave unset (a non-None value raises a
+              TypeError).
+            - 'epsilon' (float): added to variances to prevent singular matrices. Default 1e-6.
+            - 'loading_matrix' (np.ndarray, shape (2 * n_cameras, n_latent)) and 'mean'
+              (np.ndarray, shape (2 * n_cameras,)): precomputed factor analysis parameters; both
+              must be given to skip the factor analysis fit.
         pca_object: pre-computed PCA matrix for PCA computation
         n_latent: number of dimensions to keep from PCA
         camgroup: loaded calibration file for nonlinear projection
@@ -680,11 +710,24 @@ def mA_compute_maha(
         emA_vars (numpy.ndarray): Variance values associated with predictions.
         emA_likes (numpy.ndarray): Likelihood values associated with predictions.
         n_latent (int): Number of dimensions to extract from dimensional reduction.
-        inflate_vars_kwargs (dict): kwargs for compute_mahalanobis (e.g. 'likelihood_threshold',
-            'v_quantile_threshold', 'max_iters_fa'), plus the following key that is consumed here:
-            'max_iters_inflate_vars' (int | None): maximum number of inflation passes per keypoint
-            (default 10). Each pass multiplies flagged variances by `scalar`, so the cumulative
-            inflation is bounded by scalar ** max_iters_inflate_vars. None disables the cap.
+        inflate_vars_kwargs (dict): kwargs for variance inflation. Options:
+            - 'max_iters_inflate_vars' (int | None): maximum number of inflation passes per
+              keypoint; each pass multiplies flagged variances by `scalar`, so cumulative inflation
+              is bounded by scalar ** max_iters_inflate_vars. Default 10; None disables the cap.
+            - 'max_iters_fa' (int): maximum number of EM iterations for each factor analysis fit.
+              Default 500.
+            - 'v_quantile_threshold' (float | None): only frames whose maximum ensemble variance is
+              below this percentile are used to fit factor analysis. Default 50.0; None uses all
+              frames.
+            - 'likelihood_threshold' (float | None): minimum likelihood (across views) for a frame
+              to be used in the factor analysis fit. Default 0.9. Has no effect unless
+              'likelihoods' is given.
+            - 'likelihoods': not currently usable; leave unset (a non-None value raises a
+              TypeError).
+            - 'epsilon' (float): added to variances to prevent singular matrices. Default 1e-6.
+            - 'loading_matrix' (np.ndarray, shape (2 * n_cameras, n_latent)) and 'mean'
+              (np.ndarray, shape (2 * n_cameras,)): precomputed factor analysis parameters; both
+              must be given to skip the factor analysis fit.
         threshold (float, optional): Mahalanobis distance threshold for inflation.
         scalar (float, optional): Factor by which to inflate variance.
 
