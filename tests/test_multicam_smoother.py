@@ -1,14 +1,18 @@
+from unittest.mock import patch
+
 import cv2
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pandas as pd
+import pytest
 from sklearn.decomposition import PCA
 
 from eks.marker_array import MarkerArray
 from eks.multicam_smoother import (
     ensemble_kalman_smoother_multicam,
     inflate_variance,
+    mA_compute_maha,
     make_jax_projection_fn,
     make_projection_from_camgroup,
     parse_dist,
@@ -228,57 +232,225 @@ def test_ensemble_kalman_smoother_multicam_n_latent():
             f"Expected {len(camera_names)} DataFrames, got {len(camera_dfs)}"
 
 
-def test_inflate_variance():
+class TestInflateVariance:
+    """Test the function inflate_variance."""
 
-    # ------------------------------------------------------------------------
-    # test no inflation
-    # ------------------------------------------------------------------------
-    n_time = 10
-    n_cams = 3
-    maha_dict = {c: np.ones((n_time, 1)) for c in range(n_cams)}
-    v = np.ones((n_time, 2 * n_cams))
-    v_new, inflated = inflate_variance(v=v, maha_dict=maha_dict, threshold=5, scalar=2)
-    assert not inflated
-    assert np.allclose(v, v_new)
+    def test_inflate_variance_no_inflation_below_threshold(self):
+        n_time, n_cams = 10, 3
+        maha_dict = {c: np.ones((n_time, 1)) for c in range(n_cams)}
+        v = np.ones((n_time, 2 * n_cams))
+        v_new, inflated = inflate_variance(v=v, maha_dict=maha_dict, threshold=5, scalar=2)
+        assert not inflated
+        assert np.allclose(v, v_new)
 
-    # ------------------------------------------------------------------------
-    # test inflation
-    # ------------------------------------------------------------------------
-    scalar = 2
-    v_new, inflated = inflate_variance(v=v, maha_dict=maha_dict, threshold=0.5, scalar=scalar)
-    assert inflated
-    assert np.allclose(scalar * v, v_new)
+    def test_inflate_variance_inflates_all_above_threshold(self):
+        n_time, n_cams, scalar = 10, 3, 2
+        maha_dict = {c: np.ones((n_time, 1)) for c in range(n_cams)}
+        v = np.ones((n_time, 2 * n_cams))
+        v_new, inflated = inflate_variance(v=v, maha_dict=maha_dict, threshold=0.5, scalar=scalar)
+        assert inflated
+        assert np.allclose(scalar * v, v_new)
 
-    # ------------------------------------------------------------------------
-    # test inflation for one view but not the other (>2 cams)
-    # ------------------------------------------------------------------------
-    n_cams = 3
-    maha_dict = {
-        0: np.ones((n_time, 1)),
-        1: 2 * np.ones((n_time, 1)),
-        2: 4 * np.ones((n_time, 1)),
-    }
-    v = np.ones((n_time, 2 * n_cams))
-    scalar = 3
-    v_new, inflated = inflate_variance(v=v, maha_dict=maha_dict, threshold=1.5, scalar=scalar)
-    assert inflated
-    assert np.allclose(v[:, :2], v_new[:, :2])
-    assert np.allclose(scalar * v[:, 2:4], v_new[:, 2:4])
-    assert np.allclose(scalar * v[:, 4:], v_new[:, 4:])
+    def test_inflate_variance_threshold_is_strict(self):
+        maha_dict = {c: 2.0 * np.ones((4, 1)) for c in range(3)}
+        v = np.ones((4, 6))
+        v_new, inflated = inflate_variance(v=v, maha_dict=maha_dict, threshold=2.0, scalar=3)
+        assert not inflated
+        assert np.allclose(v, v_new)
 
-    # ------------------------------------------------------------------------
-    # redo, but with 2 view; variance should be inflated in both
-    # ------------------------------------------------------------------------
-    n_cams = 2
-    maha_dict = {
-        0: np.ones((n_time, 1)),
-        1: 2 * np.ones((n_time, 1)),
-    }
-    v = np.ones((n_time, 2 * n_cams))
-    scalar = 3
-    v_new, inflated = inflate_variance(v=v, maha_dict=maha_dict, threshold=1.5, scalar=scalar)
-    assert inflated
-    assert np.allclose(scalar * v, v_new)
+    def test_inflate_variance_per_view_with_more_than_two_views(self):
+        n_time, n_cams, scalar = 10, 3, 3
+        maha_dict = {
+            0: np.ones((n_time, 1)),
+            1: 2 * np.ones((n_time, 1)),
+            2: 4 * np.ones((n_time, 1)),
+        }
+        v = np.ones((n_time, 2 * n_cams))
+        v_new, inflated = inflate_variance(v=v, maha_dict=maha_dict, threshold=1.5, scalar=scalar)
+        assert inflated
+        assert np.allclose(v[:, :2], v_new[:, :2])
+        assert np.allclose(scalar * v[:, 2:4], v_new[:, 2:4])
+        assert np.allclose(scalar * v[:, 4:], v_new[:, 4:])
+
+    def test_inflate_variance_two_views_inflates_both(self):
+        n_time, scalar = 10, 3
+        maha_dict = {
+            0: np.ones((n_time, 1)),
+            1: 2 * np.ones((n_time, 1)),
+        }
+        v = np.ones((n_time, 4))
+        v_new, inflated = inflate_variance(v=v, maha_dict=maha_dict, threshold=1.5, scalar=scalar)
+        assert inflated
+        assert np.allclose(scalar * v, v_new)
+
+    def test_inflate_variance_is_per_frame(self):
+        n_time, scalar = 6, 10
+        dist = np.ones((n_time, 1))
+        dist[2] = 9.0
+        maha_dict = {c: dist.copy() for c in range(3)}
+        v = np.arange(1.0, 1.0 + n_time * 6).reshape(n_time, 6)
+        v_new, inflated = inflate_variance(v=v, maha_dict=maha_dict, threshold=5, scalar=scalar)
+        assert inflated
+        expected = v.copy()
+        expected[2] *= scalar
+        assert np.allclose(v_new, expected)
+
+    def test_inflate_variance_does_not_modify_input(self):
+        maha_dict = {c: 9.0 * np.ones((4, 1)) for c in range(3)}
+        v = np.ones((4, 6))
+        inflate_variance(v=v, maha_dict=maha_dict, threshold=5, scalar=10)
+        assert np.array_equal(v, np.ones((4, 6)))
+
+    def test_inflate_variance_requires_two_views(self):
+        with pytest.raises(AssertionError):
+            inflate_variance(v=np.ones((4, 2)), maha_dict={0: np.ones((4, 1))})
+
+
+def _make_maha_marker_arrays(n_frames=120, n_cams=4, n_keypoints=2, n_latent=2, seed=0):
+    """Build centered predictions, variances, and likelihoods that follow a low-rank model."""
+    rng = np.random.default_rng(seed)
+    preds = np.zeros((1, n_cams, n_frames, n_keypoints, 2))
+    for k in range(n_keypoints):
+        W = rng.normal(size=(2 * n_cams, n_latent))
+        x = rng.normal(size=(n_frames, n_latent)) @ W.T + 0.01 * rng.normal(
+            size=(n_frames, 2 * n_cams))
+        preds[0, :, :, k, :] = x.reshape(n_frames, n_cams, 2).transpose(1, 0, 2)
+    variances = rng.uniform(1.0, 2.0, size=preds.shape)
+    likes = np.ones((1, n_cams, n_frames, n_keypoints, 1))
+    return (
+        MarkerArray(preds, data_fields=['x', 'y']),
+        MarkerArray(variances, data_fields=['var_x', 'var_y']),
+        MarkerArray(likes, data_fields=['likelihood']),
+    )
+
+
+class TestMAComputeMaha:
+    """Test the function mA_compute_maha."""
+
+    def test_mA_compute_maha_output_shape_and_fields(self):
+        preds, variances, likes = _make_maha_marker_arrays()
+        out = mA_compute_maha(preds, variances, likes, n_latent=2, inflate_vars_kwargs={})
+        assert out.shape == variances.shape
+        assert out.data_fields == ['var_x', 'var_y']
+
+    def test_mA_compute_maha_clean_data_is_not_inflated(self):
+        preds, variances, likes = _make_maha_marker_arrays()
+        out = mA_compute_maha(preds, variances, likes, n_latent=2, inflate_vars_kwargs={})
+        assert np.allclose(out.get_array(), variances.get_array())
+
+    def test_mA_compute_maha_inflates_corrupted_frame(self):
+        preds, variances, likes = _make_maha_marker_arrays(n_keypoints=1)
+        arr = preds.get_array().copy()
+        arr[0, 1, 30, 0, :] += 100.0  # corrupt camera 1, frame 30
+        out = mA_compute_maha(
+            MarkerArray(arr, data_fields=['x', 'y']), variances, likes, n_latent=2,
+            inflate_vars_kwargs={},
+        )
+        ratio = out.get_array() / variances.get_array()
+        assert (ratio[0, 1, 30, 0] >= 10.0 - 1e-6).all()
+        # most other frames are untouched
+        assert np.mean(np.isclose(ratio, 1.0)) > 0.9
+
+    def test_mA_compute_maha_variances_never_decrease(self):
+        preds, variances, likes = _make_maha_marker_arrays(seed=3)
+        arr = preds.get_array().copy()
+        arr[0, :, 10:20] += np.random.default_rng(1).normal(scale=30, size=arr[0, :, 10:20].shape)
+        out = mA_compute_maha(
+            MarkerArray(arr, data_fields=['x', 'y']), variances, likes, n_latent=2,
+            inflate_vars_kwargs={},
+        )
+        assert (out.get_array() >= variances.get_array() - 1e-9).all()
+
+    def test_mA_compute_maha_inflation_factors_are_powers_of_scalar(self):
+        preds, variances, likes = _make_maha_marker_arrays(seed=4)
+        arr = preds.get_array().copy()
+        arr[0, 0, 5:15] += 80.0
+        out = mA_compute_maha(
+            MarkerArray(arr, data_fields=['x', 'y']), variances, likes, n_latent=2,
+            inflate_vars_kwargs={}, scalar=10.0,
+        )
+        log_ratio = np.log10(out.get_array() / variances.get_array())
+        assert np.allclose(log_ratio, np.round(log_ratio), atol=1e-6)
+
+    def test_mA_compute_maha_keypoints_are_processed_independently(self):
+        preds, variances, likes = _make_maha_marker_arrays(n_keypoints=2, seed=5)
+        arr = preds.get_array().copy()
+        arr[0, 1, 30, 1, :] += 100.0  # corrupt keypoint 1 only
+        out = mA_compute_maha(
+            MarkerArray(arr, data_fields=['x', 'y']), variances, likes, n_latent=2,
+            inflate_vars_kwargs={},
+        )
+        out_clean = mA_compute_maha(preds, variances, likes, n_latent=2, inflate_vars_kwargs={})
+        assert np.allclose(
+            out.get_array()[:, :, :, 0], out_clean.get_array()[:, :, :, 0],
+        )
+
+    def test_mA_compute_maha_repeats_until_no_variance_is_inflated(self):
+        preds, variances, likes = _make_maha_marker_arrays(n_keypoints=1)
+        n_frames, n_cams = 120, 4
+        far = {c: np.full((n_frames, 1), 100.0) for c in range(n_cams)}
+        near = {c: np.zeros((n_frames, 1)) for c in range(n_cams)}
+        fake = {'mahalanobis': far}
+        with patch(
+            'eks.multicam_smoother.compute_mahalanobis',
+            side_effect=[fake, fake, {'mahalanobis': near}],
+        ) as mock_maha:
+            out = mA_compute_maha(
+                preds, variances, likes, n_latent=2, inflate_vars_kwargs={},
+                threshold=5.0, scalar=10.0,
+            )
+        assert mock_maha.call_count == 3
+        # two inflating passes -> factor of scalar**2
+        assert np.allclose(out.get_array(), 100.0 * variances.get_array())
+
+    def test_mA_compute_maha_single_pass_when_nothing_flagged(self):
+        preds, variances, likes = _make_maha_marker_arrays(n_keypoints=3)
+        near = {'mahalanobis': {c: np.zeros((120, 1)) for c in range(4)}}
+        with patch('eks.multicam_smoother.compute_mahalanobis', return_value=near) as mock_maha:
+            out = mA_compute_maha(preds, variances, likes, n_latent=2, inflate_vars_kwargs={})
+        assert mock_maha.call_count == 3  # one per keypoint
+        assert np.allclose(out.get_array(), variances.get_array())
+
+    def test_mA_compute_maha_passes_current_variances_to_each_pass(self):
+        preds, variances, likes = _make_maha_marker_arrays(n_keypoints=1)
+        far = {'mahalanobis': {c: np.full((120, 1), 100.0) for c in range(4)}}
+        near = {'mahalanobis': {c: np.zeros((120, 1)) for c in range(4)}}
+        with patch(
+            'eks.multicam_smoother.compute_mahalanobis', side_effect=[far, near],
+        ) as mock_maha:
+            mA_compute_maha(
+                preds, variances, likes, n_latent=2, inflate_vars_kwargs={}, scalar=10.0,
+            )
+        v_first = mock_maha.call_args_list[0].args[1]
+        v_second = mock_maha.call_args_list[1].args[1]
+        assert np.allclose(v_second, 10.0 * v_first)
+
+    def test_mA_compute_maha_applies_default_fa_thresholds(self):
+        preds, variances, likes = _make_maha_marker_arrays(n_keypoints=1)
+        near = {'mahalanobis': {c: np.zeros((120, 1)) for c in range(4)}}
+        with patch('eks.multicam_smoother.compute_mahalanobis', return_value=near) as mock_maha:
+            mA_compute_maha(preds, variances, likes, n_latent=2, inflate_vars_kwargs={})
+        assert mock_maha.call_args.kwargs['likelihood_threshold'] == 0.9
+        assert mock_maha.call_args.kwargs['v_quantile_threshold'] == 50.0
+        assert mock_maha.call_args.kwargs['n_latent'] == 2
+
+    def test_mA_compute_maha_respects_user_thresholds(self):
+        preds, variances, likes = _make_maha_marker_arrays(n_keypoints=1)
+        near = {'mahalanobis': {c: np.zeros((120, 1)) for c in range(4)}}
+        with patch('eks.multicam_smoother.compute_mahalanobis', return_value=near) as mock_maha:
+            mA_compute_maha(
+                preds, variances, likes, n_latent=2,
+                inflate_vars_kwargs={'likelihood_threshold': 0.5, 'v_quantile_threshold': 75.0},
+            )
+        assert mock_maha.call_args.kwargs['likelihood_threshold'] == 0.5
+        assert mock_maha.call_args.kwargs['v_quantile_threshold'] == 75.0
+
+    def test_mA_compute_maha_does_not_modify_input_marker_arrays(self):
+        preds, variances, likes = _make_maha_marker_arrays()
+        arr0 = (preds.get_array().copy(), variances.get_array().copy())
+        mA_compute_maha(preds, variances, likes, n_latent=2, inflate_vars_kwargs={})
+        assert np.array_equal(preds.get_array(), arr0[0])
+        assert np.array_equal(variances.get_array(), arr0[1])
 
 
 def test_center_predictions_min_frames():

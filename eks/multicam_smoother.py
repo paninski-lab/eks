@@ -692,7 +692,10 @@ def mA_compute_maha(
         tmp_vars = vars
         inflated_ens_vars_k = tmp_vars
         logger.info(f'inflating keypoint: {k}')
+        idx_pass = 0
+        t_keypoint = time.perf_counter()
         while inflated:
+            t_pass = time.perf_counter()
             # Compute Mahalanobis distances
             if inflate_vars_kwargs.get("likelihoods", None) is None:
                 maha_results = compute_mahalanobis(
@@ -705,7 +708,21 @@ def mA_compute_maha(
             # Inflate variances based on Mahalanobis distances
             inflated_ens_vars_k, inflated = inflate_variance(
                 tmp_vars, maha_results['mahalanobis'], threshold, scalar)
+            idx_pass += 1
+            n_changed = int(np.any(inflated_ens_vars_k != tmp_vars, axis=1).sum())
+            factor_max = float(np.max(inflated_ens_vars_k / vars))
+            logger.debug(
+                f'[maha] keypoint {k} pass {idx_pass}: {n_changed}/{vars.shape[0]} frames '
+                f'inflated, max cumulative factor {factor_max:.3g}, '
+                f'{time.perf_counter() - t_pass:.2f}s'
+            )
             tmp_vars = inflated_ens_vars_k
+        n_frames_ever = int(np.any(inflated_ens_vars_k != vars, axis=1).sum())
+        logger.debug(
+            f'[maha] keypoint {k} done: {idx_pass} passes, '
+            f'{n_frames_ever}/{vars.shape[0]} frames ever inflated, '
+            f'{time.perf_counter() - t_keypoint:.2f}s'
+        )
 
         # Reshape array back into mA
         emA_inflated_vars_k = stacked_array_to_mA(
