@@ -759,6 +759,7 @@ def mA_compute_maha(
         inflated_ens_vars_k = tmp_vars
         logger.info(f'inflating keypoint: {k}')
         idx_pass = 0
+        n_changed = 0
         t_keypoint = time.perf_counter()
         while inflated and (max_iters is None or idx_pass < max_iters):
             t_pass = time.perf_counter()
@@ -777,7 +778,7 @@ def mA_compute_maha(
                 f'{time.perf_counter() - t_pass:.2f}s'
             )
             tmp_vars = inflated_ens_vars_k
-        if inflated:
+        if inflated and max_iters is not None:
             logger.warning(
                 f'variance inflation for keypoint {k} stopped at max_iters_inflate_vars='
                 f'{max_iters} with {n_changed}/{vars.shape[0]} frames still being inflated; '
