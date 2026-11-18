@@ -106,12 +106,15 @@ def _select_fa_rows(
 def _fit_factor_analysis(
     x: np.ndarray,
     n_latent: int,
+    max_iters: int = 500,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Fit factor analysis and return the loading matrix and mean.
 
     Args:
         x: observations used for fitting (nx2C array)
         n_latent: number of latent dimensions
+        max_iters: maximum number of EM iterations; sklearn emits a ConvergenceWarning if the
+            fit has not converged by then
 
     Returns:
         tuple:
@@ -119,7 +122,7 @@ def _fit_factor_analysis(
             mu_x: mean of the observations (2C,)
 
     """
-    fa = FactorAnalysis(n_components=n_latent)
+    fa = FactorAnalysis(n_components=n_latent, max_iter=max_iters)
     t_fa = time.perf_counter()
     fa.fit(x)
     logger.debug(
@@ -223,6 +226,7 @@ def compute_mahalanobis(
     epsilon: float | None = 1e-6,
     loading_matrix: np.ndarray | None = None,
     mean: np.ndarray | None = None,
+    max_iters_fa: int = 500,
 ) -> dict:
     """Compute Mahalanobis distance and posterior predictive variance for observations.
 
@@ -242,6 +246,7 @@ def compute_mahalanobis(
         epsilon: Specifies epsilon added to prevent singular matrices.
         loading_matrix: shape (2C x n_latent)
         mean: shape (2C,)
+        max_iters_fa: maximum number of EM iterations for the factor analysis fit.
 
     Returns:
         dict: Mahalanobis distances, posterior predictive variance, and reconstructed data.
@@ -250,7 +255,7 @@ def compute_mahalanobis(
 
     if loading_matrix is None or mean is None:
         valid_rows = _select_fa_rows(v, likelihoods, likelihood_threshold, v_quantile_threshold)
-        W, mu_x = _fit_factor_analysis(x[valid_rows], n_latent)
+        W, mu_x = _fit_factor_analysis(x[valid_rows], n_latent, max_iters_fa)
     else:
         W = loading_matrix
         mu_x = mean

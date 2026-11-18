@@ -33,6 +33,8 @@ from eks.utils import center_predictions, format_data, make_dlc_pandas_index
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_MAX_ITERS_INFLATE_VARS = 10
+
 
 def fit_eks_mirrored_multicam(
     input_source: str | list,
@@ -167,6 +169,7 @@ def fit_eks_multicam(
     n_latent: int = 3,
     calibration: str | None = None,
     save_3d_outputs: bool = True,
+    inflate_vars_kwargs: dict | None = None,
 ) -> tuple:
     """
     Fit the Ensemble Kalman Smoother for un-mirrored multi-camera data.
@@ -194,6 +197,11 @@ def fit_eks_multicam(
         n_latent: number of dimensions to keep from PCA
         calibration: path to the .toml calibration file for nonlinear projection
         save_3d_outputs: if True and calibration is not None, save 3D latents to CSV
+        inflate_vars_kwargs: kwargs for compute_mahalanobis function for variance inflation;
+            only used if inflate_vars is True. Accepts e.g. 'likelihood_threshold',
+            'v_quantile_threshold', 'max_iters_fa' (max factor analysis EM iterations,
+            default 500), and 'max_iters_inflate_vars' (max inflation passes per keypoint,
+            default 10, None for no cap). The dict is copied, not modified.
 
     Returns:
         tuple:
@@ -263,6 +271,7 @@ def fit_eks_multicam(
         avg_mode=avg_mode,
         var_mode=var_mode,
         inflate_vars=inflate_vars,
+        inflate_vars_kwargs={} if inflate_vars_kwargs is None else dict(inflate_vars_kwargs),
         n_latent=n_latent,
         camgroup=camgroup,
     )
@@ -320,7 +329,9 @@ def ensemble_kalman_smoother_multicam(
         var_mode: mode for computing ensemble variance
             'var' | 'confidence_weighted_var'
         inflate_vars: True to use Mahalanobis distance thresholding to inflate ensemble variance
-        inflate_vars_kwargs: kwargs for compute_mahalanobis function for variance inflation
+        inflate_vars_kwargs: kwargs for compute_mahalanobis function for variance inflation.
+            Also accepts 'max_iters_inflate_vars' (max inflation passes per keypoint, default 10,
+            None for no cap) and 'max_iters_fa' (max factor analysis EM iterations, default 500).
         pca_object: pre-computed PCA matrix for PCA computation
         n_latent: number of dimensions to keep from PCA
         camgroup: loaded calibration file for nonlinear projection
@@ -345,7 +356,8 @@ def ensemble_kalman_smoother_multicam(
     emA_likes = ensemble_marker_array.slice_fields("likelihood")
 
     valid_mask, emA_centered, emA_good_centered, emA_means = center_predictions(
-        ensemble_marker_array, quantile_keep_pca)
+        ensemble_marker_array, quantile_keep_pca,
+    )
     logger.debug(f'[profile] ensemble + centering: {time.perf_counter() - _t0:.3f}s')
 
     # Optional variance inflation -----------------------------------------------------------------
@@ -668,13 +680,27 @@ def mA_compute_maha(
         emA_vars (numpy.ndarray): Variance values associated with predictions.
         emA_likes (numpy.ndarray): Likelihood values associated with predictions.
         n_latent (int): Number of dimensions to extract from dimensional reduction.
+        inflate_vars_kwargs (dict): kwargs for compute_mahalanobis (e.g. 'likelihood_threshold',
+            'v_quantile_threshold', 'max_iters_fa'), plus the following key that is consumed here:
+            'max_iters_inflate_vars' (int | None): maximum number of inflation passes per keypoint
+            (default 10). Each pass multiplies flagged variances by `scalar`, so the cumulative
+            inflation is bounded by scalar ** max_iters_inflate_vars. None disables the cap.
         threshold (float, optional): Mahalanobis distance threshold for inflation.
         scalar (float, optional): Factor by which to inflate variance.
 
     Returns:
-        list: A list of tuples, each being (maha_results, inflated_ens_vars) for a keypoint.
+        MarkerArray: inflated variances with the same shape as `emA_vars`.
+
+    Raises:
+        ValueError: if 'max_iters_inflate_vars' is not a positive integer or None.
     """
     _, n_cameras, _, n_keypoints, _ = centered_emA_preds.shape
+
+    max_iters = inflate_vars_kwargs.get('max_iters_inflate_vars', DEFAULT_MAX_ITERS_INFLATE_VARS)
+    if max_iters is not None and (not isinstance(max_iters, int) or max_iters < 1):
+        raise ValueError(
+            f'max_iters_inflate_vars must be a positive integer or None, got {max_iters!r}'
+        )
 
     emA_inflated_vars_list = []
     for k in range(n_keypoints):
@@ -688,22 +714,27 @@ def mA_compute_maha(
             inflate_vars_kwargs['likelihood_threshold'] = 0.9
         if 'v_quantile_threshold' not in inflate_vars_kwargs:
             inflate_vars_kwargs['v_quantile_threshold'] = 50.0
+        # kwargs forwarded to compute_mahalanobis (max_iters_inflate_vars is consumed here)
+        maha_kwargs = {
+            key: val for key, val in inflate_vars_kwargs.items()
+            if key != 'max_iters_inflate_vars'
+        }
         inflated = True
         tmp_vars = vars
         inflated_ens_vars_k = tmp_vars
         logger.info(f'inflating keypoint: {k}')
         idx_pass = 0
         t_keypoint = time.perf_counter()
-        while inflated:
+        while inflated and (max_iters is None or idx_pass < max_iters):
             t_pass = time.perf_counter()
             # Compute Mahalanobis distances
-            if inflate_vars_kwargs.get("likelihoods", None) is None:
+            if maha_kwargs.get("likelihoods", None) is None:
                 maha_results = compute_mahalanobis(
-                    preds, tmp_vars, n_latent=n_latent, **inflate_vars_kwargs,
+                    preds, tmp_vars, n_latent=n_latent, **maha_kwargs,
                 )
             else:
                 maha_results = compute_mahalanobis(
-                    preds, tmp_vars, n_latent=n_latent, likelihoods=likes, **inflate_vars_kwargs,
+                    preds, tmp_vars, n_latent=n_latent, likelihoods=likes, **maha_kwargs,
                 )
             # Inflate variances based on Mahalanobis distances
             inflated_ens_vars_k, inflated = inflate_variance(
@@ -717,6 +748,12 @@ def mA_compute_maha(
                 f'{time.perf_counter() - t_pass:.2f}s'
             )
             tmp_vars = inflated_ens_vars_k
+        if inflated:
+            logger.warning(
+                f'variance inflation for keypoint {k} stopped at max_iters_inflate_vars='
+                f'{max_iters} with {n_changed}/{vars.shape[0]} frames still being inflated; '
+                f'cumulative inflation is capped at {scalar ** max_iters:.3g}x'
+            )
         n_frames_ever = int(np.any(inflated_ens_vars_k != vars, axis=1).sum())
         logger.debug(
             f'[maha] keypoint {k} done: {idx_pass} passes, '

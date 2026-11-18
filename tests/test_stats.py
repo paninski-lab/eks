@@ -3,7 +3,8 @@ from unittest.mock import patch
 
 import numpy as np
 import pytest
-from sklearn.decomposition import PCA
+from sklearn.decomposition import PCA, FactorAnalysis
+from sklearn.exceptions import ConvergenceWarning
 
 from eks.marker_array import MarkerArray
 from eks.stats import (
@@ -207,6 +208,23 @@ class TestFitFactorAnalysis:
         # the column spaces should coincide: projecting W_true onto span(W) is lossless
         proj = W @ np.linalg.pinv(W) @ W_true
         assert np.allclose(proj, W_true, atol=0.1)
+
+    def test_fit_factor_analysis_max_iters_is_forwarded(self):
+        x, _, _, _, _ = _make_inputs(n=60)
+        with patch('eks.stats.FactorAnalysis', wraps=FactorAnalysis) as mock_fa:
+            _fit_factor_analysis(x, n_latent=2, max_iters=123)
+        assert mock_fa.call_args.kwargs['max_iter'] == 123
+
+    def test_fit_factor_analysis_default_max_iters_is_500(self):
+        x, _, _, _, _ = _make_inputs(n=60)
+        with patch('eks.stats.FactorAnalysis', wraps=FactorAnalysis) as mock_fa:
+            _fit_factor_analysis(x, n_latent=2)
+        assert mock_fa.call_args.kwargs['max_iter'] == 500
+
+    def test_fit_factor_analysis_warns_when_iteration_cap_is_hit(self):
+        x, _, _, _, _ = _make_inputs(n=60)
+        with pytest.warns(ConvergenceWarning):
+            _fit_factor_analysis(x, n_latent=2, max_iters=1)
 
     def test_fit_factor_analysis_deterministic(self):
         x, _, _, _, _ = _make_inputs(n=60)
@@ -514,9 +532,17 @@ class TestComputeMahalanobis:
         W, mu = _fit_factor_analysis(x[expected_rows], 2)
         with patch('eks.stats._fit_factor_analysis', return_value=(W, mu)) as mock_fit:
             compute_mahalanobis(x, v, n_latent=2, v_quantile_threshold=50.0)
-        fit_x, fit_n_latent = mock_fit.call_args.args
+        fit_x, fit_n_latent, fit_max_iters = mock_fit.call_args.args
         assert np.array_equal(fit_x, x[expected_rows])
         assert fit_n_latent == 2
+        assert fit_max_iters == 500  # default
+
+    def test_compute_mahalanobis_forwards_max_iters_fa(self):
+        x, v, _, _, _ = _make_inputs(n=40)
+        W, mu = _fit_factor_analysis(x, 2)
+        with patch('eks.stats._fit_factor_analysis', return_value=(W, mu)) as mock_fit:
+            compute_mahalanobis(x, v, n_latent=2, v_quantile_threshold=None, max_iters_fa=7)
+        assert mock_fit.call_args.args[2] == 7
 
     def test_compute_mahalanobis_matches_reference_with_fixed_parameters(self):
         # end-to-end check against naive per-frame implementations

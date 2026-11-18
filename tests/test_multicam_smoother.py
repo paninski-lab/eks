@@ -11,6 +11,7 @@ from sklearn.decomposition import PCA
 from eks.marker_array import MarkerArray
 from eks.multicam_smoother import (
     ensemble_kalman_smoother_multicam,
+    fit_eks_multicam,
     inflate_variance,
     mA_compute_maha,
     make_jax_projection_fn,
@@ -20,6 +21,7 @@ from eks.multicam_smoother import (
     rodrigues,
     triangulate_3d_models,
 )
+from eks.stats import compute_mahalanobis
 from eks.utils import center_predictions
 
 
@@ -324,6 +326,58 @@ def _make_maha_marker_arrays(n_frames=120, n_cams=4, n_keypoints=2, n_latent=2, 
     )
 
 
+class TestFitEksMulticamInflateVarsKwargs:
+    """Test the inflate_vars_kwargs argument of fit_eks_multicam."""
+
+    def _run(self, pytestconfig, tmp_path, **kwargs):
+        input_dir = str(pytestconfig.rootpath / 'data' / 'mirror-mouse-separate')
+        with patch(
+            'eks.multicam_smoother.ensemble_kalman_smoother_multicam',
+            wraps=ensemble_kalman_smoother_multicam,
+        ) as mock_eks:
+            fit_eks_multicam(
+                input_source=input_dir,
+                save_dir=str(tmp_path),
+                bodypart_list=['paw1LH'],
+                camera_names=['top', 'bot'],
+                smooth_param=[10.0],
+                quantile_keep_pca=95,
+                **kwargs,
+            )
+        return mock_eks
+
+    def test_fit_eks_multicam_inflate_vars_kwargs_default_is_empty(self, pytestconfig, tmp_path):
+        mock_eks = self._run(pytestconfig, tmp_path)
+        assert mock_eks.call_args.kwargs['inflate_vars_kwargs'] == {}
+
+    def test_fit_eks_multicam_forwards_inflate_vars_kwargs(self, pytestconfig, tmp_path):
+        kwargs = {'max_iters_inflate_vars': 2, 'max_iters_fa': 50}
+        mock_eks = self._run(
+            pytestconfig, tmp_path, inflate_vars=True, inflate_vars_kwargs=kwargs,
+        )
+        forwarded = mock_eks.call_args.kwargs['inflate_vars_kwargs']
+        assert forwarded['max_iters_inflate_vars'] == 2
+        assert forwarded['max_iters_fa'] == 50
+
+    def test_fit_eks_multicam_does_not_modify_caller_inflate_vars_kwargs(
+        self, pytestconfig, tmp_path,
+    ):
+        kwargs = {'max_iters_inflate_vars': 2}
+        self._run(pytestconfig, tmp_path, inflate_vars=True, inflate_vars_kwargs=kwargs)
+        assert kwargs == {'max_iters_inflate_vars': 2}  # defaults were added to a copy
+
+    def test_fit_eks_multicam_max_iters_inflate_vars_takes_effect(self, pytestconfig, tmp_path):
+        with patch(
+            'eks.multicam_smoother.compute_mahalanobis',
+            wraps=compute_mahalanobis,
+        ) as mock_maha:
+            self._run(
+                pytestconfig, tmp_path, inflate_vars=True,
+                inflate_vars_kwargs={'max_iters_inflate_vars': 1},
+            )
+        assert mock_maha.call_count == 1  # one keypoint, capped at one pass
+
+
 class TestMAComputeMaha:
     """Test the function mA_compute_maha."""
 
@@ -444,6 +498,97 @@ class TestMAComputeMaha:
             )
         assert mock_maha.call_args.kwargs['likelihood_threshold'] == 0.5
         assert mock_maha.call_args.kwargs['v_quantile_threshold'] == 75.0
+
+    def test_mA_compute_maha_default_max_iters_inflate_vars_is_10(self):
+        preds, variances, likes = _make_maha_marker_arrays(n_keypoints=1)
+        far = {'mahalanobis': {c: np.full((120, 1), 100.0) for c in range(4)}}
+        with patch('eks.multicam_smoother.compute_mahalanobis', return_value=far) as mock_maha:
+            out = mA_compute_maha(
+                preds, variances, likes, n_latent=2, inflate_vars_kwargs={}, scalar=2.0,
+            )
+        assert mock_maha.call_count == 10
+        assert np.allclose(out.get_array(), 2.0 ** 10 * variances.get_array())
+
+    def test_mA_compute_maha_max_iters_inflate_vars_caps_passes_per_keypoint(self):
+        preds, variances, likes = _make_maha_marker_arrays(n_keypoints=2)
+        far = {'mahalanobis': {c: np.full((120, 1), 100.0) for c in range(4)}}
+        with patch('eks.multicam_smoother.compute_mahalanobis', return_value=far) as mock_maha:
+            out = mA_compute_maha(
+                preds, variances, likes, n_latent=2,
+                inflate_vars_kwargs={'max_iters_inflate_vars': 3}, scalar=10.0,
+            )
+        assert mock_maha.call_count == 6  # 3 passes x 2 keypoints
+        assert np.allclose(out.get_array(), 1000.0 * variances.get_array())
+
+    def test_mA_compute_maha_max_iters_inflate_vars_one_pass(self):
+        preds, variances, likes = _make_maha_marker_arrays(n_keypoints=1)
+        far = {'mahalanobis': {c: np.full((120, 1), 100.0) for c in range(4)}}
+        with patch('eks.multicam_smoother.compute_mahalanobis', return_value=far) as mock_maha:
+            out = mA_compute_maha(
+                preds, variances, likes, n_latent=2,
+                inflate_vars_kwargs={'max_iters_inflate_vars': 1}, scalar=10.0,
+            )
+        assert mock_maha.call_count == 1
+        assert np.allclose(out.get_array(), 10.0 * variances.get_array())
+
+    def test_mA_compute_maha_max_iters_inflate_vars_not_hit_when_converged(self, caplog):
+        preds, variances, likes = _make_maha_marker_arrays(n_keypoints=1)
+        far = {'mahalanobis': {c: np.full((120, 1), 100.0) for c in range(4)}}
+        near = {'mahalanobis': {c: np.zeros((120, 1)) for c in range(4)}}
+        with patch('eks.multicam_smoother.compute_mahalanobis', side_effect=[far, near]):
+            with caplog.at_level('WARNING', logger='eks.multicam_smoother'):
+                mA_compute_maha(
+                    preds, variances, likes, n_latent=2,
+                    inflate_vars_kwargs={'max_iters_inflate_vars': 2},
+                )
+        assert not [r for r in caplog.records if r.levelname == 'WARNING']
+
+    def test_mA_compute_maha_warns_when_max_iters_inflate_vars_is_hit(self, caplog):
+        preds, variances, likes = _make_maha_marker_arrays(n_keypoints=1)
+        far = {'mahalanobis': {c: np.full((120, 1), 100.0) for c in range(4)}}
+        with patch('eks.multicam_smoother.compute_mahalanobis', return_value=far):
+            with caplog.at_level('WARNING', logger='eks.multicam_smoother'):
+                mA_compute_maha(
+                    preds, variances, likes, n_latent=2,
+                    inflate_vars_kwargs={'max_iters_inflate_vars': 2},
+                )
+        warnings_logged = [r.getMessage() for r in caplog.records if r.levelname == 'WARNING']
+        assert len(warnings_logged) == 1
+        assert 'max_iters_inflate_vars=2' in warnings_logged[0]
+
+    def test_mA_compute_maha_max_iters_inflate_vars_none_disables_cap(self):
+        preds, variances, likes = _make_maha_marker_arrays(n_keypoints=1)
+        far = {'mahalanobis': {c: np.full((120, 1), 100.0) for c in range(4)}}
+        near = {'mahalanobis': {c: np.zeros((120, 1)) for c in range(4)}}
+        with patch(
+            'eks.multicam_smoother.compute_mahalanobis', side_effect=[far] * 15 + [near],
+        ) as mock_maha:
+            out = mA_compute_maha(
+                preds, variances, likes, n_latent=2,
+                inflate_vars_kwargs={'max_iters_inflate_vars': None}, scalar=2.0,
+            )
+        assert mock_maha.call_count == 16
+        assert np.allclose(out.get_array(), 2.0 ** 15 * variances.get_array())
+
+    @pytest.mark.parametrize('bad_value', [0, -1, 2.5, 'ten'])
+    def test_mA_compute_maha_invalid_max_iters_inflate_vars_raises(self, bad_value):
+        preds, variances, likes = _make_maha_marker_arrays(n_keypoints=1)
+        with pytest.raises(ValueError, match='max_iters_inflate_vars'):
+            mA_compute_maha(
+                preds, variances, likes, n_latent=2,
+                inflate_vars_kwargs={'max_iters_inflate_vars': bad_value},
+            )
+
+    def test_mA_compute_maha_does_not_forward_max_iters_inflate_vars(self):
+        preds, variances, likes = _make_maha_marker_arrays(n_keypoints=1)
+        near = {'mahalanobis': {c: np.zeros((120, 1)) for c in range(4)}}
+        with patch('eks.multicam_smoother.compute_mahalanobis', return_value=near) as mock_maha:
+            mA_compute_maha(
+                preds, variances, likes, n_latent=2,
+                inflate_vars_kwargs={'max_iters_inflate_vars': 4, 'max_iters_fa': 50},
+            )
+        assert 'max_iters_inflate_vars' not in mock_maha.call_args.kwargs
+        assert mock_maha.call_args.kwargs['max_iters_fa'] == 50
 
     def test_mA_compute_maha_does_not_modify_input_marker_arrays(self):
         preds, variances, likes = _make_maha_marker_arrays()
