@@ -19,59 +19,66 @@ from eks.stats import (
 )
 
 
-def test_compute_pca_basic():
-    """Test compute_pca with a simple valid input without a precomputed PCA matrix."""
-    n_frames, n_keypoints, n_cameras = 10, 5, 2
+class TestComputePca:
+    """Test the function compute_pca."""
 
-    # Create a valid frames mask with True values (all frames are valid for all keypoints)
-    valid_frames_mask = np.ones((n_frames, n_keypoints), dtype=bool)
+    def test_compute_pca_basic(self):
+        """Test compute_pca with a simple valid input without a precomputed PCA matrix."""
+        n_frames, n_keypoints, n_cameras = 10, 5, 2
 
-    # Create synthetic MarkerArray data
-    emA_centered_preds = MarkerArray(np.random.randn(1, n_cameras, n_frames, n_keypoints, 2))
-    emA_good_centered_preds = MarkerArray(np.random.randn(1, n_cameras, n_frames, n_keypoints, 2))
+        # Create a valid frames mask with True values (all frames are valid for all keypoints)
+        valid_frames_mask = np.ones((n_frames, n_keypoints), dtype=bool)
 
-    # Run PCA computation
-    ensemble_pca, good_pcs_list = compute_pca(
-        valid_frames_mask, emA_centered_preds, emA_good_centered_preds)
+        # Create synthetic MarkerArray data
+        emA_centered_preds = MarkerArray(np.random.randn(1, n_cameras, n_frames, n_keypoints, 2))
+        emA_good_centered_preds = MarkerArray(
+            np.random.randn(1, n_cameras, n_frames, n_keypoints, 2),
+        )
 
-    # Assertions
-    assert isinstance(ensemble_pca, list)
-    assert isinstance(good_pcs_list, list)
-    assert len(ensemble_pca) == n_keypoints
-    assert len(good_pcs_list) == n_keypoints
-    assert all(isinstance(pca, PCA) for pca in ensemble_pca)
+        # Run PCA computation
+        ensemble_pca, good_pcs_list = compute_pca(
+            valid_frames_mask, emA_centered_preds, emA_good_centered_preds)
 
+        # Assertions
+        assert isinstance(ensemble_pca, list)
+        assert isinstance(good_pcs_list, list)
+        assert len(ensemble_pca) == n_keypoints
+        assert len(good_pcs_list) == n_keypoints
+        assert all(isinstance(pca, PCA) for pca in ensemble_pca)
 
-def test_compute_pca_with_precomputed_pca():
-    """Test compute_pca with a precomputed PCA matrix."""
-    n_frames, n_keypoints, n_cameras = 10, 5, 2
+    def test_compute_pca_with_precomputed_pca(self):
+        """Test compute_pca with a precomputed PCA matrix."""
+        n_frames, n_keypoints, n_cameras = 10, 5, 2
 
-    # Create a valid frames mask
-    valid_frames_mask = np.ones((n_frames, n_keypoints), dtype=bool)
+        # Create a valid frames mask
+        valid_frames_mask = np.ones((n_frames, n_keypoints), dtype=bool)
 
-    # Create synthetic MarkerArray data
-    emA_centered_preds = MarkerArray(np.random.randn(1, n_cameras, n_frames, n_keypoints, 2))
-    emA_good_centered_preds = MarkerArray(np.random.randn(1, n_cameras, n_frames, n_keypoints, 2))
+        # Create synthetic MarkerArray data
+        emA_centered_preds = MarkerArray(np.random.randn(1, n_cameras, n_frames, n_keypoints, 2))
+        emA_good_centered_preds = MarkerArray(
+            np.random.randn(1, n_cameras, n_frames, n_keypoints, 2),
+        )
 
-    # Fit a PCA model for testing
-    sample_data = np.random.randn(n_frames, n_cameras * 2)
-    precompute_pca = PCA(n_components=3).fit(sample_data)
+        # Fit a PCA model for testing
+        sample_data = np.random.randn(n_frames, n_cameras * 2)
+        precompute_pca = PCA(n_components=3).fit(sample_data)
 
-    # Run PCA computation with precomputed PCA
-    ensemble_pca, good_pcs_list = compute_pca(
-        valid_frames_mask, emA_centered_preds, emA_good_centered_preds, pca_object=precompute_pca,
-    )
+        # Run PCA computation with precomputed PCA
+        ensemble_pca, good_pcs_list = compute_pca(
+            valid_frames_mask, emA_centered_preds, emA_good_centered_preds,
+            pca_object=precompute_pca,
+        )
 
-    # Assertions
-    assert isinstance(ensemble_pca, list)
-    assert isinstance(good_pcs_list, list)
-    assert len(ensemble_pca) == n_keypoints
-    assert len(good_pcs_list) == n_keypoints
-    assert all(isinstance(pca, PCA) for pca in ensemble_pca)
-    assert all(
-        np.array_equal(pca.components_, precompute_pca.components_)  # type: ignore[arg-type]
-        for pca in ensemble_pca
-    )
+        # Assertions
+        assert isinstance(ensemble_pca, list)
+        assert isinstance(good_pcs_list, list)
+        assert len(ensemble_pca) == n_keypoints
+        assert len(good_pcs_list) == n_keypoints
+        assert all(isinstance(pca, PCA) for pca in ensemble_pca)
+        assert all(
+            np.array_equal(pca.components_, precompute_pca.components_)  # type: ignore[arg-type]
+            for pca in ensemble_pca
+        )
 
 
 # ---------------------------------------------------------------------------------------------
